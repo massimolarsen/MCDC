@@ -57,7 +57,7 @@ mcdc.TallyGlobal(
 
 # Settings
 mcdc.settings.N_particle = 100
-mcdc.settings.set_eigenmode(N_inactive=10, N_active=50)
+mcdc.settings.set_eigenmode(N_inactive=10, N_active=10)
 
 # Run
 mcdc.run()
