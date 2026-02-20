@@ -1,5 +1,6 @@
 import numpy as np
 import mcdc
+from mcdc.object_.tools.visualize_geometry import visualize_simulation
 
 # =============================================================================
 # Set model
@@ -7,6 +8,7 @@ import mcdc
 
 # Set materials
 fuel = mcdc.Material(
+    name="Fuel",
     nuclide_composition={
         "U235": 0.0005581658948833916,
         "U238": 0.022404594715383263,
@@ -15,6 +17,7 @@ fuel = mcdc.Material(
 )
 
 water = mcdc.Material(
+    name="Water",
     nuclide_composition={
         "B10": 0.0001357003217727274,
         "H1": 0.0684556951587359,
@@ -58,6 +61,14 @@ mcdc.TallyGlobal(
 # Settings
 mcdc.settings.N_particle = 100
 mcdc.settings.set_eigenmode(N_inactive=10, N_active=10)
+
+sim = mcdc.object_.simulation.simulation
+print("Cells and their surfaces:")
+for cell in sim.cells:
+    s_info = [(s.ID, getattr(s, 'type', None)) for s in cell.surfaces]
+    print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
+# Visualize the geometry (samples points inside inferred bounding box)
+visualize_simulation(sim, alpha=0.2, interactive=True)  # resolution ignored
 
 # Run
 mcdc.run()

@@ -1,15 +1,18 @@
 import numpy as np
 import mcdc
 import numpy as np
-from mcdc.tools.visualize_geometry import visualize_simulation
+#from mcdc.tools.visualize_geometry import visualize_simulation
+from mcdc.object_.tools.visualize_geometry import visualize_simulation
 
 silicon = mcdc.Material(
+    name="Silicon",
     nuclide_composition={
         "Si28": 1.0,
     }
 )
 
 vacuum = mcdc.Material(
+    name="Vacuum",
     nuclide_composition={
         "H1": 1.0,
     }
@@ -46,7 +49,7 @@ mcdc.Cell(region=-cyl & +z_back & -z_front, fill=silicon)
 #mcdc.Cell(region=+z_min2 & -z_max2 & +x_min2 & -x_max2 & +y_min2 & -y_max2, fill=vacuum)
 
 # Vacuum outside the cylinder within the central slab
-mcdc.Cell(region=+cyl & +z_back & -z_front & +x_min & -x_max & +y_min & -y_max & +z_min & -z_max, fill=vacuum)
+#mcdc.Cell(region=+cyl & +z_back & -z_front & +x_min & -x_max & +y_min & -y_max & +z_min & -z_max, fill=vacuum)
 
 # Vacuum above and below the central slab (to enclose domain)
 #mcdc.Cell(region=+z_min & -z_back & +x_min & -x_max & +y_min & -y_max, fill=vacuum)
@@ -80,15 +83,14 @@ mcdc.TallySurface(
 # Settings
 mcdc.settings.N_particle = 1000
 
-if __name__ == "__main__":
-    sim = mcdc.object_.simulation.simulation
-    print("Cells and their surfaces:")
-    for cell in sim.cells:
-        s_info = [(s.ID, getattr(s, 'type', None)) for s in cell.surfaces]
-        print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
+sim = mcdc.object_.simulation.simulation
+print("Cells and their surfaces:")
+for cell in sim.cells:
+    s_info = [(s.ID, getattr(s, 'type', None)) for s in cell.surfaces]
+    print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
 
-    # Visualize the geometry (samples points inside inferred bounding box)
-    visualize_simulation(sim, resolution=20, alpha=0.4, interactive=True)
+# Visualize the geometry (samples points inside inferred bounding box)
+visualize_simulation(sim, alpha=0.4, interactive=True) 
 
     # Run
     # mcdc.run()   

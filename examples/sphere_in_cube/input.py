@@ -1,5 +1,6 @@
 import numpy as np
 import mcdc
+from mcdc.object_.tools.visualize_geometry import visualize_simulation
 
 # ======================================================================================
 # Set model
@@ -7,8 +8,8 @@ import mcdc
 # Homogeneous pure-fission sphere inside a pure-scattering cube
 
 # Set materials
-pure_f = mcdc.MaterialMG(fission=np.array([1.0]), nu_p=np.array([1.2]))
-pure_s = mcdc.MaterialMG(scatter=np.array([[1.0]]))
+pure_f = mcdc.MaterialMG(name="Fission", fission=np.array([1.0]), nu_p=np.array([1.2]))
+pure_s = mcdc.MaterialMG(name="Scatter", scatter=np.array([[1.0]]))
 
 # Set surfaces
 sx1 = mcdc.Surface.PlaneX(x=0.0, boundary_condition="vacuum")
@@ -51,6 +52,15 @@ mcdc.settings.N_batch = 2
 
 # Techniques
 mcdc.simulation.implicit_capture()
+
+sim = mcdc.object_.simulation.simulation
+print("Cells and their surfaces:")
+for cell in sim.cells:
+    s_info = [(s.ID, getattr(s, 'type', None)) for s in cell.surfaces]
+    print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
+
+# Visualize the geometry (samples points inside inferred bounding box)
+visualize_simulation(sim, alpha=0.2, interactive=True)  # resolution ignored
 
 # Run
 mcdc.run()

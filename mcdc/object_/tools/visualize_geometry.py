@@ -2,7 +2,7 @@
 3D Geometry visualizer for MCDC simulations.
 
 Renders geometry stored in mcdc.simulation using analytic primitives (cylinders,
-spheres, boxes) when detected; falls back to voxelized sampling otherwise.
+spheres, boxes) when detected
 """
 
 import numpy as np
@@ -11,9 +11,6 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.lines import Line2D
 
 from mcdc.constant import (
-    BOOL_AND,
-    BOOL_OR,
-    BOOL_NOT,
     SURFACE_CYLINDER_Z,
     SURFACE_CYLINDER_X,
     SURFACE_CYLINDER_Y,
@@ -22,25 +19,6 @@ from mcdc.constant import (
     SURFACE_PLANE_Y,
     SURFACE_PLANE_Z,
 )
-
-
-def _surface_value(surface, x, y, z):
-    """Evaluate implicit quadric surface function at point(s).
-    
-    Computes: A*x^2 + B*y^2 + C*z^2 + D*xy + E*yz + F*zx + G*x + H*y + I*z + J
-    """
-    return (
-        surface.A * x * x
-        + surface.B * y * y
-        + surface.C * z * z
-        + surface.D * x * y
-        + surface.E * y * z
-        + surface.F * z * x
-        + surface.G * x
-        + surface.H * y
-        + surface.I * z
-        + surface.J
-    )
 
 
 def _infer_bounds(simulation):
@@ -63,21 +41,6 @@ def _infer_bounds(simulation):
     zmin, zmax = (min(zs), max(zs)) if zs else (-1.0, 1.0)
     
     return (xmin, xmax), (ymin, ymax), (zmin, zmax)
-
-
-def _build_color_map(materials, alpha=0.6):
-    """Build material -> RGBA color map with alpha control.
-    
-    Vacuum/void materials are rendered extra-transparent.
-    """
-    cmap = plt.get_cmap("tab10")
-    color_map = {}
-    for i, mat_name in enumerate(materials):
-        base_color = cmap(i % 10)
-        is_vacuum = "vac" in str(mat_name).lower() or "void" in str(mat_name).lower()
-        final_alpha = min(alpha, 0.15) if is_vacuum else alpha
-        color_map[mat_name] = (base_color[0], base_color[1], base_color[2], final_alpha)
-    return color_map
 
 
 def _set_axes_equal(ax):
@@ -110,47 +73,9 @@ def _draw_legend(ax, color_map):
         labels.append(mat_name)
     ax.legend(handles, labels, title="Materials", loc="upper right")
 
-
-def _evaluate_region(tokens, surf_bool_at_idx):
-    """Evaluate a CSG region using RPN tokens at a single point.
-    
-    Parameters
-    ----------
-    tokens : list[int]
-        Reversed Polish Notation tokens (surface IDs >=0, operators <0)
-    surf_bool_at_idx : dict[int, bool]
-        Surface ID -> containment boolean
-        
-    Returns
-    -------
-    bool
-        True if point is inside the region
-    """
-    stack = []
-    for token in tokens:
-        if token >= 0:
-            stack.append(bool(surf_bool_at_idx.get(token, False)))
-        else:
-            if token == BOOL_AND:
-                b = stack.pop()
-                a = stack.pop()
-                stack.append(a and b)
-            elif token == BOOL_OR:
-                b = stack.pop()
-                a = stack.pop()
-                stack.append(a or b)
-            elif token == BOOL_NOT:
-                a = stack.pop()
-                stack.append(not a)
-            else:
-                raise ValueError(f"Unknown RPN token: {token}")
-    return stack[-1] if len(stack) > 0 else False
-
-
 def visualize_simulation(
     simulation,
     bounds=None,
-    resolution=50,
     figsize=(10, 8),
     alpha=0.6,
     interactive=True,
@@ -165,12 +90,12 @@ def visualize_simulation(
     bounds : dict, optional
         {'x': (xmin, xmax), 'y': (ymin, ymax), 'z': (zmin, zmax)}
         If None, inferred from simulation surfaces
-    resolution : int, default 50
-        Grid points per axis for voxelized fallback
     figsize : tuple, default (10, 8)
         Figure size (width, height) in inches
     alpha : float, default 0.6
-        Transparency level for opaque materials (0-1)
+        Transparency level for opaque materials (0-1).  Materials whose name
+        contains ``vacuum`` or ``void`` are made more transparent (capped at
+        0.15) automatically.
     interactive : bool, default True
         If True, display plot interactively. If False, requires save_path.
     save_path : str, optional
@@ -187,12 +112,6 @@ def visualize_simulation(
     # Use non-interactive backend if not interactive and no display available
     if not interactive and save_path is not None:
         plt.switch_backend('Agg')
-    # Collect surface ids used by cells
-    used_surface_ids = set()
-    for cell in simulation.cells:
-        used_surface_ids.update([t for t in cell.region_RPN_tokens if t >= 0])
-
-    surfaces = {s.ID: s for s in simulation.surfaces}
 
     # Infer bounds if not provided
     if bounds is None:
@@ -202,80 +121,20 @@ def visualize_simulation(
         ymin, ymax = bounds.get("y", (-1.0, 1.0))
         zmin, zmax = bounds.get("z", (-1.0, 1.0))
 
-    # Sample grid
-    nx = ny = nz = int(max(4, resolution))
-    xs = np.linspace(xmin, xmax, nx)
-    ys = np.linspace(ymin, ymax, ny)
-    zs = np.linspace(zmin, zmax, nz)
-    X, Y, Z = np.meshgrid(xs, ys, zs, indexing="xy")
-    pts_x = X.ravel()
-    pts_y = Y.ravel()
-    pts_z = Z.ravel()
-    N = pts_x.size
+    # Determine unique materials from cells
+    unique_materials = []
+    for cell in simulation.cells:
+        fill = cell.fill
+        name = getattr(fill, "name", str(fill))
+        unique_materials.append(name)
+    unique_materials = np.unique(unique_materials)
 
-    # Precompute surface booleans for used surfaces
-    surface_bool = {}
-    for sid in used_surface_ids:
-        s = surfaces.get(sid)
-        if s is None:
-            surface_bool[sid] = np.zeros(N, dtype=bool)
-            continue
-        vals = _surface_value(s, pts_x, pts_y, pts_z)
-        # half-space is outward side where implicit value >= 0
-        surface_bool[sid] = vals >= -1e-12
-
-    # For each point, find first matching cell (order of simulation.cells)
-    material_labels = np.array(["None"] * N, dtype=object)
-    material_ids = np.array([-1] * N, dtype=int)
-    for cid, cell in enumerate(simulation.cells):
-        tokens = cell.region_RPN_tokens
-        # Evaluate cell for each point (single-thread loop)
-        for i in range(N):
-            if material_ids[i] != -1:
-                continue
-            # build per-point surf bool view
-            surf_bool_at_idx = {sid: bool(surface_bool[sid][i]) for sid in used_surface_ids}
-            inside = _evaluate_region(tokens, surf_bool_at_idx)
-            if inside:
-                fill = cell.fill
-                name = getattr(fill, "name", str(fill))
-                material_labels[i] = name
-                material_ids[i] = cid
-
-    # Prepare plotting: only plot points assigned to some material (exclude 'None')
-    mask = material_ids != -1
-    if mask.sum() == 0:
-        print("No geometry found in sampled region.")
-        return
-
-    unique_materials = np.unique(material_labels[mask])
-    # assign colors (with alpha control). Make vacuum more transparent.
+    # assign base RGB colors per material
     cmap = plt.get_cmap("tab10")
     color_map = {}
     for i, m in enumerate(unique_materials):
         base = cmap(i % 10)
-        # base is RGBA; apply requested alpha but keep vacuum extra translucent
-        label_low = str(m).lower()
-        if "vac" in label_low or "void" in label_low:
-            final_alpha = min(alpha, 0.15)
-        else:
-            final_alpha = alpha
-        color_map[m] = (base[0], base[1], base[2], final_alpha)
-    colors = np.array([color_map.get(lbl, (0.5, 0.5, 0.5, 1.0)) for lbl in material_labels[mask]])
-
-    # Reshape flattened arrays into grid ordering (meshgrid with indexing='xy'
-    # yields shape (ny, nx, nz)).
-    labels_grid = material_labels.reshape((ny, nx, nz))
-    ids_grid = material_ids.reshape((ny, nx, nz))
-
-    # Build facecolors array for voxels (shape: ny, nx, nz, 4)
-    facecolors = np.zeros((ny, nx, nz, 4), dtype=float)
-    filled = ids_grid != -1
-    for m_label, col in color_map.items():
-        # boolean mask where this material is present
-        mat_mask = labels_grid == m_label
-        if mat_mask.any():
-            facecolors[mat_mask] = col
+        color_map[m] = (base[0], base[1], base[2])
 
     # Create figure
     fig = plt.figure(figsize=figsize)
@@ -286,7 +145,15 @@ def visualize_simulation(
     for cid, cell in enumerate(simulation.cells):
         fill = cell.fill
         mat_name = getattr(fill, "name", str(fill))
-        col = color_map.get(mat_name, (0.5, 0.5, 0.5, alpha))
+        # choose color; if not known fall back to gray
+        col_rgb = color_map.get(mat_name, (0.5, 0.5, 0.5))
+        # determine alpha, with vacuum/void squeezed down
+        label_low = str(mat_name).lower()
+        if "vacuum" in label_low or "void" in label_low:
+            use_alpha = min(alpha, 0.15)
+        else:
+            use_alpha = alpha
+        col = (*col_rgb, use_alpha)
 
         # Find surfaces by type
         cyl_z = None
@@ -421,28 +288,31 @@ def visualize_simulation(
         except Exception:
             pass
 
-    if rendered_any:
-        # Legend and axes
-        _draw_legend(ax, color_map)
-        ax.set_xlabel("x (cm)")
-        ax.set_ylabel("y (cm)")
-        ax.set_zlabel("z (cm)")
-        ax.set_title("Geometry preview")
-        try:
-            _set_axes_equal(ax)
-        except Exception:
-            pass
-        if save_path is not None:
-            fig.savefig(save_path, dpi=150, bbox_inches="tight")
-            plt.close(fig)
-        else:
-            if interactive:
-                try:
-                    plt.show()
-                except Exception as e:
-                    print(f"Warning: Could not display plot interactively: {e}")
-                    print("To save the plot to file instead, use: visualize_simulation(..., save_path='output.png')")
-                    plt.close(fig)
-            else:
-                plt.close(fig)
+    if not rendered_any:
+        print("No analytic geometry could be rendered (unsupported shapes or empty simulation).")
         return
+
+    # Legend and axes
+    _draw_legend(ax, color_map)
+    ax.set_xlabel("x (cm)")
+    ax.set_ylabel("y (cm)")
+    ax.set_zlabel("z (cm)")
+    ax.set_title("Geometry preview")
+    try:
+        _set_axes_equal(ax)
+    except Exception:
+        pass
+    if save_path is not None:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+    else:
+        if interactive:
+            try:
+                plt.show()
+            except Exception as e:
+                print(f"Warning: Could not display plot interactively: {e}")
+                print("To save the plot to file instead, use: visualize_simulation(..., save_path='output.png')")
+                plt.close(fig)
+        else:
+            plt.close(fig)
+    return

@@ -1,17 +1,18 @@
 import numpy as np
 import mcdc
-from mcdc.tools.visualize_geometry import visualize_simulation
+#from mcdc.tools.visualize_geometry import visualize_simulation
+from mcdc.object_.tools.visualize_geometry import visualize_simulation
 
 # =============================================================================
 # Materials (Continuous-Energy)
 # =============================================================================
 # Defined by nuclide composition for continuous-energy lookup
-#silicon  = mcdc.Material(nuclide_composition={"Si28": 1.0})
-#aluminum = mcdc.Material(nuclide_composition={"Al27": 1.0})
-silicon  = mcdc.Material(nuclide_composition={"H1": 1.0})
-aluminum = mcdc.Material(nuclide_composition={"H1": 1.0})
+#silicon  = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 1.0})
+#aluminum = mcdc.Material(name="Aluminum", nuclide_composition={"Al27": 1.0})
+silicon  = mcdc.Material(name="Silicon", nuclide_composition={"H1": 1.0})
+aluminum = mcdc.Material(name="Aluminum", nuclide_composition={"H1": 1.0})
 # Vacuum modeled as low-density Hydrogen as per original input logic
-vacuum   = mcdc.Material(nuclide_composition={"H1": 1.0})
+vacuum   = mcdc.Material(name="Vacuum", nuclide_composition={"H1": 1.0})
 
 # =============================================================================
 # Geometry / Surfaces (cm conversion: 1 um = 1e-4 cm)
@@ -95,7 +96,7 @@ if __name__ == "__main__":
         print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
 
     # Visualize the geometry (samples points inside inferred bounding box)
-    visualize_simulation(sim, resolution=20, alpha=0.4, interactive=True)
+    visualize_simulation(sim, alpha=0.4, interactive=True)
 
     # Run
     # mcdc.run()   
