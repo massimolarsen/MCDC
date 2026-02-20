@@ -22,6 +22,14 @@ vacuum = mcdc.Material(
 radius = 0.4  # cm (8 mm diameter)
 half_length = 0.3  # cm (6 mm length)
 
+# cyl = mcdc.Surface.CylinderX(center=[0.0, 0.0], radius=radius)
+# z_front = mcdc.Surface.PlaneX(x=half_length)
+# z_back = mcdc.Surface.PlaneX(x=-half_length)
+
+# cyl = mcdc.Surface.CylinderY(center=[0.0, 0.0], radius=radius)
+# z_front = mcdc.Surface.PlaneY(y=half_length)
+# z_back = mcdc.Surface.PlaneY(y=-half_length)
+
 cyl = mcdc.Surface.CylinderZ(center=[0.0, 0.0], radius=radius)
 z_front = mcdc.Surface.PlaneZ(z=half_length)
 z_back = mcdc.Surface.PlaneZ(z=-half_length)
@@ -90,7 +98,7 @@ for cell in sim.cells:
     print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
 
 # Visualize the geometry (samples points inside inferred bounding box)
-visualize_simulation(sim, alpha=0.4, interactive=True) 
+visualize_simulation(sim, alpha=0.6, interactive=True) 
 
     # Run
     # mcdc.run()   
