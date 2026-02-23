@@ -20,49 +20,6 @@ from mcdc.constant import (
     SURFACE_PLANE_Z,
 )
 
-
-def _infer_bounds(simulation):
-    """Infer bounding box from linear planes in simulation surfaces."""
-    xs, ys, zs = [], [], []
-    for s in simulation.surfaces:
-        # Use surface type constants to identify plane surfaces
-        if s.type == SURFACE_PLANE_X:
-            # For PlaneX: J = -x, so x = -J
-            xs.append(-s.J)
-        elif s.type == SURFACE_PLANE_Y:
-            # For PlaneY: J = -y, so y = -J
-            ys.append(-s.J)
-        elif s.type == SURFACE_PLANE_Z:
-            # For PlaneZ: J = -z, so z = -J
-            zs.append(-s.J)
-    
-    xmin, xmax = (min(xs), max(xs)) if xs else (-1.0, 1.0)
-    ymin, ymax = (min(ys), max(ys)) if ys else (-1.0, 1.0)
-    zmin, zmax = (min(zs), max(zs)) if zs else (-1.0, 1.0)
-    
-    return (xmin, xmax), (ymin, ymax), (zmin, zmax)
-
-
-def _set_axes_equal(ax):
-    """Set 3D axes to equal aspect ratio."""
-    x_min, x_max = ax.get_xlim3d()
-    y_min, y_max = ax.get_ylim3d()
-    z_min, z_max = ax.get_zlim3d()
-    
-    x_range = abs(x_max - x_min)
-    y_range = abs(y_max - y_min)
-    z_range = abs(z_max - z_min)
-    
-    x_mid = np.mean([x_min, x_max])
-    y_mid = np.mean([y_min, y_max])
-    z_mid = np.mean([z_min, z_max])
-    
-    plot_radius = 0.5 * max(x_range, y_range, z_range)
-    ax.set_xlim3d([x_mid - plot_radius, x_mid + plot_radius])
-    ax.set_ylim3d([y_mid - plot_radius, y_mid + plot_radius])
-    ax.set_zlim3d([z_mid - plot_radius, z_mid + plot_radius])
-
-
 def _draw_legend(ax, color_map):
     """Draw material legend on axes."""
     handles = []
@@ -75,7 +32,6 @@ def _draw_legend(ax, color_map):
 
 def visualize_simulation(
     simulation,
-    bounds=None,
     figsize=(10, 8),
     alpha=0.6,
     interactive=True,
@@ -87,9 +43,6 @@ def visualize_simulation(
     ----------
     simulation : mcdc.object_.simulation.Simulation
         Simulation object containing geometry
-    bounds : dict, optional
-        {'x': (xmin, xmax), 'y': (ymin, ymax), 'z': (zmin, zmax)}
-        If None, inferred from simulation surfaces
     figsize : tuple, default (10, 8)
         Figure size (width, height) in inches
     alpha : float, default 0.6
@@ -112,14 +65,6 @@ def visualize_simulation(
     # Use non-interactive backend if not interactive and no display available
     if not interactive and save_path is not None:
         plt.switch_backend('Agg')
-
-    # Infer bounds if not provided
-    if bounds is None:
-        (xmin, xmax), (ymin, ymax), (zmin, zmax) = _infer_bounds(simulation)
-    else:
-        xmin, xmax = bounds.get("x", (-1.0, 1.0))
-        ymin, ymax = bounds.get("y", (-1.0, 1.0))
-        zmin, zmax = bounds.get("z", (-1.0, 1.0))
 
     # Determine unique materials from cells
     unique_materials = []
@@ -213,23 +158,28 @@ def visualize_simulation(
                 cx = -0.5 * cyl_z.G
                 cy = -0.5 * cyl_z.H
                 r = max(0.0, (cx * cx + cy * cy - cyl_z.J) ** 0.5)
-                if len(planes_z) >= 2:
-                    zs = sorted([-p.J for p in planes_z])
-                    z0, z1 = zs[0], zs[-1]
-                else:
-                    z0, z1 = zmin, zmax
-                theta = np.linspace(0, 2 * np.pi, 120)
-                zsurf = np.linspace(z0, z1, 60)
-                Theta, Zsurf = np.meshgrid(theta, zsurf)
-                Xs = cx + r * np.cos(Theta)
-                Ys = cy + r * np.sin(Theta)
-                Zs = Zsurf
+
+                # axial bounds
+                zs = sorted([-p.J for p in planes_z])
+                z0, z1 = zs[0], zs[-1]
+
+                # parametric angle and axial grids for side surface
+                angle = np.linspace(0, 2 * np.pi, 50)
+                axial = np.linspace(z0, z1, 20)
+                angle_mesh, axial_mesh = np.meshgrid(angle, axial)
+                Xs = cx + r * np.cos(angle_mesh)
+                Ys = cy + r * np.sin(angle_mesh)
+                Zs = axial_mesh
                 ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
-                # caps
+
+                # end caps
+                rad = np.linspace(0, r, 20)
+                angle_r, rad_mesh = np.meshgrid(angle, rad)
+                Xc = cx + rad_mesh * np.cos(angle_r)
+                Yc = cy + rad_mesh * np.sin(angle_r)
                 for zz in (z0, z1):
-                    xc = cx + r * np.cos(theta)
-                    yc = cy + r * np.sin(theta)
-                    ax.plot_trisurf(xc, yc, np.full_like(xc, zz), color=col[:3], alpha=col[3], linewidth=0)
+                    ax.plot_surface(Xc, Yc, np.full_like(Xc, zz), color=col[:3], alpha=col[3], linewidth=0)
+
                 rendered_any = True
                 continue
 
@@ -237,18 +187,25 @@ def visualize_simulation(
                 cy = -0.5 * cyl_x.H
                 cz = -0.5 * cyl_x.I
                 r = max(0.0, (cy * cy + cz * cz - cyl_x.J) ** 0.5)
-                if len(planes_x) >= 2:
-                    xs = sorted([-p.J for p in planes_x])
-                    x0, x1 = xs[0], xs[-1]
-                else:
-                    x0, x1 = xmin, xmax
-                theta = np.linspace(0, 2 * np.pi, 120)
-                xsurf = np.linspace(x0, x1, 60)
-                Theta, Xsurf = np.meshgrid(theta, xsurf)
-                Ys = cy + r * np.cos(Theta)
-                Zs = cz + r * np.sin(Theta)
-                Xs = Xsurf
+
+                xs = sorted([-p.J for p in planes_x])
+                x0, x1 = xs[0], xs[-1]
+
+                angle = np.linspace(0, 2 * np.pi, 50)
+                axial = np.linspace(x0, x1, 20)
+                angle_mesh, axial_mesh = np.meshgrid(angle, axial)
+                Ys = cy + r * np.cos(angle_mesh)
+                Zs = cz + r * np.sin(angle_mesh)
+                Xs = axial_mesh
                 ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
+
+                rad = np.linspace(0, r, 20)
+                angle_r, rad_mesh = np.meshgrid(angle, rad)
+                Yc = cy + rad_mesh * np.cos(angle_r)
+                Zc = cz + rad_mesh * np.sin(angle_r)
+                for xx in (x0, x1):
+                    ax.plot_surface(np.full_like(Yc, xx), Yc, Zc, color=col[:3], alpha=col[3], linewidth=0)
+
                 rendered_any = True
                 continue
 
@@ -256,18 +213,25 @@ def visualize_simulation(
                 cx = -0.5 * cyl_y.G
                 cz = -0.5 * cyl_y.I
                 r = max(0.0, (cx * cx + cz * cz - cyl_y.J) ** 0.5)
-                if len(planes_y) >= 2:
-                    ys = sorted([-p.J for p in planes_y])
-                    y0, y1 = ys[0], ys[-1]
-                else:
-                    y0, y1 = ymin, ymax
-                theta = np.linspace(0, 2 * np.pi, 120)
-                ysurf = np.linspace(y0, y1, 60)
-                Theta, Ysurf = np.meshgrid(theta, ysurf)
-                Xs = cx + r * np.cos(Theta)
-                Zs = cz + r * np.sin(Theta)
-                Ys = Ysurf
+
+                ys = sorted([-p.J for p in planes_y])
+                y0, y1 = ys[0], ys[-1]
+
+                angle = np.linspace(0, 2 * np.pi, 50)
+                axial = np.linspace(y0, y1, 20)
+                angle_mesh, axial_mesh = np.meshgrid(angle, axial)
+                Xs = cx + r * np.cos(angle_mesh)
+                Zs = cz + r * np.sin(angle_mesh)
+                Ys = axial_mesh
                 ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
+
+                rad = np.linspace(0, r, 20)
+                angle_r, rad_mesh = np.meshgrid(angle, rad)
+                Xc = cx + rad_mesh * np.cos(angle_r)
+                Zc = cz + rad_mesh * np.sin(angle_r)
+                for yy in (y0, y1):
+                    ax.plot_surface(Xc, np.full_like(Xc, yy), Zc, color=col[:3], alpha=col[3], linewidth=0)
+
                 rendered_any = True
                 continue
 
@@ -285,23 +249,23 @@ def visualize_simulation(
                 ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
                 rendered_any = True
                 continue
-        except Exception:
-            pass
+        except Exception as e:
+            # debug: report what went wrong during analytic rendering
+            print(f"Warning: analytic rendering failed for cell {cid} with surfaces {[s.type for s in cell.surfaces]}: {e}")
+            # continue to next cell
+            continue
 
     if not rendered_any:
         print("No analytic geometry could be rendered (unsupported shapes or empty simulation).")
         return
 
-    # Legend and axes
+    # legend and axes
     _draw_legend(ax, color_map)
     ax.set_xlabel("x (cm)")
     ax.set_ylabel("y (cm)")
     ax.set_zlabel("z (cm)")
     ax.set_title("Geometry preview")
-    try:
-        _set_axes_equal(ax)
-    except Exception:
-        pass
+
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
