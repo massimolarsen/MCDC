@@ -12,14 +12,14 @@ E_mid = 0.5 * (E[1:] + E[:-1])
 dE = E[1:] - E[:-1]
 
 # HDF5 file (allow passing path as first arg)
-h5_path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\larse\source\repos\output.h5"
+h5_path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\larse\source\repos\MCDC\examples\testSiliconDiode\output.h5"
 
 with h5py.File(h5_path, "r") as f:
     # Locate a surface tally in the file
     tallies = f.get("tallies", {})
     surface_key = None
     for key in tallies:
-        if key.startswith("surface_tally"):
+        if key.startswith("cell_tally"):
             surface_key = key
             break
     if surface_key is None:
@@ -69,8 +69,7 @@ fig, ax = plt.subplots(figsize=(6, 4))
 ax.grid(True)
 ax.set_xscale("log")
 ax.set_xlabel("E (MeV)")
-ax.set_ylabel("E * phi(E)")
-ax.set_title("Surface tally energy spectrum")
+ax.set_ylabel(r"$\phi$(E)")
 ax.plot(E_mid, spec, '-b', label='MC')
 ax.fill_between(E_mid, spec - spec_sd, spec + spec_sd, color='b', alpha=0.3)
 ax.legend()
