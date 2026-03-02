@@ -28,16 +28,16 @@ def _draw_legend(ax, color_map):
         col = color_map[mat_name]
         handles.append(Line2D([0], [0], marker="s", color="w", markerfacecolor=col, markersize=8))
         labels.append(mat_name)
-    ax.legend(handles, labels, title="Materials", loc="upper right")
+    ax.legend(handles, labels, title="Materials", loc="upper right", frameon=False)
 
-def visualize_simulation(
+def visualizer_3d(
     simulation,
     figsize=(10, 8),
     alpha=0.6,
     interactive=True,
     save_path=None,
 ):
-    """Visualize 3D geometry from MCDC simulation.
+    """Visualize 3D geometry from MCDC.
     
     Parameters
     ----------

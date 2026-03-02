@@ -64,4 +64,9 @@ source_particles.h5
 acelib
 acelibSMALL
 hdf5lib
-hdf5lib
+
+pyvenv.cfg
+numba_types.py
+bin/
+lib/
+share/

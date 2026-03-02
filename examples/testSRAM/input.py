@@ -1,7 +1,7 @@
 import numpy as np
 import mcdc
 #from mcdc.tools.visualize_geometry import visualize_simulation
-from mcdc.object_.tools.visualize_geometry import visualize_simulation
+from mcdc.object_.tools.visualize_geometry import visualizer_3d
 
 # =============================================================================
 # Materials (Continuous-Energy)
@@ -9,17 +9,17 @@ from mcdc.object_.tools.visualize_geometry import visualize_simulation
 # Defined by nuclide composition for continuous-energy lookup
 #silicon  = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 1.0})
 #aluminum = mcdc.Material(name="Aluminum", nuclide_composition={"Al27": 1.0})
-silicon  = mcdc.Material(name="Silicon", nuclide_composition={"H1": 1.0})
+silicon  = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 1.0})
 aluminum = mcdc.Material(name="Aluminum", nuclide_composition={"H1": 1.0})
 # Vacuum modeled as low-density Hydrogen as per original input logic
-vacuum   = mcdc.Material(name="Vacuum", nuclide_composition={"H1": 1.0})
+vacuum   = mcdc.Material(name="Vacuum", nuclide_composition={"H1": 0.0})
 
 # =============================================================================
 # Geometry / Surfaces (cm conversion: 1 um = 1e-4 cm)
 # =============================================================================
 
 # X-Y Extents (Half-widths)
-w_bulk = 25.0e-4   # Total 50 um -> +/- 25 um
+w_bulk = 250.0e-4   # Total 50 um -> +/- 25 um
 w_sv   = 5.0e-4    # Total 10 um -> +/- 5 um
 
 x_bulk_pos = mcdc.Surface.PlaneX(x=w_bulk)
@@ -41,12 +41,20 @@ z_bulk_bot = mcdc.Surface.PlaneZ(z=-5.0e-4)   # 5um Bulk depth
 
 # Outer bounding box (Exactly as original input)
 box_extent = 5.0
-x_min = mcdc.Surface.PlaneX(x=-box_extent, boundary_condition="reflective")
-x_max = mcdc.Surface.PlaneX(x=box_extent,  boundary_condition="reflective")
-y_min = mcdc.Surface.PlaneY(y=-box_extent, boundary_condition="reflective")
-y_max = mcdc.Surface.PlaneY(y=box_extent,  boundary_condition="reflective")
-z_min = mcdc.Surface.PlaneZ(z=-box_extent, boundary_condition="reflective")
-z_max = mcdc.Surface.PlaneZ(z=box_extent,  boundary_condition="reflective")
+x_min = mcdc.Surface.PlaneX(x=-box_extent, boundary_condition="vacuum")
+x_max = mcdc.Surface.PlaneX(x=box_extent,  boundary_condition="vacuum")
+y_min = mcdc.Surface.PlaneY(y=-box_extent, boundary_condition="vacuum")
+y_max = mcdc.Surface.PlaneY(y=box_extent,  boundary_condition="vacuum")
+z_min = mcdc.Surface.PlaneZ(z=-box_extent, boundary_condition="vacuum")
+z_max = mcdc.Surface.PlaneZ(z=box_extent,  boundary_condition="vacuum")
+
+box_extent2 = 1.0
+x_min2 = mcdc.Surface.PlaneX(x=-box_extent2,)
+x_max2 = mcdc.Surface.PlaneX(x=box_extent2, )
+y_min2 = mcdc.Surface.PlaneY(y=-box_extent2,)
+y_max2 = mcdc.Surface.PlaneY(y=box_extent2, )
+z_min2 = mcdc.Surface.PlaneZ(z=-box_extent2,)
+z_max2 = mcdc.Surface.PlaneZ(z=box_extent2, )
 
 # =============================================================================
 # Cells
@@ -64,8 +72,8 @@ bulk_region = +z_bulk_bot & -z_surface & +x_bulk_neg & -x_bulk_pos & +y_bulk_neg
 mcdc.Cell(region=bulk_region & ~sv_region, fill=silicon)
 
 # Surrounding Vacuum (Fills the rest of the 5cm box)
-chip_volume = +z_bulk_bot & -z_beol_top & +x_bulk_neg & -x_bulk_pos & +y_bulk_neg & -y_bulk_pos
-mcdc.Cell(region=+x_min & -x_max & +y_min & -y_max & +z_min & -z_max & ~chip_volume, fill=vacuum)
+mcdc.Cell(region=+x_min2 & -x_max2 & +y_min2 & -y_max2 & +z_min2 & -z_max2, fill=silicon)
+mcdc.Cell(region=+x_min & -x_max & +y_min & -y_max & +z_min & -z_max, fill=vacuum)
 
 # =============================================================================
 # Source, Tallies, and Settings (Same as original)
@@ -96,7 +104,7 @@ if __name__ == "__main__":
         print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
 
     # Visualize the geometry (samples points inside inferred bounding box)
-    visualize_simulation(sim, alpha=0.4, interactive=True)
+    visualizer_3d(sim, alpha=0.6, interactive=True)
 
     # Run
     # mcdc.run()   
