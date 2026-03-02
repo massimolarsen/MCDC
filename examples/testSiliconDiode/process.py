@@ -6,13 +6,13 @@ import sys
 # Plot neutron energy spectrum from the surface tally
 
 # Energy grid (relative to this script's folder)
-E = np.loadtxt(r"C:\Users\larse\source\repos\MCDC\examples\testSiliconDiode\energy_grid.txt")
+E = np.loadtxt(r"energy_grid.txt")
 G = len(E) - 1
 E_mid = 0.5 * (E[1:] + E[:-1])
 dE = E[1:] - E[:-1]
 
 # HDF5 file (allow passing path as first arg)
-h5_path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\larse\source\repos\output.h5"
+h5_path = sys.argv[1] if len(sys.argv) > 1 else "output.h5"
 
 with h5py.File(h5_path, "r") as f:
     # Locate a surface tally in the file
