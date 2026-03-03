@@ -28,7 +28,7 @@ def _draw_legend(ax, color_map):
         col = color_map[mat_name]
         handles.append(Line2D([0], [0], marker="s", color="w", markerfacecolor=col, markersize=8))
         labels.append(mat_name)
-    ax.legend(handles, labels, title="Materials", loc="upper right", frameon=False)
+    ax.legend(handles, labels, title="Materials", loc="upper right", frameon = False)
 
 def visualizer_3d(
     simulation,
@@ -94,7 +94,7 @@ def visualizer_3d(
         col_rgb = color_map.get(mat_name, (0.5, 0.5, 0.5))
         # determine alpha, with vacuum/void squeezed down
         label_low = str(mat_name).lower()
-        if "vacuum" in label_low or "void" in label_low:
+        if "vacuum" in label_low or "void" in label_low or "silicon" in label_low:
             use_alpha = min(alpha, 0.15)
         else:
             use_alpha = alpha
