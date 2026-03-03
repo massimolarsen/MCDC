@@ -53,7 +53,7 @@ z_max2 = mcdc.Surface.PlaneZ(z=box_extent2, boundary_condition="vacuum")
 
 # Cells: diode (silicon) and surrounding vacuum
 # Silicon cylinder limited in z
-mcdc.Cell(region=-cyl & +z_back & -z_front, fill=silicon)
+silicon_cell = mcdc.Cell(region=-cyl & +z_back & -z_front, fill=silicon)
 
 #box_extent2 = 2.0  # cm
 #x_min2 = mcdc.Surface.PlaneX(x=-box_extent2, boundary_condition="reflective")
@@ -71,8 +71,9 @@ mcdc.Cell(region=-cyl & +z_back & -z_front, fill=silicon)
 #mcdc.Cell(region=+z_min & -z_back & +x_min & -x_max & +y_min & -y_max, fill=vacuum)
 #mcdc.Cell(region=+z_front & -z_max & +x_min & -x_max & +y_min & -y_max, fill=vacuum)
 
-mcdc.Cell(region=+z_min & -z_max & +x_min & -x_max & +y_min & -y_max, fill=silicon)
-mcdc.Cell(region=+z_min2 & -z_max2 & +x_min2 & -x_max2 & +y_min2 & -y_max2, fill=void)
+# also add outer box cells
+box_silicon_cell = mcdc.Cell(region=+z_min & -z_max & +x_min & -x_max & +y_min & -y_max, fill=silicon)
+void_cell = mcdc.Cell(region=+z_min2 & -z_max2 & +x_min2 & -x_max2 & +y_min2 & -y_max2, fill=void)
 
 
 # Source: isotropic source surrounding the material (fills the box)
@@ -89,19 +90,36 @@ mcdc.TallyGlobal(
 	energy=energy_grid,
 )
 
+# Angular (mu = cos(theta)) bins and tally inside the silicon cell
+mu_bins = np.linspace(-1.0, 1.0, 41)  # 40 bins from -1 to 1
+
+# Tally angular distribution (flux vs mu) restricted to the silicon-filled cell
+mcdc.TallyCell(
+    cell=silicon_cell,
+    scores=["flux"],
+    mu=mu_bins,
+)
+
 # also record net current across the same surface
 mcdc.TallySurface(
     surface=z_front,
     scores=["net-current"],
     multipliers=["energy"],
-    energy=energy_grid,
+    energy=energy_grid
+)
+
+mcdc.TallySurface(
+    surface=z_front,
+    scores=["flux"],
+    multipliers=["energy"],
+    mu=mu_bins,
 )
 
 # Settings
 mcdc.settings.N_particle = 1000
 
 # Visualize the geometry
-visualizer_3d(mcdc.object_.simulation.simulation, alpha=0.6, interactive=True) 
+#visualizer_3d(mcdc.object_.simulation.simulation, alpha=0.6, interactive=True) 
 
 # Run
-#mcdc.run()   
+mcdc.run()   
