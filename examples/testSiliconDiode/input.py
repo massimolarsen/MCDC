@@ -2,7 +2,7 @@ import numpy as np
 import mcdc
 import numpy as np
 #from mcdc.tools.visualize_geometry import visualize_simulation
-from mcdc.object_.tools.visualize_geometry import visualize_simulation
+from mcdc.object_.tools.visualize_geometry import visualizer_3d
 
 SV = mcdc.Material(
     name="SV",
@@ -102,8 +102,8 @@ z_max2 = mcdc.Surface.PlaneZ(z=box_extent2, )
 
 
 #mcdc.Cell(region=+z_min3 & -z_max3 & +x_min3 & -x_max3 & +y_min3 & -y_max3, fill=silicon)
-mcdc.Cell(region=+z_min2 & -z_max2 & +x_min2 & -x_max2 & +y_min2 & -y_max2, fill=silicon)
-mcdc.Cell(region=+z_min & -z_max & +x_min & -x_max & +y_min & -y_max, fill=void)
+silicon_cell = mcdc.Cell(region=+z_min2 & -z_max2 & +x_min2 & -x_max2 & +y_min2 & -y_max2, fill=silicon)
+void_cell = mcdc.Cell(region=+z_min & -z_max & +x_min & -x_max & +y_min & -y_max, fill=void)
 
 
 
@@ -118,9 +118,15 @@ mu_bins = np.linspace(-1.0, 1.0, 41)  # 40 bins from -1 to 1
 
 # Tally angular distribution (flux vs mu) restricted to the silicon-filled cell
 mcdc.TallyCell(
-    cell=silicon_cell,
+    cell=void_cell,
     scores=["flux"],
     mu=mu_bins,
+)
+
+mcdc.TallyCell(
+    cell=void_cell,
+    scores=["flux"],
+    energy=energy_grid,
 )
 
 # also record net current across the same surface
@@ -131,7 +137,7 @@ mcdc.TallySurface(
 )
 
 # Settings
-mcdc.settings.N_particle = 10000
+mcdc.settings.N_particle = 1000
 
 sim = mcdc.object_.simulation.simulation
 print("Cells and their surfaces:")
@@ -140,7 +146,7 @@ for cell in sim.cells:
     print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
 
 # Visualize the geometry (samples points inside inferred bounding box)
-visualize_simulation(sim, alpha=0.6, interactive=True) 
+#visualizer_3d(sim, alpha=0.6, interactive=True) 
 
 # Run
-#mcdc.run()   
+mcdc.run()   
