@@ -70,3 +70,5 @@ numba_types.py
 bin/
 lib/
 share/
+
+*.mac

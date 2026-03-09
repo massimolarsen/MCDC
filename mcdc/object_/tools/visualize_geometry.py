@@ -1,34 +1,186 @@
-"""
-3D Geometry visualizer for MCDC simulations.
+"""3D geometry visualizer for MCDC simulations.
 
-Renders geometry stored in mcdc.simulation using analytic primitives (cylinders,
-spheres, boxes) when detected
+Simple primitive plotting (planes/cylinders/spheres) with CSG clipping.
+No voxel rendering.
 """
+
+from __future__ import annotations
 
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.lines import Line2D
 
 from mcdc.constant import (
-    SURFACE_CYLINDER_Z,
     SURFACE_CYLINDER_X,
     SURFACE_CYLINDER_Y,
-    SURFACE_SPHERE,
+    SURFACE_CYLINDER_Z,
+    SURFACE_PLANE,
     SURFACE_PLANE_X,
     SURFACE_PLANE_Y,
     SURFACE_PLANE_Z,
+    SURFACE_SPHERE,
 )
 
+
 def _draw_legend(ax, color_map):
-    """Draw material legend on axes."""
     handles = []
     labels = []
     for mat_name in sorted(color_map.keys()):
         col = color_map[mat_name]
-        handles.append(Line2D([0], [0], marker="s", color="w", markerfacecolor=col, markersize=8))
+        handles.append(
+            Line2D([0], [0], marker="s", color="w", markerfacecolor=col, markersize=8)
+        )
         labels.append(mat_name)
-    ax.legend(handles, labels, title="Materials", loc="upper right", frameon = False)
+    ax.legend(handles, labels, title="Materials", loc="upper right", frameon=False)
+
+
+def _surface_value(surface, x, y, z):
+    return (
+        surface.A * x * x
+        + surface.B * y * y
+        + surface.C * z * z
+        + surface.D * x * y
+        + surface.E * x * z
+        + surface.F * y * z
+        + surface.G * x
+        + surface.H * y
+        + surface.I * z
+        + surface.J
+    )
+
+
+def _evaluate_region_mask(region, x, y, z, tol=1.0e-9):
+    """Evaluate Region tree with CSG operators."""
+    if region.type == "all":
+        return np.ones(x.shape, dtype=bool)
+
+    if region.type == "halfspace":
+        f = _surface_value(region.A, x, y, z)
+        return f >= -tol if region.B > 0 else f <= tol
+
+    if region.type == "intersection":
+        return _evaluate_region_mask(region.A, x, y, z, tol) & _evaluate_region_mask(
+            region.B, x, y, z, tol
+        )
+
+    if region.type == "union":
+        return _evaluate_region_mask(region.A, x, y, z, tol) | _evaluate_region_mask(
+            region.B, x, y, z, tol
+        )
+
+    if region.type == "complement":
+        return ~_evaluate_region_mask(region.A, x, y, z, tol)
+
+    return np.zeros(x.shape, dtype=bool)
+
+
+def _infer_bounds_from_surfaces(simulation):
+    xmins, xmaxs = [], []
+    ymins, ymaxs = [], []
+    zmins, zmaxs = [], []
+
+    for s in simulation.surfaces:
+        if s.type == SURFACE_PLANE_X:
+            x0 = -s.J
+            xmins.append(x0)
+            xmaxs.append(x0)
+        elif s.type == SURFACE_PLANE_Y:
+            y0 = -s.J
+            ymins.append(y0)
+            ymaxs.append(y0)
+        elif s.type == SURFACE_PLANE_Z:
+            z0 = -s.J
+            zmins.append(z0)
+            zmaxs.append(z0)
+        elif s.type == SURFACE_SPHERE:
+            cx = -0.5 * s.G
+            cy = -0.5 * s.H
+            cz = -0.5 * s.I
+            r2 = cx * cx + cy * cy + cz * cz - s.J
+            if r2 > 0.0:
+                r = np.sqrt(r2)
+                xmins.append(cx - r)
+                xmaxs.append(cx + r)
+                ymins.append(cy - r)
+                ymaxs.append(cy + r)
+                zmins.append(cz - r)
+                zmaxs.append(cz + r)
+        elif s.type == SURFACE_CYLINDER_X:
+            cy = -0.5 * s.H
+            cz = -0.5 * s.I
+            r2 = cy * cy + cz * cz - s.J
+            if r2 > 0.0:
+                r = np.sqrt(r2)
+                ymins.append(cy - r)
+                ymaxs.append(cy + r)
+                zmins.append(cz - r)
+                zmaxs.append(cz + r)
+        elif s.type == SURFACE_CYLINDER_Y:
+            cx = -0.5 * s.G
+            cz = -0.5 * s.I
+            r2 = cx * cx + cz * cz - s.J
+            if r2 > 0.0:
+                r = np.sqrt(r2)
+                xmins.append(cx - r)
+                xmaxs.append(cx + r)
+                zmins.append(cz - r)
+                zmaxs.append(cz + r)
+        elif s.type == SURFACE_CYLINDER_Z:
+            cx = -0.5 * s.G
+            cy = -0.5 * s.H
+            r2 = cx * cx + cy * cy - s.J
+            if r2 > 0.0:
+                r = np.sqrt(r2)
+                xmins.append(cx - r)
+                xmaxs.append(cx + r)
+                ymins.append(cy - r)
+                ymaxs.append(cy + r)
+
+    def _bound(mins, maxs):
+        if len(mins) == 0 or len(maxs) == 0:
+            return -1.0, 1.0
+        lo = float(np.min(mins))
+        hi = float(np.max(maxs))
+        if not np.isfinite(lo) or not np.isfinite(hi) or np.isclose(lo, hi):
+            return -1.0, 1.0
+        pad = 0.08 * (hi - lo)
+        return lo - pad, hi + pad
+
+    return _bound(xmins, xmaxs), _bound(ymins, ymaxs), _bound(zmins, zmaxs)
+
+
+def _plot_masked_surface(ax, X, Y, Z, mask, color_rgb, alpha):
+    # Close 1-pixel cracks from grid clipping at shared edges/corners.
+    if mask.ndim == 2:
+        m = mask.copy()
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                if di == 0 and dj == 0:
+                    continue
+                m |= np.roll(np.roll(mask, di, axis=0), dj, axis=1)
+        mask = m
+
+    Xm = X.copy()
+    Ym = Y.copy()
+    Zm = Z.copy()
+    Xm[~mask] = np.nan
+    Ym[~mask] = np.nan
+    Zm[~mask] = np.nan
+    if np.all(np.isnan(Xm)):
+        return False
+    ax.plot_surface(
+        Xm,
+        Ym,
+        Zm,
+        color=color_rgb,
+        alpha=alpha,
+        linewidth=0,
+        edgecolor="none",
+        antialiased=False,
+        shade=False,
+    )
+    return True
+
 
 def visualizer_3d(
     simulation,
@@ -36,235 +188,207 @@ def visualizer_3d(
     alpha=0.6,
     interactive=True,
     save_path=None,
+    surface_resolution=100,
+    resolution=None,
+    boundary_eps=1.0e-5,
+    bounds=None,
+    backend="matplotlib",
+    pyvista_notebook=False,
+    pyvista_off_screen=None,
+    pyvista_sample_resolution=72,
 ):
-    """Visualize 3D geometry from MCDC.
-    
-    Parameters
-    ----------
-    simulation : mcdc.object_.simulation.Simulation
-        Simulation object containing geometry
-    figsize : tuple, default (10, 8)
-        Figure size (width, height) in inches
-    alpha : float, default 0.6
-        Transparency level for opaque materials (0-1).  Materials whose name
-        contains ``vacuum`` or ``void`` are made more transparent (capped at
-        0.15) automatically.
-    interactive : bool, default True
-        If True, display plot interactively. If False, requires save_path.
-    save_path : str, optional
-        Path to save PNG. If provided, plot is saved regardless of interactive flag.
-        
-    Examples
-    --------
-    >>> from mcdc.tools.visualize_geometry import visualize_simulation
-    >>> import mcdc
-    >>> visualize_simulation(mcdc.object_.simulation.simulation, interactive=False, save_path="geom.png")
-    >>> # Interactive mode (default)
-    >>> visualize_simulation(mcdc.object_.simulation.simulation)
-    """
-    # Use non-interactive backend if not interactive and no display available
-    if not interactive and save_path is not None:
-        plt.switch_backend('Agg')
+    """Visualize geometry with either matplotlib or PyVista backend."""
+    if backend == "pyvista":
+        from mcdc.object_.tools.visualize_geometry_pyvista import geo_viewer_3d
 
-    # Determine unique materials from cells
+        return geo_viewer_3d(
+            simulation=simulation,
+            pyvista_sample_resolution=pyvista_sample_resolution,
+            alpha=alpha,
+        )
+    if backend != "matplotlib":
+        raise ValueError("backend must be 'matplotlib' or 'pyvista'")
+
+    if not interactive and save_path is not None:
+        plt.switch_backend("Agg")
+
     unique_materials = []
     for cell in simulation.cells:
         fill = cell.fill
-        name = getattr(fill, "name", str(fill))
-        unique_materials.append(name)
+        unique_materials.append(getattr(fill, "name", str(fill)))
     unique_materials = np.unique(unique_materials)
 
-    # assign base RGB colors per material
     cmap = plt.get_cmap("tab10")
     color_map = {}
     for i, m in enumerate(unique_materials):
         base = cmap(i % 10)
         color_map[m] = (base[0], base[1], base[2])
 
-    # Create figure
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111, projection="3d")
 
-    # Attempt analytic rendering per-cell for common primitives
+    if bounds is None:
+        (xmin, xmax), (ymin, ymax), (zmin, zmax) = _infer_bounds_from_surfaces(simulation)
+    else:
+        (xmin, xmax), (ymin, ymax), (zmin, zmax) = bounds
+
+    if resolution is not None:
+        surface_resolution = resolution
+    n_ang = max(36, int(surface_resolution))
+    n_lin = max(30, int(surface_resolution * 0.7))
+
     rendered_any = False
-    for cid, cell in enumerate(simulation.cells):
-        fill = cell.fill
-        mat_name = getattr(fill, "name", str(fill))
-        # choose color; if not known fall back to gray
+
+    for cell in simulation.cells:
+        mat_name = getattr(cell.fill, "name", str(cell.fill))
         col_rgb = color_map.get(mat_name, (0.5, 0.5, 0.5))
-        # determine alpha, with vacuum/void squeezed down
-        label_low = str(mat_name).lower()
-        if "vacuum" in label_low or "void" in label_low or "silicon" in label_low:
-            use_alpha = min(alpha, 0.15)
-        else:
-            use_alpha = alpha
-        col = (*col_rgb, use_alpha)
+        low = str(mat_name).lower()
+        use_alpha = min(alpha, 0.15) if ("vacuum" in low or "void" in low) else alpha
 
-        # Find surfaces by type
-        cyl_z = None
-        cyl_x = None
-        cyl_y = None
-        planes_z = []
-        planes_x = []
-        planes_y = []
-        sph = None
         for s in cell.surfaces:
-            if s.type == SURFACE_CYLINDER_Z:
-                cyl_z = s
-            if s.type == SURFACE_CYLINDER_X:
-                cyl_x = s
-            if s.type == SURFACE_CYLINDER_Y:
-                cyl_y = s
-            if s.type == SURFACE_PLANE_Z:
-                planes_z.append(s)
-            if s.type == SURFACE_PLANE_X:
-                planes_x.append(s)
-            if s.type == SURFACE_PLANE_Y:
-                planes_y.append(s)
-            if s.type == SURFACE_SPHERE:
-                sph = s
+            try:
+                if s.type == SURFACE_PLANE_X:
+                    yy, zz = np.meshgrid(np.linspace(ymin, ymax, n_lin), np.linspace(zmin, zmax, n_lin))
+                    xx = np.full_like(yy, -s.J)
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps)
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-        try:
-            # Detect rectangular box bounded by planes on all three axes
-            if len(planes_x) >= 2 and len(planes_y) >= 2 and len(planes_z) >= 2:
-                xs = sorted([-p.J for p in planes_x])
-                ys = sorted([-p.J for p in planes_y])
-                zs = sorted([-p.J for p in planes_z])
-                xmin_box, xmax_box = xs[0], xs[-1]
-                ymin_box, ymax_box = ys[0], ys[-1]
-                zmin_box, zmax_box = zs[0], zs[-1]
+                elif s.type == SURFACE_PLANE_Y:
+                    xx, zz = np.meshgrid(np.linspace(xmin, xmax, n_lin), np.linspace(zmin, zmax, n_lin))
+                    yy = np.full_like(xx, -s.J)
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps)
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-                # Create faces for the box
-                ngrid = 2
-                Xy, Zy = np.meshgrid(np.linspace(xmin_box, xmax_box, ngrid), np.linspace(zmin_box, zmax_box, ngrid))
-                # face at y = ymin_box and y = ymax_box
-                ax.plot_surface(Xy, np.full_like(Xy, ymin_box), Zy, color=col[:3], alpha=col[3], linewidth=0)
-                ax.plot_surface(Xy, np.full_like(Xy, ymax_box), Zy, color=col[:3], alpha=col[3], linewidth=0)
+                elif s.type == SURFACE_PLANE_Z:
+                    xx, yy = np.meshgrid(np.linspace(xmin, xmax, n_lin), np.linspace(ymin, ymax, n_lin))
+                    zz = np.full_like(xx, -s.J)
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps)
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-                Xx, Yx = np.meshgrid(np.linspace(xmin_box, xmax_box, ngrid), np.linspace(ymin_box, ymax_box, ngrid))
-                # face at z = zmin_box and z = zmax_box
-                ax.plot_surface(Xx, Yx, np.full_like(Xx, zmin_box), color=col[:3], alpha=col[3], linewidth=0)
-                ax.plot_surface(Xx, Yx, np.full_like(Xx, zmax_box), color=col[:3], alpha=col[3], linewidth=0)
+                elif s.type == SURFACE_PLANE:
+                    n = np.array([s.G, s.H, s.I], dtype=float)
+                    nn = np.linalg.norm(n)
+                    if nn <= 0.0:
+                        continue
+                    n /= nn
+                    p0 = -s.J * n / nn
+                    ref = np.array([1.0, 0.0, 0.0]) if abs(n[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+                    u = np.cross(n, ref)
+                    u /= np.linalg.norm(u)
+                    v = np.cross(n, u)
+                    span = max(xmax - xmin, ymax - ymin, zmax - zmin)
+                    uu, vv = np.meshgrid(np.linspace(-span, span, n_lin), np.linspace(-span, span, n_lin))
+                    xx = p0[0] + uu * u[0] + vv * v[0]
+                    yy = p0[1] + uu * u[1] + vv * v[1]
+                    zz = p0[2] + uu * u[2] + vv * v[2]
+                    in_box = (
+                        (xx >= xmin)
+                        & (xx <= xmax)
+                        & (yy >= ymin)
+                        & (yy <= ymax)
+                        & (zz >= zmin)
+                        & (zz <= zmax)
+                    )
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps) & in_box
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-                Yy, Zz = np.meshgrid(np.linspace(ymin_box, ymax_box, ngrid), np.linspace(zmin_box, zmax_box, ngrid))
-                # face at x = xmin_box and x = xmax_box
-                ax.plot_surface(np.full_like(Yy, xmin_box), Yy, Zz, color=col[:3], alpha=col[3], linewidth=0)
-                ax.plot_surface(np.full_like(Yy, xmax_box), Yy, Zz, color=col[:3], alpha=col[3], linewidth=0)
+                elif s.type == SURFACE_CYLINDER_Z:
+                    cx = -0.5 * s.G
+                    cy = -0.5 * s.H
+                    r2 = cx * cx + cy * cy - s.J
+                    if r2 <= 0.0:
+                        continue
+                    r = np.sqrt(r2)
+                    ang, zz = np.meshgrid(np.linspace(0.0, 2.0 * np.pi, n_ang), np.linspace(zmin, zmax, n_lin))
+                    xx = cx + r * np.cos(ang)
+                    yy = cy + r * np.sin(ang)
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps)
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-                rendered_any = True
-                # continue rendering other cells as well
+                    z_caps = sorted([-p.J for p in cell.surfaces if p.type == SURFACE_PLANE_Z])
+                    if len(z_caps) >= 2:
+                        xcap, ycap = np.meshgrid(np.linspace(cx - r, cx + r, n_lin), np.linspace(cy - r, cy + r, n_lin))
+                        disk = (xcap - cx) ** 2 + (ycap - cy) ** 2 <= r * r + boundary_eps
+                        for zc in (z_caps[0], z_caps[-1]):
+                            zcap = np.full_like(xcap, zc)
+                            mask = _evaluate_region_mask(cell.region, xcap, ycap, zcap, boundary_eps) & disk
+                            rendered_any |= _plot_masked_surface(ax, xcap, ycap, zcap, mask, col_rgb, use_alpha)
 
-            if cyl_z is not None:
-                cx = -0.5 * cyl_z.G
-                cy = -0.5 * cyl_z.H
-                r = max(0.0, (cx * cx + cy * cy - cyl_z.J) ** 0.5)
+                elif s.type == SURFACE_CYLINDER_X:
+                    cy = -0.5 * s.H
+                    cz = -0.5 * s.I
+                    r2 = cy * cy + cz * cz - s.J
+                    if r2 <= 0.0:
+                        continue
+                    r = np.sqrt(r2)
+                    ang, xx = np.meshgrid(np.linspace(0.0, 2.0 * np.pi, n_ang), np.linspace(xmin, xmax, n_lin))
+                    yy = cy + r * np.cos(ang)
+                    zz = cz + r * np.sin(ang)
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps)
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-                # axial bounds
-                zs = sorted([-p.J for p in planes_z])
-                z0, z1 = zs[0], zs[-1]
+                    x_caps = sorted([-p.J for p in cell.surfaces if p.type == SURFACE_PLANE_X])
+                    if len(x_caps) >= 2:
+                        ycap, zcap = np.meshgrid(np.linspace(cy - r, cy + r, n_lin), np.linspace(cz - r, cz + r, n_lin))
+                        disk = (ycap - cy) ** 2 + (zcap - cz) ** 2 <= r * r + boundary_eps
+                        for xc in (x_caps[0], x_caps[-1]):
+                            xcap = np.full_like(ycap, xc)
+                            mask = _evaluate_region_mask(cell.region, xcap, ycap, zcap, boundary_eps) & disk
+                            rendered_any |= _plot_masked_surface(ax, xcap, ycap, zcap, mask, col_rgb, use_alpha)
 
-                # parametric angle and axial grids for side surface
-                angle = np.linspace(0, 2 * np.pi, 50)
-                axial = np.linspace(z0, z1, 20)
-                angle_mesh, axial_mesh = np.meshgrid(angle, axial)
-                Xs = cx + r * np.cos(angle_mesh)
-                Ys = cy + r * np.sin(angle_mesh)
-                Zs = axial_mesh
-                ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
+                elif s.type == SURFACE_CYLINDER_Y:
+                    cx = -0.5 * s.G
+                    cz = -0.5 * s.I
+                    r2 = cx * cx + cz * cz - s.J
+                    if r2 <= 0.0:
+                        continue
+                    r = np.sqrt(r2)
+                    ang, yy = np.meshgrid(np.linspace(0.0, 2.0 * np.pi, n_ang), np.linspace(ymin, ymax, n_lin))
+                    xx = cx + r * np.cos(ang)
+                    zz = cz + r * np.sin(ang)
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps)
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-                # end caps
-                rad = np.linspace(0, r, 20)
-                angle_r, rad_mesh = np.meshgrid(angle, rad)
-                Xc = cx + rad_mesh * np.cos(angle_r)
-                Yc = cy + rad_mesh * np.sin(angle_r)
-                for zz in (z0, z1):
-                    ax.plot_surface(Xc, Yc, np.full_like(Xc, zz), color=col[:3], alpha=col[3], linewidth=0)
+                    y_caps = sorted([-p.J for p in cell.surfaces if p.type == SURFACE_PLANE_Y])
+                    if len(y_caps) >= 2:
+                        xcap, zcap = np.meshgrid(np.linspace(cx - r, cx + r, n_lin), np.linspace(cz - r, cz + r, n_lin))
+                        disk = (xcap - cx) ** 2 + (zcap - cz) ** 2 <= r * r + boundary_eps
+                        for yc in (y_caps[0], y_caps[-1]):
+                            ycap = np.full_like(xcap, yc)
+                            mask = _evaluate_region_mask(cell.region, xcap, ycap, zcap, boundary_eps) & disk
+                            rendered_any |= _plot_masked_surface(ax, xcap, ycap, zcap, mask, col_rgb, use_alpha)
 
-                rendered_any = True
-                continue
+                elif s.type == SURFACE_SPHERE:
+                    cx = -0.5 * s.G
+                    cy = -0.5 * s.H
+                    cz = -0.5 * s.I
+                    r2 = cx * cx + cy * cy + cz * cz - s.J
+                    if r2 <= 0.0:
+                        continue
+                    r = np.sqrt(r2)
+                    u, v = np.meshgrid(np.linspace(0.0, 2.0 * np.pi, n_ang), np.linspace(0.0, np.pi, n_lin))
+                    xx = cx + r * np.cos(u) * np.sin(v)
+                    yy = cy + r * np.sin(u) * np.sin(v)
+                    zz = cz + r * np.cos(v)
+                    mask = _evaluate_region_mask(cell.region, xx, yy, zz, boundary_eps)
+                    rendered_any |= _plot_masked_surface(ax, xx, yy, zz, mask, col_rgb, use_alpha)
 
-            if cyl_x is not None:
-                cy = -0.5 * cyl_x.H
-                cz = -0.5 * cyl_x.I
-                r = max(0.0, (cy * cy + cz * cz - cyl_x.J) ** 0.5)
-
-                xs = sorted([-p.J for p in planes_x])
-                x0, x1 = xs[0], xs[-1]
-
-                angle = np.linspace(0, 2 * np.pi, 50)
-                axial = np.linspace(x0, x1, 20)
-                angle_mesh, axial_mesh = np.meshgrid(angle, axial)
-                Ys = cy + r * np.cos(angle_mesh)
-                Zs = cz + r * np.sin(angle_mesh)
-                Xs = axial_mesh
-                ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
-
-                rad = np.linspace(0, r, 20)
-                angle_r, rad_mesh = np.meshgrid(angle, rad)
-                Yc = cy + rad_mesh * np.cos(angle_r)
-                Zc = cz + rad_mesh * np.sin(angle_r)
-                for xx in (x0, x1):
-                    ax.plot_surface(np.full_like(Yc, xx), Yc, Zc, color=col[:3], alpha=col[3], linewidth=0)
-
-                rendered_any = True
-                continue
-
-            if cyl_y is not None:
-                cx = -0.5 * cyl_y.G
-                cz = -0.5 * cyl_y.I
-                r = max(0.0, (cx * cx + cz * cz - cyl_y.J) ** 0.5)
-
-                ys = sorted([-p.J for p in planes_y])
-                y0, y1 = ys[0], ys[-1]
-
-                angle = np.linspace(0, 2 * np.pi, 50)
-                axial = np.linspace(y0, y1, 20)
-                angle_mesh, axial_mesh = np.meshgrid(angle, axial)
-                Xs = cx + r * np.cos(angle_mesh)
-                Zs = cz + r * np.sin(angle_mesh)
-                Ys = axial_mesh
-                ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
-
-                rad = np.linspace(0, r, 20)
-                angle_r, rad_mesh = np.meshgrid(angle, rad)
-                Xc = cx + rad_mesh * np.cos(angle_r)
-                Zc = cz + rad_mesh * np.sin(angle_r)
-                for yy in (y0, y1):
-                    ax.plot_surface(Xc, np.full_like(Xc, yy), Zc, color=col[:3], alpha=col[3], linewidth=0)
-
-                rendered_any = True
-                continue
-
-            if sph is not None:
-                cx = -0.5 * sph.G
-                cy = -0.5 * sph.H
-                cz = -0.5 * sph.I
-                r = max(0.0, (cx * cx + cy * cy + cz * cz - sph.J) ** 0.5)
-                u = np.linspace(0, 2 * np.pi, 80)
-                v = np.linspace(0, np.pi, 40)
-                U, V = np.meshgrid(u, v)
-                Xs = cx + r * np.cos(U) * np.sin(V)
-                Ys = cy + r * np.sin(U) * np.sin(V)
-                Zs = cz + r * np.cos(V)
-                ax.plot_surface(Xs, Ys, Zs, color=col[:3], alpha=col[3], linewidth=0, shade=True)
-                rendered_any = True
-                continue
-        except Exception as e:
-            # debug: report what went wrong during analytic rendering
-            print(f"Warning: analytic rendering failed for cell {cid} with surfaces {[s.type for s in cell.surfaces]}: {e}")
-            # continue to next cell
-            continue
+            except Exception as exc:
+                print(f"Warning: surface render failed for cell {cell.ID} surface {s.ID}: {exc}")
 
     if not rendered_any:
-        print("No analytic geometry could be rendered (unsupported shapes or empty simulation).")
+        print("No analytic geometry could be rendered.")
         return
 
-    # legend and axes
     _draw_legend(ax, color_map)
     ax.set_xlabel("x (cm)")
     ax.set_ylabel("y (cm)")
     ax.set_zlabel("z (cm)")
     ax.set_title("Geometry preview")
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    ax.set_zlim(zmin, zmax)
+    ax.set_box_aspect((xmax - xmin, ymax - ymin, zmax - zmin))
 
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -273,10 +397,18 @@ def visualizer_3d(
         if interactive:
             try:
                 plt.show()
-            except Exception as e:
-                print(f"Warning: Could not display plot interactively: {e}")
-                print("To save the plot to file instead, use: visualize_simulation(..., save_path='output.png')")
+            except Exception as exc:
+                print(f"Warning: Could not display plot interactively: {exc}")
                 plt.close(fig)
         else:
             plt.close(fig)
-    return
+
+
+def visualize_simulation(*args, **kwargs):
+    """Backward-compatible alias."""
+    return visualizer_3d(*args, **kwargs)
+
+
+def geo_viewer_3d(*args, **kwargs):
+    """Preferred alias."""
+    return visualizer_3d(*args, **kwargs)

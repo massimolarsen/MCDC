@@ -3,6 +3,7 @@ import mcdc
 import numpy as np
 #from mcdc.tools.visualize_geometry import visualize_simulation
 from mcdc.object_.tools.visualize_geometry import visualizer_3d
+from mcdc.object_.tools.visualize_geometry_pyvista import geo_viewer_3d
 
 SV = mcdc.Material(
     name="SV",
@@ -83,29 +84,6 @@ energy_grid = np.loadtxt("energy_grid.txt")  # 50 bins from 0 to 1 MeV
 # Tally only particles crossing from the outside into the diode (toward -z):
 # polar_reference = +z, and mu range [-1, 0] selects directions with negative z-component.
 
-# Outer bounding box (vacuum boundaries) large enough to surround the source
-box_extent = 5.0  # cm
-x_min = mcdc.Surface.PlaneX(x=-box_extent, boundary_condition="vacuum")
-x_max = mcdc.Surface.PlaneX(x=box_extent, boundary_condition="vacuum")
-y_min = mcdc.Surface.PlaneY(y=-box_extent, boundary_condition="vacuum")
-y_max = mcdc.Surface.PlaneY(y=box_extent, boundary_condition="vacuum")
-z_min = mcdc.Surface.PlaneZ(z=-box_extent, boundary_condition="vacuum")
-z_max = mcdc.Surface.PlaneZ(z=box_extent, boundary_condition="vacuum")
-
-box_extent2 = 1.0  # cm
-x_min2 = mcdc.Surface.PlaneX(x=-box_extent2, )
-x_max2 = mcdc.Surface.PlaneX(x=box_extent2, )
-y_min2 = mcdc.Surface.PlaneY(y=-box_extent2, )
-y_max2 = mcdc.Surface.PlaneY(y=box_extent2, )
-z_min2 = mcdc.Surface.PlaneZ(z=-box_extent2, )
-z_max2 = mcdc.Surface.PlaneZ(z=box_extent2, )
-
-
-#mcdc.Cell(region=+z_min3 & -z_max3 & +x_min3 & -x_max3 & +y_min3 & -y_max3, fill=silicon)
-silicon_cell = mcdc.Cell(region=+z_min2 & -z_max2 & +x_min2 & -x_max2 & +y_min2 & -y_max2, fill=silicon)
-void_cell = mcdc.Cell(region=+z_min & -z_max & +x_min & -x_max & +y_min & -y_max, fill=void)
-
-
 
 mcdc.TallyGlobal(
 	scores=["flux"],
@@ -117,17 +95,6 @@ mcdc.TallyGlobal(
 mu_bins = np.linspace(-1.0, 1.0, 41)  # 40 bins from -1 to 1
 
 # Tally angular distribution (flux vs mu) restricted to the silicon-filled cell
-mcdc.TallyCell(
-    cell=void_cell,
-    scores=["flux"],
-    mu=mu_bins,
-)
-
-mcdc.TallyCell(
-    cell=void_cell,
-    scores=["flux"],
-    energy=energy_grid,
-)
 
 # also record net current across the same surface
 mcdc.TallySurface(
@@ -135,9 +102,14 @@ mcdc.TallySurface(
     scores=["net-current"],
     energy=energy_grid,
 )
+mcdc.TallySurface(
+    surface=z_front,
+    scores=["flux"],
+    mu=mu_bins,
+)
 
 # Settings
-mcdc.settings.N_particle = 1000
+mcdc.settings.N_particle = 10000
 
 sim = mcdc.object_.simulation.simulation
 print("Cells and their surfaces:")
@@ -146,7 +118,9 @@ for cell in sim.cells:
     print(f"  Cell {cell.ID}: fill={getattr(cell.fill, 'name', cell.fill)} surfaces={s_info}")
 
 # Visualize the geometry (samples points inside inferred bounding box)
-#visualizer_3d(sim, alpha=0.6, interactive=True) 
+#visualizer_3d(sim, backend="pyvista", interactive=True)
+geo_viewer_3d(sim)
+
 
 # Run
-mcdc.run()   
+#mcdc.run()   
