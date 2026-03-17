@@ -25,6 +25,8 @@ from mcdc.transport.util import find_bin, linear_interpolation
 # General distribution samplers
 # ======================================================================================
 
+_MAX_REJECTION_SAMPLES = 100000
+
 
 @njit
 def sample_distribution(E, distribution, rng_state, mcdc, data, scale=False):
@@ -63,16 +65,24 @@ def sample_correlated_distribution(E, distribution, rng_state, mcdc, data, scale
 
     if distribution_type == DISTRIBUTION_KALBACH_MANN:
         kalbach_mann = mcdc["kalbach_mann_distributions"][ID]
-        return sample_kalbach_mann(E, rng_state, kalbach_mann, data)
+        E_out, mu = sample_kalbach_mann(E, rng_state, kalbach_mann, data)
+        assert math.isfinite(E_out) and E_out >= 0.0
+        assert math.isfinite(mu) and -1.0 <= mu <= 1.0
+        return E_out, mu
 
     elif distribution_type == DISTRIBUTION_TABULATED_ENERGY_ANGLE:
         table = mcdc["tabulated_energy_angle_distributions"][ID]
-        return sample_tabulated_energy_angle(E, rng_state, table, data)
+        E_out, mu = sample_tabulated_energy_angle(E, rng_state, table, data)
+        assert math.isfinite(E_out) and E_out >= 0.0
+        assert math.isfinite(mu) and -1.0 <= mu <= 1.0
+        return E_out, mu
 
     elif distribution_type == DISTRIBUTION_N_BODY:
         nbody = mcdc["nbody_distributions"][ID]
         E_out = sample_tabulated(nbody, rng_state, data)
         mu = sample_isotropic_cosine(rng_state)
+        assert math.isfinite(E_out) and E_out >= 0.0
+        assert math.isfinite(mu) and -1.0 <= mu <= 1.0
         return E_out, mu
 
     # TODO: Should not get here
@@ -294,20 +304,32 @@ def sample_maxwellian(E, rng_state, maxwellian, mcdc, data):
     table = mcdc["table_data"][maxwellian["nuclear_temperature_ID"]]
     nuclear_temperature = evaluate_table(E, table, data)
     restriction_energy = maxwellian["restriction_energy"]
+    assert math.isfinite(E) and E >= 0.0
+    assert math.isfinite(nuclear_temperature) and nuclear_temperature > 0.0
+    assert math.isfinite(restriction_energy)
+    assert E - restriction_energy >= 0.0
 
     # Rejection sampling
+    n_try = 0
     while True:
         xi1 = rng.lcg(rng_state)
         xi2 = rng.lcg(rng_state)
         xi3 = rng.lcg(rng_state)
+        assert 0.0 < xi1 < 1.0
+        assert 0.0 < xi2 < 1.0
+        assert 0.0 <= xi3 <= 1.0
         cos = math.cos(0.5 * PI * xi3)
         cos_square = cos * cos
         sample = -nuclear_temperature * (math.log(xi1) + math.log(xi2) * cos_square)
+        assert math.isfinite(sample)
 
         # Accept sample?
         if 0.0 <= sample and sample <= E - restriction_energy:
             break
+        n_try += 1
+        assert n_try < _MAX_REJECTION_SAMPLES
 
+    assert sample >= 0.0 and math.isfinite(sample)
     return sample
 
 
@@ -315,7 +337,12 @@ def sample_maxwellian(E, rng_state, maxwellian, mcdc, data):
 def sample_level_scattering(E, level_scattering):
     C1 = level_scattering["C1"]
     C2 = level_scattering["C2"]
-    return C2 * (E - C1)
+    assert math.isfinite(E)
+    assert math.isfinite(C1)
+    assert math.isfinite(C2)
+    E_out = C2 * (E - C1)
+    assert math.isfinite(E_out) and E_out >= 0.0
+    return E_out
 
 
 @njit
@@ -324,20 +351,33 @@ def sample_evaporation(E, rng_state, evaporation, mcdc, data):
     table = mcdc["table_data"][evaporation["nuclear_temperature_ID"]]
     nuclear_temperature = evaluate_table(E, table, data)
     restriction_energy = evaporation["restriction_energy"]
+    assert math.isfinite(E) and E >= 0.0
+    assert math.isfinite(nuclear_temperature) and nuclear_temperature > 0.0
+    assert math.isfinite(restriction_energy)
+    assert E - restriction_energy >= 0.0
 
     w = (E - restriction_energy) / nuclear_temperature
     g = 1.0 - math.exp(-w)
+    assert math.isfinite(w)
+    assert math.isfinite(g)
 
     # Rejection sampling
+    n_try = 0
     while True:
         xi1 = rng.lcg(rng_state)
         xi2 = rng.lcg(rng_state)
+        assert 0.0 <= xi1 <= 1.0
+        assert 0.0 <= xi2 <= 1.0
         sample = -nuclear_temperature * math.log((1.0 - g * xi1) * (1.0 - g * xi2))
+        assert math.isfinite(sample)
 
         # Accept sample?
         if 0.0 <= sample and sample <= E - restriction_energy:
             break
+        n_try += 1
+        assert n_try < _MAX_REJECTION_SAMPLES
 
+    assert sample >= 0.0 and math.isfinite(sample)
     return sample
 
 
@@ -355,6 +395,7 @@ def sample_kalbach_mann(E, rng_state, kalbach_mann, data):
     idx = find_bin(E, grid)
     E0 = grid[idx]
     E1 = grid[idx + 1]
+    assert E1 != E0
     f = (E - E0) / (E1 - E0)
 
     # ==================================================================================
@@ -409,17 +450,22 @@ def sample_kalbach_mann(E, rng_state, kalbach_mann, data):
     p1 = mcdc_get.kalbach_mann_distribution.pdf(idx + 1, kalbach_mann, data)
     E0 = mcdc_get.kalbach_mann_distribution.energy_out(idx, kalbach_mann, data)
     E1 = mcdc_get.kalbach_mann_distribution.energy_out(idx + 1, kalbach_mann, data)
+    assert E1 != E0
 
     # Calculate the outgoing energy (not-scaled)
     m = (p1 - p0) / (E1 - E0)
     if m == 0.0:
+        assert p0 != 0.0
         E_hat = E0 + (xi2 - c) / p0
     else:
-        E_hat = E0 + 1.0 / m * (math.sqrt(p0**2 + 2 * m * (xi2 - c)) - p0)
+        rad = p0**2 + 2 * m * (xi2 - c)
+        assert rad >= 0.0
+        E_hat = E0 + 1.0 / m * (math.sqrt(rad) - p0)
 
     # Scale against the bounds
     E_low = mcdc_get.kalbach_mann_distribution.energy_out(start, kalbach_mann, data)
     E_high = mcdc_get.kalbach_mann_distribution.energy_out(end - 1, kalbach_mann, data)
+    assert E_high != E_low
     E_new = E_min + (E_hat - E_low) / (E_high - E_low) * (E_max - E_min)
 
     # Precompound factor and angular slope
@@ -433,6 +479,7 @@ def sample_kalbach_mann(E, rng_state, kalbach_mann, data):
     mE = (E_hat - E0) / (E1 - E0)
     R = R0 + mE * (R1 - R0)
     A = A0 + mE * (A1 - A0)
+    assert A != 0.0
 
     # Calculate the angular coine
     T = (2.0 * xi4 - 1.0) * math.sinh(A)
@@ -441,6 +488,8 @@ def sample_kalbach_mann(E, rng_state, kalbach_mann, data):
     else:
         mu = math.log(xi4 * math.exp(A) + (1.0 - xi4) * math.exp(-A)) / A
 
+    assert math.isfinite(E_new) and E_new >= 0.0
+    assert math.isfinite(mu) and -1.0 <= mu <= 1.0
     return E_new, mu
 
 
@@ -457,6 +506,7 @@ def sample_tabulated_energy_angle(E, rng_state, table, data):
     idx = find_bin(E, grid)
     E0 = grid[idx]
     E1 = grid[idx + 1]
+    assert E1 != E0
     f = (E - E0) / (E1 - E0)
 
     # ==================================================================================
@@ -521,19 +571,24 @@ def sample_tabulated_energy_angle(E, rng_state, table, data):
     E1 = mcdc_get.tabulated_energy_angle_distribution.energy_out(
         idx_local + 1, table, data
     )
+    assert E1 != E0
 
     # Calculate the outgoing energy (not-scaled)
     m = (p1 - p0) / (E1 - E0)
     if m == 0.0:
+        assert p0 != 0.0
         E_hat = E0 + (xi2 - c) / p0
     else:
-        E_hat = E0 + 1.0 / m * (math.sqrt(p0**2 + 2 * m * (xi2 - c)) - p0)
+        rad = p0**2 + 2 * m * (xi2 - c)
+        assert rad >= 0.0
+        E_hat = E0 + 1.0 / m * (math.sqrt(rad) - p0)
 
     # Scale against the bounds
     E_low = mcdc_get.tabulated_energy_angle_distribution.energy_out(start, table, data)
     E_high = mcdc_get.tabulated_energy_angle_distribution.energy_out(
         end - 1, table, data
     )
+    assert E_high != E_low
     E_new = E_min + (E_hat - E_low) / (E_high - E_low) * (E_max - E_min)
 
     # Determine angular table index
@@ -569,11 +624,17 @@ def sample_tabulated_energy_angle(E, rng_state, table, data):
     p1 = mcdc_get.tabulated_energy_angle_distribution.cosine_pdf(idx + 1, table, data)
     mu0 = mcdc_get.tabulated_energy_angle_distribution.cosine(idx, table, data)
     mu1 = mcdc_get.tabulated_energy_angle_distribution.cosine(idx + 1, table, data)
+    assert mu1 != mu0
 
     m = (p1 - p0) / (mu1 - mu0)
     if m == 0.0:
+        assert p0 != 0.0
         mu = mu0 + (xi3 - c) / p0
     else:
-        mu = mu0 + 1.0 / m * (math.sqrt(p0**2 + 2 * m * (xi3 - c)) - p0)
+        rad = p0**2 + 2 * m * (xi3 - c)
+        assert rad >= 0.0
+        mu = mu0 + 1.0 / m * (math.sqrt(rad) - p0)
 
+    assert math.isfinite(E_new) and E_new >= 0.0
+    assert math.isfinite(mu) and -1.0 <= mu <= 1.0
     return E_new, mu
