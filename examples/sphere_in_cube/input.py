@@ -1,6 +1,6 @@
 import numpy as np
 import mcdc
-from mcdc.object_.tools.visualize_geometry import visualize_simulation
+from mcdc.object_.tools.visualize_geometry_trimesh import visualize_simulation
 
 # ======================================================================================
 # Set model

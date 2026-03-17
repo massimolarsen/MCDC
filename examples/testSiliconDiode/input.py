@@ -1,9 +1,7 @@
 import numpy as np
 import mcdc
-import numpy as np
 #from mcdc.tools.visualize_geometry import visualize_simulation
-from mcdc.object_.tools.visualize_geometry import visualizer_3d
-from mcdc.object_.tools.visualize_geometry_pyvista import geo_viewer_3d
+from mcdc.object_.tools.visualize_geometry_trimesh import geo_viewer_3d
 
 SV = mcdc.Material(
     name="SV",

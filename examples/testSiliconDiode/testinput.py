@@ -2,7 +2,7 @@ import numpy as np
 import mcdc
 import numpy as np
 #from mcdc.tools.visualize_geometry import visualize_simulation
-from mcdc.object_.tools.visualize_geometry import visualize_simulation
+from mcdc.object_.tools.visualize_geometry_trimesh import visualize_simulation
 
 SV = mcdc.Material(
     name="SV",

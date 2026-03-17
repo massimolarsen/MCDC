@@ -1,7 +1,7 @@
 import numpy as np
 import mcdc
 import numpy as np
-from mcdc.object_.tools.visualize_geometry import visualizer_3d
+from mcdc.object_.tools.visualize_geometry_trimesh import visualizer_3d
 
 silicon = mcdc.Material(
     name="SV",

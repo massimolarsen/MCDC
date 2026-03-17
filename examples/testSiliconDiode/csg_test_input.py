@@ -1,6 +1,6 @@
 import mcdc
 
-from mcdc.object_.tools.visualize_geometry_trimesh import geo_viewer_3d_trimesh
+from mcdc.object_.tools.visualize_geometry_trimesh import geo_viewer_3d
 
 
 # -----------------------------------------------------------------------------
@@ -135,7 +135,7 @@ mcdc.Cell(region=region_outer, fill=mat_void, name="background_void")
 # -----------------------------------------------------------------------------
 sim = mcdc.object_.simulation.simulation
 
-geo_viewer_3d_trimesh(
+geo_viewer_3d(
     sim,
     primitive_resolution=56,
 )

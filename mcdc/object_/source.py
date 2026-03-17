@@ -169,8 +169,10 @@ class Source(ObjectNonSingleton):
             self.isotropic_direction = False
             self.white_direction = True
             self.direction = np.array(white_direction)
-        # Normalize direction
-        self.direction /= np.linalg.norm(self.direction)
+        # Normalize direction only when non-zero (isotropic sources keep zero vector).
+        norm = np.linalg.norm(self.direction)
+        if norm > 0.0:
+            self.direction /= norm
 
         # Energy
         if energy_group is not None:
