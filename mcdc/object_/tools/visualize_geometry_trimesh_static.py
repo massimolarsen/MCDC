@@ -375,7 +375,6 @@ def build_frame_cache_entry(
         "legend": legend_unique,
         "label": time_label,
         "has_geometry": rendered_cell,
-        "bounds": bounds,
     }
 
 

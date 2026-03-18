@@ -28,11 +28,15 @@ def geo_viewer_3d_trimesh(
     has_motion = any(getattr(s, "moving", False) for s in simulation.surfaces) or any(
         getattr(src, "moving", False) for src in getattr(simulation, "sources", [])
     )
-    inferred = infer_time_steps(simulation) if use_mcdc_movement and has_motion else [0.0]
+
+    auto_time_candidates = []
+    if use_mcdc_movement and has_motion:
+        auto_time_candidates = infer_time_steps(simulation)
+
     use_time_path = (
         time_steps is not None
         or apply_time is not None
-        or (use_mcdc_movement and has_motion and len(inferred) > 1)
+        or (len(auto_time_candidates) > 1)
     )
 
     if use_time_path:
