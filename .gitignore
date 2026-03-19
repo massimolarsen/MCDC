@@ -73,3 +73,7 @@ share/
 
 *.mac
 *.txt
+
+*.vtp
+*.vtr
+*.pvd
