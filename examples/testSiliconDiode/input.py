@@ -117,8 +117,8 @@ for cell in sim.cells:
 
 # Visualize the geometry (samples points inside inferred bounding box)
 #visualizer_3d(sim, backend="pyvista", interactive=True)
-geo_viewer_3d(sim)
+#geo_viewer_3d(sim)
 
 
 # Run
-#mcdc.run()   
+mcdc.run()   
