@@ -1,7 +1,12 @@
+from pathlib import Path
+import sys
+
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import mcdc
-from mcdc.object_.tools.visualize_geometry import geo_viewer_3d
+from mcdc.visualization.geometry import geo_viewer_3d
 
 # ======================================================================================
 # Time-dependent CSG showcase

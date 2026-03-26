@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import inspect
 import numpy as np
 
-from mcdc.object_.tools.visualize_geometry_static import (
+from mcdc.visualization.geometry_static import (
     bounds_from_planes_with_shift,
-    zero_shift_map,
     cell_display_props,
     build_frame_cache_entry,
     render_frame_cache_entry,
@@ -51,39 +49,6 @@ def infer_time_steps(simulation):
     return sorted(times)
 
 
-def _resolve_apply_time_signature(apply_time):
-    sig = inspect.signature(apply_time)
-    has_varargs = any(
-        p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
-    )
-    positional = [
-        p
-        for p in sig.parameters.values()
-        if p.kind
-        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-    ]
-    if has_varargs or len(positional) >= 3:
-        return 3
-    if len(positional) == 2:
-        return 2
-    if len(positional) == 1:
-        return 1
-    return 0
-
-
-def _apply_time_state(apply_time, mode, simulation, time_value, step_index):
-    if apply_time is None:
-        return
-    if mode == 3:
-        apply_time(simulation, time_value, step_index)
-    elif mode == 2:
-        apply_time(simulation, time_value)
-    elif mode == 1:
-        apply_time(time_value)
-    else:
-        apply_time()
-
-
 def _format_frame_label(frame_idx, n_frames, time_value):
     width = max(2, len(str(int(n_frames))))
     return (
@@ -97,9 +62,7 @@ def geo_viewer_3d_time(
     primitive_resolution=48,
     alpha=0.6,
     time_steps=None,
-    apply_time=None,
     dynamic_bounds=False,
-    use_mcdc_movement=True,
     save_animation_path=None,
     animation_fps=12,
 ):
@@ -116,35 +79,22 @@ def geo_viewer_3d_time(
     plotter.show_grid()
 
     auto_time_steps = False
-    if time_steps is None and use_mcdc_movement:
-        has_motion = any(getattr(s, "moving", False) for s in simulation.surfaces) or any(
-            getattr(src, "moving", False) for src in getattr(simulation, "sources", [])
-        )
-        if has_motion:
-            inferred = infer_time_steps(simulation)
-            if len(inferred) > 1:
-                time_steps = inferred
-                auto_time_steps = True
+    if time_steps is None:
+        inferred = infer_time_steps(simulation)
+        if len(inferred) > 1:
+            time_steps = inferred
+            auto_time_steps = True
 
     if time_steps is None:
         raise ValueError(
             "time-dependent viewer requested without time steps; "
-            "provide time_steps or enable detectable MCDC movement."
+            "provide time_steps or define motion with Surface.move(...) or Source.move(...)."
         )
 
     times = list(time_steps)
     if len(times) == 0:
         raise ValueError("time_steps must contain at least one value.")
-    if apply_time is None and not use_mcdc_movement:
-        raise ValueError(
-            "time_steps were provided but neither apply_time nor mcdc movement is enabled. "
-            "Provide apply_time or set use_mcdc_movement=True."
-        )
-
-    apply_mode = _resolve_apply_time_signature(apply_time) if apply_time else 0
-    first_surface_shifts = (
-        surface_shift_map(simulation, times[0]) if use_mcdc_movement else zero_shift_map(simulation)
-    )
+    first_surface_shifts = surface_shift_map(simulation, times[0])
     static_bounds = (
         None
         if dynamic_bounds
@@ -156,20 +106,11 @@ def geo_viewer_3d_time(
     print(f"[geometry] Precomputing {len(times)} frames...")
     for idx, t in enumerate(times):
         print(f"[geometry]   frame {idx + 1}/{len(times)} (t={t})")
-        if apply_time is not None:
-            _apply_time_state(apply_time, apply_mode, simulation, t, idx)
-        if use_mcdc_movement:
-            surface_shifts = surface_shift_map(simulation, t)
-            source_shifts = {
-                src.ID: _translation_at_time(src, t)
-                for src in getattr(simulation, "sources", [])
-            }
-        else:
-            surface_shifts = zero_shift_map(simulation)
-            source_shifts = {
-                src.ID: np.zeros(3, dtype=float)
-                for src in getattr(simulation, "sources", [])
-            }
+        surface_shifts = surface_shift_map(simulation, t)
+        source_shifts = {
+            src.ID: _translation_at_time(src, t)
+            for src in getattr(simulation, "sources", [])
+        }
         bounds = (
             bounds_from_planes_with_shift(simulation, surface_shifts)
             if dynamic_bounds
