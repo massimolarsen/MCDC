@@ -106,7 +106,6 @@ sim = mcdc.object_.simulation.simulation
 time_steps = np.linspace(0.0, 6.0, 31)
 geo_viewer_3d(
     sim,
-    primitive_resolution=56,
     time_steps=time_steps,
     dynamic_bounds=False,
     save_animation_path="control_rod_drop.gif",

@@ -173,7 +173,6 @@ sim = mcdc.object_.simulation.simulation
 time_steps = np.linspace(0.0, 8.0, 81)
 geo_viewer_3d(
     sim,
-    primitive_resolution=64,
     time_steps=time_steps,
     dynamic_bounds=True,
     save_animation_path="moving_csg_stress.gif",
