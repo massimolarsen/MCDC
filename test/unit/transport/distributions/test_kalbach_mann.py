@@ -6,18 +6,30 @@ from .test_data import make_test_kalbach_mann_data
 
 
 def test_kalbach_mann_sample(rng_sequence, rng_state):
+    # MCNP Theory & User Manual §2.4.3.5.4.11 (Law 44: Kalbach-87 Correlated Energy-angle Scattering)
     kalbach, data = make_test_kalbach_mann_data()
 
-    # xi1 chooses table 1, xi2 samples within it, xi3/xi4 set mu deterministically.
+    # For E_in = 2.0 on the grid [1, 3], the interpolation fraction is r = 0.5.
+    # xi_1 = 0.3 < r, so the second energy table is selected.
     xi1, xi2, xi3, xi4 = 0.3, 0.1, 0.7, 0.5
     rng_sequence([xi1, xi2, xi3, xi4])
 
-    E, mu = dist.sample_kalbach_mann(2.0, rng_state, kalbach, data)
+    sampled_E, sampled_mu = dist.sample_kalbach_mann(2.0, rng_state, kalbach, data)
 
-    # Expected values from analytic reconstruction of the configured tables.
+    # Law 44 uses the Law 4 energy construction, so with xi_2 = 0.1 in the first bin
+    # of the selected table:
     E_min, E_max = 1.5, 4.5
     E_hat = 2.0 + (xi2 - 0.0) / 0.2
-    E_new = E_min + (E_hat - 2.0) / (6.0 - 2.0) * (E_max - E_min)
+    # As in the Law 4 tests, the constant bin PDF means Eq. (2.66) collapses to the
+    # simpler Eq. (2.65) interpolation for the sampled E'.
+    expected_E = E_min + (E_hat - 2.0) / (6.0 - 2.0) * (E_max - E_min)
 
-    assert math.isclose(E, E_new, rel_tol=0.0, abs_tol=1e-12)
-    assert math.isclose(mu, 0.0, rel_tol=0.0, abs_tol=1e-12)
+    # Eq. (2.90) and Eq. (2.91): with constant test data, the interpolation is trivial,
+    # so A = 1 and R = 0 at every point.
+    # Since xi_3 = 0.7 > R, Eq. (2.93) and Eq. (2.94) apply:
+    #   T = (2 * xi_4 - 1) * sinh(A) = 0
+    #   mu = ln(T + sqrt(T^2 + 1)) / A = 0
+    expected_mu = 0.0
+
+    assert math.isclose(sampled_E, expected_E, rel_tol=0.0, abs_tol=1e-12)
+    assert math.isclose(sampled_mu, expected_mu, rel_tol=0.0, abs_tol=1e-12)

@@ -12,14 +12,15 @@ from mcdc.constant import (
     ANGLE_DISTRIBUTED,
     INTERPOLATION_LINEAR,
     INTERPOLATION_LOG,
-    REACTION_NEUTRON_CAPTURE,
-    REACTION_NEUTRON_ELASTIC_SCATTERING,
-    REACTION_NEUTRON_FISSION,
-    REACTION_NEUTRON_INELASTIC_SCATTERING,
+    NEUTRON_REACTION_CAPTURE,
+    NEUTRON_REACTION_ELASTIC_SCATTERING,
+    NEUTRON_REACTION_FISSION,
+    NEUTRON_REACTION_INELASTIC_SCATTERING,
     REFERENCE_FRAME_COM,
     REFERENCE_FRAME_LAB,
 )
 from mcdc.object_.base import ObjectPolymorphic
+from mcdc.object_.data import encode_interpolation
 from mcdc.object_.distribution import (
     DistributionBase,
     DistributionMultiTable,
@@ -34,25 +35,27 @@ from mcdc.object_.simulation import simulation
 from mcdc.print_ import print_1d_array, print_error
 
 # ======================================================================================
-# Reaction base class
+# Neutron reaction base class
 # ======================================================================================
 
 
-class ReactionBase(ObjectPolymorphic):
+class NeutronReactionBase(ObjectPolymorphic):
     # Annotations for Numba mode
-    label: str = "reaction"
+    label: str = "neutron_reaction"
     #
     MT: int
     xs: NDArray[float64]
     xs_offset_: int  # "xs_offset" ir reserved for "xs"
     reference_frame: int
+    q_value: float64
 
-    def __init__(self, type_, MT, xs, xs_offset, reference_frame):
+    def __init__(self, type_, MT, xs, xs_offset, reference_frame, q_value):
         super().__init__(type_)
         self.MT = MT
         self.xs = xs
         self.xs_offset_ = xs_offset
         self.reference_frame = reference_frame
+        self.q_value = q_value
 
     def __repr__(self):
         text = "\n"
@@ -61,17 +64,18 @@ class ReactionBase(ObjectPolymorphic):
         text += f"  - MT: {self.MT}\n"
         text += f"  - XS {print_1d_array(self.xs)} barn\n"
         text += f"  - Reference frame: {decode_reference_frame(self.reference_frame)}\n"
+        text += f"  - Q-value: {self.q_value}\n"
         return text
 
 
 def decode_type(type_):
-    if type_ == REACTION_NEUTRON_ELASTIC_SCATTERING:
+    if type_ == NEUTRON_REACTION_ELASTIC_SCATTERING:
         return "Neutron elastic scattering"
-    elif type_ == REACTION_NEUTRON_CAPTURE:
+    elif type_ == NEUTRON_REACTION_CAPTURE:
         return "Neutron capture"
-    elif type_ == REACTION_NEUTRON_INELASTIC_SCATTERING:
+    elif type_ == NEUTRON_REACTION_INELASTIC_SCATTERING:
         return "Neutron inelastic scattering"
-    elif type_ == REACTION_NEUTRON_FISSION:
+    elif type_ == NEUTRON_REACTION_FISSION:
         return "Neutron fission"
 
 
@@ -87,20 +91,20 @@ def decode_reference_frame(type_):
 # ======================================================================================
 
 
-class ReactionNeutronElasticScattering(ReactionBase):
+class NeutronReactionElasticScattering(NeutronReactionBase):
     # Annotations for Numba mode
     label: str = "neutron_elastic_scattering_reaction"
     #
     mu_table: DistributionMultiTable
 
     def __init__(self, MT, xs, xs_offset, reference_frame, mu):
-        type_ = REACTION_NEUTRON_ELASTIC_SCATTERING
-        super().__init__(type_, MT, xs, xs_offset, reference_frame)
+        type_ = NEUTRON_REACTION_ELASTIC_SCATTERING
+        super().__init__(type_, MT, xs, xs_offset, reference_frame, 0.0)
         self.mu_table = mu
 
     @classmethod
     def from_h5_group(cls, h5_group):
-        MT, xs, xs_offset, reference_frame = set_basic_properties(h5_group)
+        MT, xs, xs_offset, reference_frame, _ = set_basic_properties(h5_group)
         _, mu = set_angular_distribution(h5_group["angular_cosine_distribution"])
         return cls(MT, xs, xs_offset, reference_frame, mu)
 
@@ -115,18 +119,18 @@ class ReactionNeutronElasticScattering(ReactionBase):
 # ======================================================================================
 
 
-class ReactionNeutronCapture(ReactionBase):
+class NeutronReactionCapture(NeutronReactionBase):
     # Annotations for Numba mode
     label: str = "neutron_capture_reaction"
 
-    def __init__(self, MT, xs, xs_offset, reference_frame):
-        type_ = REACTION_NEUTRON_CAPTURE
-        super().__init__(type_, MT, xs, xs_offset, reference_frame)
+    def __init__(self, MT, xs, xs_offset, reference_frame, q_value):
+        type_ = NEUTRON_REACTION_CAPTURE
+        super().__init__(type_, MT, xs, xs_offset, reference_frame, q_value)
 
     @classmethod
     def from_h5_group(cls, h5_group):
-        MT, xs, xs_offset, reference_frame = set_basic_properties(h5_group)
-        return cls(MT, xs, xs_offset, reference_frame)
+        MT, xs, xs_offset, reference_frame, q_value = set_basic_properties(h5_group)
+        return cls(MT, xs, xs_offset, reference_frame, q_value)
 
 
 # ======================================================================================
@@ -134,7 +138,7 @@ class ReactionNeutronCapture(ReactionBase):
 # ======================================================================================
 
 
-class ReactionNeutronInelasticScattering(ReactionBase):
+class NeutronReactionInelasticScattering(NeutronReactionBase):
     # Annotations for Numba mode
     label: str = "neutron_inelastic_scattering_reaction"
     #
@@ -155,6 +159,7 @@ class ReactionNeutronInelasticScattering(ReactionBase):
         xs,
         xs_offset,
         reference_frame,
+        q_value,
         multiplicity,
         angle_type,
         mu,
@@ -162,10 +167,9 @@ class ReactionNeutronInelasticScattering(ReactionBase):
         spectrum_probability,
         energy_spectra,
     ):
-        type_ = REACTION_NEUTRON_INELASTIC_SCATTERING
-        super().__init__(type_, MT, xs, xs_offset, reference_frame)
+        type_ = NEUTRON_REACTION_INELASTIC_SCATTERING
+        super().__init__(type_, MT, xs, xs_offset, reference_frame, q_value)
 
-        self.reference_frame = reference_frame
         self.multiplicity = multiplicity
         self.angle_type = angle_type
         self.mu = mu
@@ -177,7 +181,7 @@ class ReactionNeutronInelasticScattering(ReactionBase):
 
     @classmethod
     def from_h5_group(cls, h5_group):
-        MT, xs, xs_offset, reference_frame = set_basic_properties(h5_group)
+        MT, xs, xs_offset, reference_frame, q_value = set_basic_properties(h5_group)
         multiplicity = int(h5_group["multiplicity"][()])
 
         angle_type, mu = set_angular_distribution(
@@ -199,6 +203,7 @@ class ReactionNeutronInelasticScattering(ReactionBase):
             xs,
             xs_offset,
             reference_frame,
+            q_value,
             multiplicity,
             angle_type,
             mu,
@@ -227,7 +232,7 @@ class ReactionNeutronInelasticScattering(ReactionBase):
 # ======================================================================================
 
 
-class ReactionNeutronFission(ReactionBase):
+class NeutronReactionFission(NeutronReactionBase):
     # Annotations for Numba mode
     label: str = "neutron_fission_reaction"
     #
@@ -241,19 +246,20 @@ class ReactionNeutronFission(ReactionBase):
         xs,
         xs_offset,
         reference_frame,
+        q_value,
         angle_type,
         mu,
         spectrum,
     ):
-        type_ = REACTION_NEUTRON_FISSION
-        super().__init__(type_, MT, xs, xs_offset, reference_frame)
+        type_ = NEUTRON_REACTION_FISSION
+        super().__init__(type_, MT, xs, xs_offset, reference_frame, q_value)
         self.angle_type = angle_type
         self.mu = mu
         self.spectrum = spectrum
 
     @classmethod
     def from_h5_group(cls, h5_group):
-        MT, xs, xs_offset, reference_frame = set_basic_properties(h5_group)
+        MT, xs, xs_offset, reference_frame, q_value = set_basic_properties(h5_group)
 
         # Prompt angular distribution
         angle_type, mu = set_angular_distribution(
@@ -266,7 +272,9 @@ class ReactionNeutronFission(ReactionBase):
             print_error("Unsupported multi-distribution prompt fission spectrum")
         spectrum = set_energy_distribution(h5_group[f"energy_spectrum-1"])
 
-        return cls(MT, xs, xs_offset, reference_frame, angle_type, mu, spectrum)
+        return cls(
+            MT, xs, xs_offset, reference_frame, q_value, angle_type, mu, spectrum
+        )
 
     def __repr__(self):
         text = super().__repr__()
@@ -296,7 +304,8 @@ def set_basic_properties(h5_group):
         reference_frame = REFERENCE_FRAME_LAB
     elif reference_frame == "COM":
         reference_frame = REFERENCE_FRAME_COM
-    return MT, xs, xs_offset, reference_frame
+    q_value = h5_group["Q-value"][()]
+    return MT, xs, xs_offset, reference_frame, q_value
 
 
 def set_angular_distribution(h5_group):
@@ -338,23 +347,36 @@ def set_energy_distribution(h5_group):
         energy = h5_group[f"temperature_energy_grid"][()] * 1e6  # MeV to eV
         temperature = h5_group[f"temperature"][()] * 1e6  # MeV to eV
         restriction_energy = h5_group[f"restriction_energy"][()] * 1e6  # MeV to eV
+        interpolations = [
+            encode_interpolation(x.decode("utf-8"))
+            for x in h5_group[f"temperature_interpolations"][()]
+        ]
+        interpolation_boundaries = h5_group["interpolation_boundaries"][()]
 
         energy_spectrum = DistributionEvaporation(
-            energy, temperature, restriction_energy
+            energy,
+            temperature,
+            restriction_energy,
+            interpolations,
+            interpolation_boundaries,
         )
 
     elif spectrum_type == "maxwellian":
         energy = h5_group[f"temperature_energy_grid"][()] * 1e6  # MeV to eV
         temperature = h5_group[f"temperature"][()] * 1e6  # MeV to eV
         restriction_energy = h5_group[f"restriction_energy"][()] * 1e6  # MeV to eV
-        interpolation = h5_group[f"temperature_interpolation"][()].decode("utf-8")
-        if interpolation == "linear":
-            interpolation = INTERPOLATION_LINEAR
-        elif interpolation == "log":
-            interpolation = INTERPOLATION_LOG
+        interpolations = [
+            encode_interpolation(x.decode("utf-8"))
+            for x in h5_group[f"temperature_interpolations"][()]
+        ]
+        interpolation_boundaries = h5_group["interpolation_boundaries"][()]
 
         energy_spectrum = DistributionMaxwellian(
-            energy, temperature, restriction_energy, interpolation
+            energy,
+            temperature,
+            restriction_energy,
+            interpolations,
+            interpolation_boundaries,
         )
 
     elif spectrum_type == "kalbach-mann":
