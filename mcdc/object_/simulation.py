@@ -53,6 +53,7 @@ class Simulation(ObjectSingleton):
         "bank_census",
         "bank_source",
         "bank_future",
+        "bank_handoff",
     ]
 
     # Physics
@@ -91,6 +92,7 @@ class Simulation(ObjectSingleton):
     bank_census: ParticleBank
     bank_source: ParticleBank
     bank_future: ParticleBank
+    bank_handoff: ParticleBank
 
     # Simulation parameters
     idx_work: int
@@ -180,6 +182,7 @@ class Simulation(ObjectSingleton):
         self.bank_census = ParticleBank(tag="census")
         self.bank_source = ParticleBank(tag="source")
         self.bank_future = ParticleBank(tag="future")
+        self.bank_handoff = ParticleBank(tag="handoff")
 
         # ==============================================================================
         # Simulation parameters

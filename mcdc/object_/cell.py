@@ -144,6 +144,7 @@ class Cell(ObjectNonSingleton):
     #
     fill_type: int
     fill_ID: int
+    handoff: bool
 
     def __init__(
         self,
@@ -152,6 +153,7 @@ class Cell(ObjectNonSingleton):
         name: str = "",
         translation: Iterable[float] = [0.0, 0.0, 0.0],
         rotation: Iterable[float] = [0.0, 0.0, 0.0],
+        handoff: bool = False,
     ):
         super().__init__()
 
@@ -195,6 +197,7 @@ class Cell(ObjectNonSingleton):
 
         # Cell tallies
         self.tallies = []
+        self.handoff = handoff
 
         # ==============================================================================
         # Numba attribute manual set up
@@ -236,6 +239,8 @@ class Cell(ObjectNonSingleton):
         text += f"  - Bounding surfaces: {[x.ID for x in self.surfaces]}\n"
         if len(self.tallies) > 0:
             text += f"  - Tallies: {[x.ID for x in self.tallies]}\n"
+        if self.handoff:
+            text += "  - Handoff enabled: True\n"
         return text
 
 

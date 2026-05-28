@@ -43,7 +43,13 @@ type_map = {
     np.uintp: np.uintp,
 }
 
-bank_names = ["bank_active", "bank_census", "bank_source", "bank_future"]
+bank_names = [
+    "bank_active",
+    "bank_census",
+    "bank_source",
+    "bank_future",
+    "bank_handoff",
+]
 
 # ======================================================================================
 # Gather and group the classes
@@ -386,6 +392,7 @@ def generate_numba_objects(simulation):
     type_.set_bank_census({"particle_data": simulation.bank_census.size[0]})
     type_.set_bank_source({"particle_data": simulation.bank_source.size[0]})
     type_.set_bank_future({"particle_data": simulation.bank_future.size[0]})
+    type_.set_bank_handoff({"particle_data": simulation.bank_handoff.size[0]})
 
     # Simulation
     N = {}

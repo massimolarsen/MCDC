@@ -81,9 +81,22 @@ def run():
     # ==================================================================================
 
     import mcdc.output as output_module
+    import mcdc.coupling.geant4_handoff as geant4_handoff
 
     # TIMER: output
     time_output_start = MPI.Wtime()
+
+    # Optional Geant4 handoff coupling. This is intentionally outside the Numba
+    # transport kernels and runs only at a coarse simulation boundary.
+    if simulation["mpi_master"] and geant4_handoff.is_enabled():
+        coupling_summary = geant4_handoff.run_handoff_from_simulation(simulation)
+        print_module.print_msg(
+            " Geant4 handoff summary: "
+            f"handoff_bank_size={coupling_summary['handoff_bank_size']} "
+            f"loaded_primaries={coupling_summary['loaded_primaries']} "
+            f"events_run={coupling_summary['events_run']} "
+            f"status={coupling_summary['status']}"
+        )
 
     # Generate hdf5 output file
     output_module.generate_output(simulation, data)
@@ -228,12 +241,14 @@ def preparation():
         settings.census_bank_buffer_ratio = 0.0
         settings.source_bank_buffer_ratio = 0.0
     size_active = settings.active_bank_buffer
+    size_handoff = settings.handoff_bank_buffer
     size_census = int((settings.census_bank_buffer_ratio) * N_work)
     size_source = int((settings.source_bank_buffer_ratio) * N_work)
     size_future = int((settings.future_bank_buffer_ratio) * N_work)
 
     # Set bank size
     simulationPy.bank_active.size[0] = size_active
+    simulationPy.bank_handoff.size[0] = size_handoff
     simulationPy.bank_census.size[0] = size_census
     simulationPy.bank_source.size[0] = size_source
     simulationPy.bank_future.size[0] = size_future

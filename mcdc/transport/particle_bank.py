@@ -85,6 +85,16 @@ def bank_future_particle(particle_container, program):
 
 
 @njit
+def bank_handoff_particle(particle_container, program):
+    simulation = util.access_simulation(program)
+    bank = simulation["bank_handoff"]
+    _bank_particle(particle_container, bank)
+
+    # Increment bank size
+    add_bank_size(bank, 1)
+
+
+@njit
 def bank_source_particle(particle_container, simulation):
     bank = simulation["bank_source"]
     _bank_particle(particle_container, bank)

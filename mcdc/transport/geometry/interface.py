@@ -8,6 +8,7 @@ from numba import njit
 import mcdc.mcdc_get as mcdc_get
 import mcdc.literals as literals
 import mcdc.transport.mesh as mesh
+import mcdc.transport.particle_bank as particle_bank_module
 import mcdc.transport.physics as physics
 import mcdc.transport.tally as tally_module
 import mcdc.transport.util as util
@@ -467,10 +468,10 @@ def surface_crossing(P_arr, simulation, data):
 
     # Score cell net-current tallies tied to this crossed surface.
     if BC != BC_REFLECTIVE:
+        pre_cell_ID, post_cell_ID = _get_crossing_top_cell_IDs(
+            P_arr, simulation, data
+        )
         if simulation["N_cell_tally"] > 0:
-            pre_cell_ID, post_cell_ID = _get_crossing_top_cell_IDs(
-                P_arr, simulation, data
-            )
             _score_cell_current_tallies(
                 P_arr, pre_cell_ID, pre_cell_ID, post_cell_ID, simulation, data
             )
@@ -478,6 +479,10 @@ def surface_crossing(P_arr, simulation, data):
                 _score_cell_current_tallies(
                     P_arr, post_cell_ID, pre_cell_ID, post_cell_ID, simulation, data
                 )
+        if pre_cell_ID != post_cell_ID and post_cell_ID >= 0:
+            entered_cell = simulation["cells"][post_cell_ID]
+            if entered_cell["handoff"]:
+                particle_bank_module.bank_handoff_particle(P_arr, simulation)
 
     # Need to check new cell later?
     if P["alive"] and not BC == BC_REFLECTIVE:

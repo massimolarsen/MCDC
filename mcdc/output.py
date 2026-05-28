@@ -39,9 +39,11 @@ def generate_output(mcdc, data):
 
     # Settings
     create_object_dataset(file, "settings", simulation.settings)
+    write_handoff_bank_dataset(file, mcdc)
 
     # No need to output tally if time census-based tally is used
     if mcdc["settings"]["use_census_based_tally"]:
+        file.close()
         return
 
     # Tallies
@@ -84,6 +86,16 @@ def generate_output(mcdc, data):
 
     # Close the file
     file.close()
+
+
+def write_handoff_bank_dataset(file, mcdc):
+    N = int(mcdc["bank_handoff"]["size"][0])
+    file.create_dataset("handoff/particles_size", data=N)
+    if N <= 0:
+        return
+
+    particles = mcdc["bank_handoff"]["particle_data"][:N]
+    file.create_dataset("handoff/particles", data=particles)
 
 
 # ======================================================================================

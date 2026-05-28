@@ -116,4 +116,6 @@ import mcdc.mcdc_get.bank_source as bank_source
 
 import mcdc.mcdc_get.bank_future as bank_future
 
+import mcdc.mcdc_get.bank_handoff as bank_handoff
+
 import mcdc.mcdc_get.simulation as simulation

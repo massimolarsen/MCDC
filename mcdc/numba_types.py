@@ -60,6 +60,7 @@ cell = into_dtype([
     ('tally_IDs_offset', int64),
     ('fill_type', int64),
     ('fill_ID', int64),
+    ('handoff', bool),
     ('ID', int64),
 ])
 
@@ -551,6 +552,7 @@ settings = into_dtype([
     ('census_tally_frequency', int64),
     ('save_particle', bool),
     ('active_bank_buffer', int64),
+    ('handoff_bank_buffer', int64),
     ('census_bank_buffer_ratio', float64),
     ('source_bank_buffer_ratio', float64),
     ('future_bank_buffer_ratio', float64),
@@ -760,6 +762,15 @@ def set_bank_future(N: dict):
         ('particle_data', particle_data, (N['particle_data'],)),
     ])
 
+bank_handoff = None
+def set_bank_handoff(N: dict):
+    global bank_handoff
+    bank_handoff = into_dtype([
+        ('size', int64, (1,)),
+        ('tag', 'U32'),
+        ('particle_data', particle_data, (N['particle_data'],)),
+    ])
+
 simulation = None
 def set_simulation(N: dict):
     global simulation
@@ -857,6 +868,7 @@ def set_simulation(N: dict):
         ('weight_windows', weight_windows),
         ('population_control', population_control),
         ('gpu_meta', gpu_meta),
+        ('bank_handoff', bank_handoff),
         ('bank_future', bank_future),
         ('bank_source', bank_source),
         ('bank_census', bank_census),
