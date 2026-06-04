@@ -8,7 +8,7 @@ import numpy as np
 
 def _load_geant4_export_module():
     module_path = (
-        Path(__file__).resolve().parents[2] / "mcdc" / "geant4_export.py"
+        Path(__file__).resolve().parents[3] / "mcdc" / "geant4_export.py"
     )
     spec = importlib.util.spec_from_file_location("mcdc_geant4_export", module_path)
     module = importlib.util.module_from_spec(spec)

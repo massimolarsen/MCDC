@@ -73,22 +73,19 @@ def _convert_handoff_bank_to_geant4(particles: np.ndarray) -> np.ndarray:
             "Handoff bank contains non-neutron particles; current Geant4 bridge supports neutrons only."
         )
 
-    rows = particles
-    bank = np.empty((len(rows), 10), dtype=np.float64)
-    if len(rows) == 0:
-        return bank
+    bank = np.empty((len(particles), 10), dtype=np.float64)
 
     # particle_id, x_mm, y_mm, z_mm, ux, uy, uz, E_MeV, weight, time_ns
-    bank[:, 0] = 2112.0
-    bank[:, 1] = rows["x"] * 10.0
-    bank[:, 2] = rows["y"] * 10.0
-    bank[:, 3] = rows["z"] * 10.0
-    bank[:, 4] = rows["ux"]
-    bank[:, 5] = rows["uy"]
-    bank[:, 6] = rows["uz"]
-    bank[:, 7] = rows["E"] * 1.0e-6
-    bank[:, 8] = rows["w"]
-    bank[:, 9] = rows["t"] * 1.0e9
+    bank[:, 0] = 2112.0 # neutron id
+    bank[:, 1] = particles["x"] * 10.0 # convert to cm
+    bank[:, 2] = particles["y"] * 10.0 # convert to cm
+    bank[:, 3] = particles["z"] * 10.0 # convert to cm
+    bank[:, 4] = particles["ux"]
+    bank[:, 5] = particles["uy"]
+    bank[:, 6] = particles["uz"]
+    bank[:, 7] = particles["E"] * 1.0e-6 # convert to eV
+    bank[:, 8] = particles["w"]
+    bank[:, 9] = particles["t"] * 1.0e9 # convert to s
     return bank
 
 
@@ -150,9 +147,18 @@ def run_handoff_from_simulation(simulation: np.ndarray) -> dict[str, Any]:
         "loaded_primaries": int(results.loaded_primaries),
         "events_run": int(results.last_events_run),
         "status": str(results.status),
-        "match": int(results.loaded_primaries) == N,
+        "primary_summary": {
+            "first_primary": list(results.first_primary),
+            "last_primary": list(results.last_primary),
+            "min_position_mm": list(results.min_position_mm),
+            "max_position_mm": list(results.max_position_mm),
+            "min_direction": list(results.min_direction),
+            "max_direction": list(results.max_direction),
+            "min_energy_mev": float(results.min_energy_mev),
+            "max_energy_mev": float(results.max_energy_mev),
+        },
     }
-    if not summary["match"]:
+    if summary["loaded_primaries"] != N:
         raise RuntimeError(
             "Geant4 coupling mismatch: loaded_primaries does not match handoff bank size."
         )
