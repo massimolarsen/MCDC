@@ -40,6 +40,86 @@ from mcdc.transport.tally.filter import get_filter_indices
 
 
 @njit
+def _surface_mesh_bin(value, lower, upper, N):
+    if value < lower - COINCIDENCE_TOLERANCE:
+        return -1
+    if value > upper + COINCIDENCE_TOLERANCE:
+        return -1
+    if value <= lower + COINCIDENCE_TOLERANCE:
+        return 0
+    if value >= upper - COINCIDENCE_TOLERANCE:
+        return N - 1
+
+    i = int((value - lower) / (upper - lower) * N)
+    if i < 0:
+        return 0
+    if i >= N:
+        return N - 1
+    return i
+
+
+@njit
+def _surface_mesh_indices(particle, surface, tally):
+    surface_ID = surface["ID"]
+    x = particle["x"]
+    y = particle["y"]
+    z = particle["z"]
+    Nu = tally["surface_mesh_Nu"]
+    Nv = tally["surface_mesh_Nv"]
+
+    if surface_ID == tally["surface_mesh_xmin_surface_ID"]:
+        i_u = _surface_mesh_bin(
+            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
+        )
+        return 0, i_u, i_v
+    if surface_ID == tally["surface_mesh_xmax_surface_ID"]:
+        i_u = _surface_mesh_bin(
+            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
+        )
+        return 1, i_u, i_v
+    if surface_ID == tally["surface_mesh_ymin_surface_ID"]:
+        i_u = _surface_mesh_bin(
+            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
+        )
+        return 2, i_u, i_v
+    if surface_ID == tally["surface_mesh_ymax_surface_ID"]:
+        i_u = _surface_mesh_bin(
+            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
+        )
+        return 3, i_u, i_v
+    if surface_ID == tally["surface_mesh_zmin_surface_ID"]:
+        i_u = _surface_mesh_bin(
+            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nv
+        )
+        return 4, i_u, i_v
+    if surface_ID == tally["surface_mesh_zmax_surface_ID"]:
+        i_u = _surface_mesh_bin(
+            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nv
+        )
+        return 5, i_u, i_v
+
+    return -1, -1, -1
+
+
+@njit
 def surface_tally(
     particle_container,
     surface,
@@ -81,6 +161,16 @@ def surface_tally(
         exited = pre_cell_ID == target_cell_ID and post_cell_ID != target_cell_ID
         if not entered and not exited:
             return
+
+    if tally["use_surface_mesh"]:
+        i_face, i_u, i_v = _surface_mesh_indices(particle, surface, tally)
+        if i_face == -1 or i_u == -1 or i_v == -1:
+            return
+        idx_base += (
+            i_face * tally["surface_mesh_stride_face"]
+            + i_u * tally["surface_mesh_stride_u"]
+            + i_v * tally["surface_mesh_stride_v"]
+        )
 
     flux = 0.0
     mu = 0.0

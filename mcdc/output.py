@@ -153,7 +153,7 @@ def create_runtime_dataset(file, mcdc):
 
 
 def create_tally_dataset(file, mcdc, data):
-    from mcdc.constant import TALLY_TRACKLENGTH, TALLY_COLLISION
+    from mcdc.constant import TALLY_TRACKLENGTH, TALLY_COLLISION, TALLY_SURFACE
     from mcdc.object_.tally import decode_score_type
 
     # Loop over all tally types
@@ -211,6 +211,18 @@ def create_tally_dataset(file, mcdc, data):
             file.create_dataset(f"tallies/{tally_name}/grid/y", data=y)
             file.create_dataset(f"tallies/{tally_name}/grid/z", data=z)
 
+        surface_mesh_tally = None
+        if tally["child_type"] == TALLY_SURFACE:
+            surface_tally = mcdc["surface_tallies"][tally["child_ID"]]
+            if surface_tally["use_surface_mesh"]:
+                surface_mesh_tally = surface_tally
+
+        if surface_mesh_tally is not None:
+            face, u, v = _surface_mesh_grids(surface_mesh_tally)
+            file.create_dataset(f"tallies/{tally_name}/grid/face", data=face)
+            file.create_dataset(f"tallies/{tally_name}/grid/u", data=u)
+            file.create_dataset(f"tallies/{tally_name}/grid/v", data=v)
+
         # Get and reshape tally
         N_bin = tally["bin_length"]
         start_mean = tally["bin_sum_offset"]
@@ -228,18 +240,55 @@ def create_tally_dataset(file, mcdc, data):
             and mesh_filtered_tally["spatial_filter_type"] == SPATIAL_FILTER_MESH
         ):
             roll_reference = 7
+        if surface_mesh_tally is not None:
+            roll_reference = 7
         mean = np.rollaxis(mean, roll_reference, 0)
         sdev = np.rollaxis(sdev, roll_reference, 0)
 
         # Iterate over scores
         for i in range(tally["scores_length"]):
             score_type = mcdc_get.tally.scores(i, tally, data)
-            score_mean = np.squeeze(mean[i])
-            score_sdev = np.squeeze(sdev[i])
+            if surface_mesh_tally is not None:
+                score_mean = mean[i]
+                score_sdev = sdev[i]
+            else:
+                score_mean = np.squeeze(mean[i])
+                score_sdev = np.squeeze(sdev[i])
             score_name = decode_score_type(score_type, lower_case=True)
             group_name = f"tallies/{tally_name}/{score_name}/"
             file.create_dataset(group_name + "mean", data=score_mean)
             file.create_dataset(group_name + "sdev", data=score_sdev)
+
+
+def _surface_mesh_grids(surface_tally):
+    Nu = surface_tally["surface_mesh_Nu"]
+    Nv = surface_tally["surface_mesh_Nv"]
+    x = np.linspace(
+        surface_tally["surface_mesh_x_min"],
+        surface_tally["surface_mesh_x_max"],
+        Nu + 1,
+    )
+    y = np.linspace(
+        surface_tally["surface_mesh_y_min"],
+        surface_tally["surface_mesh_y_max"],
+        Nu + 1,
+    )
+    y_v = np.linspace(
+        surface_tally["surface_mesh_y_min"],
+        surface_tally["surface_mesh_y_max"],
+        Nv + 1,
+    )
+    z = np.linspace(
+        surface_tally["surface_mesh_z_min"],
+        surface_tally["surface_mesh_z_max"],
+        Nv + 1,
+    )
+
+    face = np.asarray(["xmin", "xmax", "ymin", "ymax", "zmin", "zmax"], dtype="S4")
+    u = np.asarray([y, y, x, x, x, x])
+    v = np.asarray([z, z, z, z, y_v, y_v])
+
+    return face, u, v
 
 
 def generate_census_based_tally(mcdc, data):

@@ -101,11 +101,17 @@ class Tally(ObjectPolymorphic):
         x: Iterable[float] | NoneType = None,
         y: Iterable[float] | NoneType = None,
         z: Iterable[float] | NoneType = None,
+        surface_mesh: Iterable[int] | NoneType = None,
     ) -> TallySurface | TallyTracklength | TallyCollision:
         # Determine type and create the tally self based on the provided
         # spatial filters and scores
 
         has_current_score = any(score in CELL_CURRENT_SCORES for score in scores)
+
+        if surface_mesh is not None and not has_current_score:
+            print_error(
+                "surface_mesh is supported only for cell-filtered current tallies."
+            )
 
         # Surface/cell current tally
         if has_current_score:
@@ -127,6 +133,11 @@ class Tally(ObjectPolymorphic):
             if surface is not None and not set(scores) <= SURFACE_SCORES:
                 print_error(
                     "Surface tally currently supports only " "scores=['net-current']."
+                )
+
+            if surface_mesh is not None and surface is not None:
+                print_error(
+                    "surface_mesh is supported only for cell-filtered current tallies."
                 )
 
             # Cell-filtered current tallies share the surface-crossing estimator.
@@ -330,6 +341,78 @@ def decode_score_type(type_, lower_case=False):
         return "Current out" if not lower_case else "current-out"
 
 
+def _parse_surface_mesh(surface_mesh):
+    mesh = tuple(surface_mesh)
+    if len(mesh) != 2:
+        print_error("surface_mesh must be a two-value tuple: (Nu, Nv).")
+    Nu, Nv = mesh
+    try:
+        Nu = operator.index(Nu)
+        Nv = operator.index(Nv)
+    except TypeError:
+        print_error("surface_mesh values must be integers.")
+    if Nu <= 0 or Nv <= 0:
+        print_error("surface_mesh values must be positive.")
+    return Nu, Nv
+
+
+def _box_surface_mesh_metadata(cell):
+    surfaces_by_type = {
+        SURFACE_PLANE_X: [],
+        SURFACE_PLANE_Y: [],
+        SURFACE_PLANE_Z: [],
+    }
+    for surface in cell.surfaces:
+        if surface.type not in surfaces_by_type:
+            print_error(
+                "surface_mesh currently supports only axis-aligned box cells "
+                "bounded by PlaneX, PlaneY, and PlaneZ surfaces."
+            )
+        surfaces_by_type[surface.type].append(surface)
+
+    for surfaces in surfaces_by_type.values():
+        if len(surfaces) != 2:
+            print_error(
+                "surface_mesh currently supports only axis-aligned box cells "
+                "with exactly two PlaneX, two PlaneY, and two PlaneZ surfaces."
+            )
+
+    x_surfaces = sorted(
+        surfaces_by_type[SURFACE_PLANE_X], key=lambda surface: -surface.J
+    )
+    y_surfaces = sorted(
+        surfaces_by_type[SURFACE_PLANE_Y], key=lambda surface: -surface.J
+    )
+    z_surfaces = sorted(
+        surfaces_by_type[SURFACE_PLANE_Z], key=lambda surface: -surface.J
+    )
+
+    x_min = -x_surfaces[0].J
+    x_max = -x_surfaces[1].J
+    y_min = -y_surfaces[0].J
+    y_max = -y_surfaces[1].J
+    z_min = -z_surfaces[0].J
+    z_max = -z_surfaces[1].J
+
+    if x_min >= x_max or y_min >= y_max or z_min >= z_max:
+        print_error("surface_mesh box bounds must have positive extent in x, y, and z.")
+
+    return {
+        "xmin_surface_ID": x_surfaces[0].ID,
+        "xmax_surface_ID": x_surfaces[1].ID,
+        "ymin_surface_ID": y_surfaces[0].ID,
+        "ymax_surface_ID": y_surfaces[1].ID,
+        "zmin_surface_ID": z_surfaces[0].ID,
+        "zmax_surface_ID": z_surfaces[1].ID,
+        "x_min": x_min,
+        "x_max": x_max,
+        "y_min": y_min,
+        "y_max": y_max,
+        "z_min": z_min,
+        "z_max": z_max,
+    }
+
+
 # ======================================================================================
 # Surface tally
 # ======================================================================================
@@ -354,6 +437,24 @@ class TallySurface(Tally):
     y_max: float
     z_min: float
     z_max: float
+    use_surface_mesh: bool
+    surface_mesh_Nu: int
+    surface_mesh_Nv: int
+    surface_mesh_stride_face: int
+    surface_mesh_stride_u: int
+    surface_mesh_stride_v: int
+    surface_mesh_xmin_surface_ID: int
+    surface_mesh_xmax_surface_ID: int
+    surface_mesh_ymin_surface_ID: int
+    surface_mesh_ymax_surface_ID: int
+    surface_mesh_zmin_surface_ID: int
+    surface_mesh_zmax_surface_ID: int
+    surface_mesh_x_min: float
+    surface_mesh_x_max: float
+    surface_mesh_y_min: float
+    surface_mesh_y_max: float
+    surface_mesh_z_min: float
+    surface_mesh_z_max: float
 
     def __init__(
         self,
@@ -369,8 +470,22 @@ class TallySurface(Tally):
         x: Iterable[float] | NoneType = None,
         y: Iterable[float] | NoneType = None,
         z: Iterable[float] | NoneType = None,
+        surface_mesh: Iterable[int] | NoneType = None,
     ):
         type_ = TALLY_SURFACE
+        surface_mesh_shape = None
+        surface_mesh_metadata = None
+        surface_mesh_Nu = 0
+        surface_mesh_Nv = 0
+        if surface_mesh is not None:
+            if surface is not None or cell is None:
+                print_error(
+                    "surface_mesh is supported only for cell-filtered current tallies."
+                )
+            surface_mesh_Nu, surface_mesh_Nv = _parse_surface_mesh(surface_mesh)
+            surface_mesh_metadata = _box_surface_mesh_metadata(cell)
+            surface_mesh_shape = (6, surface_mesh_Nu, surface_mesh_Nv)
+
         super(Tally, self).__init__(type_)
         super().__init__(
             name,
@@ -380,6 +495,7 @@ class TallySurface(Tally):
             polar_reference=polar_reference,
             energy=energy,
             time=time,
+            spatial_shape=surface_mesh_shape,
         )
 
         if SCORE_ENERGY_DEPOSITION in self.scores:
@@ -418,6 +534,44 @@ class TallySurface(Tally):
         self.y_max = INF
         self.z_min = -INF
         self.z_max = INF
+
+        self.use_surface_mesh = surface_mesh is not None
+        self.surface_mesh_Nu = surface_mesh_Nu
+        self.surface_mesh_Nv = surface_mesh_Nv
+        self.surface_mesh_stride_face = 0
+        self.surface_mesh_stride_u = 0
+        self.surface_mesh_stride_v = 0
+        self.surface_mesh_xmin_surface_ID = -1
+        self.surface_mesh_xmax_surface_ID = -1
+        self.surface_mesh_ymin_surface_ID = -1
+        self.surface_mesh_ymax_surface_ID = -1
+        self.surface_mesh_zmin_surface_ID = -1
+        self.surface_mesh_zmax_surface_ID = -1
+        self.surface_mesh_x_min = 0.0
+        self.surface_mesh_x_max = 0.0
+        self.surface_mesh_y_min = 0.0
+        self.surface_mesh_y_max = 0.0
+        self.surface_mesh_z_min = 0.0
+        self.surface_mesh_z_max = 0.0
+        if self.use_surface_mesh:
+            N_score = len(self.scores)
+            self.surface_mesh_stride_v = N_score
+            self.surface_mesh_stride_u = self.surface_mesh_Nv * N_score
+            self.surface_mesh_stride_face = (
+                self.surface_mesh_Nu * self.surface_mesh_Nv * N_score
+            )
+            self.surface_mesh_xmin_surface_ID = surface_mesh_metadata["xmin_surface_ID"]
+            self.surface_mesh_xmax_surface_ID = surface_mesh_metadata["xmax_surface_ID"]
+            self.surface_mesh_ymin_surface_ID = surface_mesh_metadata["ymin_surface_ID"]
+            self.surface_mesh_ymax_surface_ID = surface_mesh_metadata["ymax_surface_ID"]
+            self.surface_mesh_zmin_surface_ID = surface_mesh_metadata["zmin_surface_ID"]
+            self.surface_mesh_zmax_surface_ID = surface_mesh_metadata["zmax_surface_ID"]
+            self.surface_mesh_x_min = surface_mesh_metadata["x_min"]
+            self.surface_mesh_x_max = surface_mesh_metadata["x_max"]
+            self.surface_mesh_y_min = surface_mesh_metadata["y_min"]
+            self.surface_mesh_y_max = surface_mesh_metadata["y_max"]
+            self.surface_mesh_z_min = surface_mesh_metadata["z_min"]
+            self.surface_mesh_z_max = surface_mesh_metadata["z_max"]
 
         if self.spatial_filter_type == SPATIAL_FILTER_CELL and (
             x is not None or y is not None or z is not None
@@ -483,7 +637,13 @@ class TallySurface(Tally):
         elif self.spatial_filter_type == SPATIAL_FILTER_CELL:
             text += f"  - Cell filter: {self.spatial_filter.name}\n"
         text += super()._phasespace_filter_text()
-        text += f"  - Bin shape [mu, azi, energy, time, score]: {self.bin_shape} \n"
+        if self.use_surface_mesh:
+            text += (
+                "  - Bin shape [mu, azi, energy, time, face, u, v, score]: "
+                f"{self.bin_shape} \n"
+            )
+        else:
+            text += f"  - Bin shape [mu, azi, energy, time, score]: {self.bin_shape} \n"
         return text
 
 
