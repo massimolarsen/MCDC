@@ -38,4 +38,3 @@ def enable_geant4_handoff(**kwargs):
 
 def disable_geant4_handoff():
     _geant4_handoff.configure(enabled=False)
-    _geant4_handoff.reset()
