@@ -160,6 +160,40 @@ def test_build_source_distribution_payload_uses_current_in_tally():
     assert payload["total_weight"] == np.sum(weights)
 
 
+def test_build_source_distribution_payload_warns_when_collapsing_time_bins():
+    simulation, data, weights = _distribution_simulation_and_data()
+    tally = simulation["tallies"][0]
+
+    shape_offset = int(tally["bin_shape_offset"])
+    mean_offset = int(tally["bin_sum_offset"])
+    scores_offset = int(tally["scores_offset"])
+    scores_length = int(tally["scores_length"])
+    scores = data[scores_offset : scores_offset + scores_length].astype(int)
+    current_idx = int(np.where(scores == SCORE_CURRENT_IN)[0][0])
+
+    shape = np.asarray([2, 2, 2, 2, len(scores)], dtype=np.float64)
+    mean = np.zeros(tuple(shape.astype(int)), dtype=np.float64)
+    mean[..., 0, current_idx] = weights
+    mean[..., 1, current_idx] = weights
+
+    data[shape_offset : shape_offset + len(shape)] = shape
+    data = np.concatenate([data[:mean_offset], mean.ravel()])
+    tally["bin_length"] = mean.size
+
+    with pytest.warns(RuntimeWarning, match="collapses tally axes"):
+        payload = build_distribution_payload(simulation, data, _distribution_config())
+
+    np.testing.assert_allclose(payload["weights"], (2.0 * weights).ravel())
+
+
+def test_build_source_distribution_payload_rejects_missing_tally_field():
+    simulation, data, _ = _distribution_simulation_and_data()
+    del simulation["tallies"][0]["bin_sum_offset"]
+
+    with pytest.raises(RuntimeError, match="missing required fields: bin_sum_offset"):
+        build_distribution_payload(simulation, data, _distribution_config())
+
+
 @pytest.mark.parametrize(
     "config_update, match",
     [

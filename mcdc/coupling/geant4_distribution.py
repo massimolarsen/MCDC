@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -45,6 +46,30 @@ def build_source_distribution_payload(
     if tally is None:
         raise RuntimeError(
             f"Could not find source tally named '{cfg.source_tally_name}'."
+        )
+
+    required_fields = (
+        "filter_direction",
+        "filter_energy",
+        "scores_offset",
+        "scores_length",
+        "mu_offset",
+        "mu_length",
+        "azi_offset",
+        "azi_length",
+        "energy_offset",
+        "energy_length",
+        "bin_shape_offset",
+        "bin_shape_length",
+        "bin_sum_offset",
+        "bin_length",
+    )
+    tally_fields = tally.keys() if isinstance(tally, dict) else tally.dtype.names
+    missing_fields = [field for field in required_fields if field not in tally_fields]
+    if missing_fields:
+        raise RuntimeError(
+            "Distribution source tally is missing required fields: "
+            + ", ".join(missing_fields)
         )
 
     if not bool(tally["filter_direction"]):
@@ -93,6 +118,13 @@ def build_source_distribution_payload(
     if current_in_mean.ndim < 4:
         raise RuntimeError(
             "Distribution source tally must have mu/azi/energy/time axes."
+        )
+
+    if any(size > 1 for size in current_in_mean.shape[3:]):
+        warnings.warn(
+            "Distribution source mode collapses tally axes beyond mu/azi/energy.",
+            RuntimeWarning,
+            stacklevel=2,
         )
 
     # V1 samples only the joint mu/azi/energy distribution. Any extra tally axes
