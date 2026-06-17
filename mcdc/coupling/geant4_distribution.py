@@ -11,6 +11,7 @@ from mcdc.coupling.geant4_config import Geant4HandoffConfig
 
 
 def validate_distribution_config(cfg: Geant4HandoffConfig) -> None:
+    # validate distribution source settings
     if cfg.n_geant4_particles <= 0:
         raise RuntimeError("Distribution source mode requires n_geant4_particles > 0.")
     if not cfg.source_tally_name:
@@ -38,6 +39,8 @@ def build_source_distribution_payload(
     cfg: Geant4HandoffConfig,
 ) -> dict[str, Any]:
     validate_distribution_config(cfg)
+
+    # find configured source tally
     tally = None
     for candidate in simulation["tallies"]:
         if str(candidate["name"]) == cfg.source_tally_name:
@@ -48,6 +51,7 @@ def build_source_distribution_payload(
             f"Could not find source tally named '{cfg.source_tally_name}'."
         )
 
+    # require tally fields used for source reconstruction
     required_fields = (
         "filter_direction",
         "filter_energy",
@@ -77,8 +81,7 @@ def build_source_distribution_payload(
     if not bool(tally["filter_energy"]):
         raise RuntimeError("Distribution source tally must define energy bins.")
 
-    # Tally grids and scores are stored in MCDC's flat data array; the tally record
-    # carries the offsets needed to rebuild the pieces Geant4 samples from.
+    # load score ids from the flat data array
     scores_offset = int(tally["scores_offset"])
     scores_length = int(tally["scores_length"])
     scores = data[scores_offset : scores_offset + scores_length].astype(int)
@@ -89,6 +92,7 @@ def build_source_distribution_payload(
         )
     current_in_idx = int(current_in_matches[0])
 
+    # load angular and energy bin edges
     mu_offset = int(tally["mu_offset"])
     mu_length = int(tally["mu_length"])
     mu_edges = data[mu_offset : mu_offset + mu_length].astype(np.float64)
@@ -107,6 +111,7 @@ def build_source_distribution_payload(
             "Distribution source tally grids must each have at least one bin."
         )
 
+    # reshape tally means back to tally bin shape
     shape_offset = int(tally["bin_shape_offset"])
     shape_length = int(tally["bin_shape_length"])
     shape = tuple(int(x) for x in data[shape_offset : shape_offset + shape_length])
@@ -127,8 +132,8 @@ def build_source_distribution_payload(
             stacklevel=2,
         )
 
-    # V1 samples only the joint mu/azi/energy distribution. Any extra tally axes
-    # such as time are collapsed before passing weights to the bridge.
+    # collapse extra tally axes before passing weights to the bridge. The bridge
+    # decodes this C-order flat array as mu-major, azi-middle, energy-minor.
     weights = np.sum(current_in_mean, axis=tuple(range(3, current_in_mean.ndim)))
     weights = np.maximum(weights, 0.0)
     total = float(np.sum(weights))
@@ -137,6 +142,7 @@ def build_source_distribution_payload(
             "Distribution source tally has zero total current-in weight."
         )
 
+    # convert source box and energy edges to Geant4 units
     box_bounds_mm = np.asarray(cfg.distribution_box_cm, dtype=np.float64) * 10.0
     return {
         "box_bounds_mm": box_bounds_mm,
@@ -157,35 +163,43 @@ def run_distribution_handoff(
 ) -> dict[str, Any]:
     payload = build_source_distribution_payload(simulation, data, cfg)
 
-    # session is the geant4 bridge object
-    session = geant4_config.create_session()
-    try:
-        session.load_source_distribution(
-            payload["box_bounds_mm"],
-            payload["mu_edges"],
-            payload["azi_edges"],
-            payload["energy_edges_mev"],
-            payload["weights"],
-            payload["n_events"],
-        )
-        session.beam_on()
-        results = session.get_results()
-        summary = {
-            "handoff_bank_size": int(simulation["bank_handoff"]["size"][0]),
-            "loaded_primaries": int(results.loaded_primaries),
-            "events_run": int(results.last_events_run),
-            "status": str(results.status),
-            "source_mode": "distribution",
-            "source_tally_name": payload["tally_name"],
-            "source_total_weight": payload["total_weight"],
-            "primary_summary": geant4_config.primary_summary(results),
-        }
-    finally:
-        session.close()
+    # use the cached geant4 bridge session
+    session = geant4_config.get_session()
+    session.load_source_distribution(
+        payload["box_bounds_mm"],
+        payload["mu_edges"],
+        payload["azi_edges"],
+        payload["energy_edges_mev"],
+        payload["weights"],
+        payload["n_events"],
+    )
+    session.beam_on()
+    results = session.get_results()
 
+    # collect distribution handoff summary
+    summary = {
+        "source_mode": "distribution",
+        "source_size": payload["n_events"],
+        "loaded_primaries": int(results.loaded_primaries),
+        "events_run": int(results.last_events_run),
+        "status": str(results.status),
+        "source_tally_name": payload["tally_name"],
+        "source_total_weight": payload["total_weight"],
+        "primary_summary": geant4_config.primary_summary(results),
+    }
+
+    # verify geant4 consumed the requested number of samples
     if summary["events_run"] != payload["n_events"]:
         raise RuntimeError(
             "Geant4 distribution coupling mismatch: events_run does not match n_geant4_particles."
+        )
+    if summary["loaded_primaries"] != payload["n_events"]:
+        raise RuntimeError(
+            "Geant4 distribution coupling mismatch: loaded_primaries does not match n_geant4_particles."
+        )
+    if summary["status"] != "ok":
+        raise RuntimeError(
+            f"Geant4 distribution coupling failed with status '{summary['status']}'."
         )
 
     return summary

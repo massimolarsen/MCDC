@@ -92,7 +92,8 @@ def run():
         coupling_summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
         print_module.print_msg(
             " Geant4 handoff summary: "
-            f"handoff_bank_size={coupling_summary['handoff_bank_size']} "
+            f"source_mode={coupling_summary['source_mode']} "
+            f"source_size={coupling_summary['source_size']} "
             f"loaded_primaries={coupling_summary['loaded_primaries']} "
             f"events_run={coupling_summary['events_run']} "
             f"status={coupling_summary['status']}"

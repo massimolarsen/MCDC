@@ -6,6 +6,7 @@ from mcdc.coupling import geant4_config, geant4_handoff
 from mcdc.coupling.geant4_bank import convert_handoff_bank_to_geant4
 from mcdc.coupling.geant4_distribution import build_source_distribution_payload
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
+from mcdc.numba_types import tally as TALLY_DTYPE
 
 convert_handoff_bank = convert_handoff_bank_to_geant4
 build_distribution_payload = build_source_distribution_payload
@@ -160,6 +161,20 @@ def test_build_source_distribution_payload_uses_current_in_tally():
     assert payload["total_weight"] == np.sum(weights)
 
 
+def test_build_source_distribution_payload_uses_structured_mcdc_tally():
+    simulation, data, weights = _distribution_simulation_and_data()
+    tally = simulation["tallies"][0]
+    structured_tallies = np.zeros(1, dtype=TALLY_DTYPE)
+    for field, value in tally.items():
+        structured_tallies[0][field] = value
+    simulation["tallies"] = structured_tallies
+
+    payload = build_distribution_payload(simulation, data, _distribution_config())
+
+    np.testing.assert_allclose(payload["weights"], weights.ravel())
+    assert payload["tally_name"] == "source_tally"
+
+
 def test_build_source_distribution_payload_warns_when_collapsing_time_bins():
     simulation, data, weights = _distribution_simulation_and_data()
     tally = simulation["tallies"][0]
@@ -260,16 +275,59 @@ def test_run_handoff_distribution_loads_source_distribution(monkeypatch):
         def get_results(self):
             return FakeResults()
 
-        def close(self):
-            pass
-
     fake_session = FakeSession()
     monkeypatch.setattr(geant4_handoff, "CONFIG", _distribution_config())
-    monkeypatch.setattr(geant4_config, "create_session", lambda: fake_session)
+    monkeypatch.setattr(geant4_config, "get_session", lambda: fake_session)
 
     summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
 
     assert summary["source_mode"] == "distribution"
+    assert summary["source_size"] == 12
+    assert "handoff_bank_size" not in summary
     assert summary["events_run"] == 12
     assert fake_session.loaded_distribution is not None
     np.testing.assert_allclose(fake_session.loaded_distribution[4], weights.ravel())
+
+
+@pytest.mark.parametrize(
+    "loaded_primaries, events_run, status, match",
+    [
+        (11, 12, "ok", "loaded_primaries"),
+        (12, 12, "error", "status 'error'"),
+    ],
+)
+def test_run_handoff_distribution_checks_bridge_results(
+    monkeypatch, loaded_primaries, events_run, status, match
+):
+    simulation, data, _ = _distribution_simulation_and_data()
+
+    class FakeResults:
+        first_primary = []
+        last_primary = []
+        min_position_mm = [0.0, 0.0, 0.0]
+        max_position_mm = [0.0, 0.0, 0.0]
+        min_direction = [0.0, 0.0, 0.0]
+        max_direction = [0.0, 0.0, 0.0]
+        min_energy_mev = 0.0
+        max_energy_mev = 0.0
+
+        def __init__(self):
+            self.loaded_primaries = loaded_primaries
+            self.last_events_run = events_run
+            self.status = status
+
+    class FakeSession:
+        def load_source_distribution(self, *args):
+            pass
+
+        def beam_on(self):
+            pass
+
+        def get_results(self):
+            return FakeResults()
+
+    monkeypatch.setattr(geant4_handoff, "CONFIG", _distribution_config())
+    monkeypatch.setattr(geant4_config, "get_session", lambda: FakeSession())
+
+    with pytest.raises(RuntimeError, match=match):
+        geant4_handoff.run_handoff_from_simulation(simulation, data)

@@ -8,6 +8,7 @@ from mcdc.coupling import geant4_config
 
 
 def convert_handoff_bank_to_geant4(particles: np.ndarray) -> np.ndarray:
+    # require neutron-only handoff particles for now
     if np.any(particles["particle_type"] != 0):
         raise RuntimeError(
             "Handoff bank contains non-neutron particles; current Geant4 bridge supports neutrons only."
@@ -30,34 +31,40 @@ def convert_handoff_bank_to_geant4(particles: np.ndarray) -> np.ndarray:
 
 
 def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
+    # read exact handoff bank size
     N = int(simulation["bank_handoff"]["size"][0])
     if N <= 0:
         return {
+            "source_mode": "bank",
+            "source_size": 0,
             "handoff_bank_size": 0,
             "loaded_primaries": 0,
             "events_run": 0,
             "status": "skipped_empty_handoff",
         }
 
+    # convert handoff bank to bridge primary array
     handoff_particles = simulation["bank_handoff"]["particle_data"][:N]
     geant4_bank = convert_handoff_bank_to_geant4(handoff_particles)
 
-    # Each handoff owns its Geant4 session so later targets do not share source state.
-    session = geant4_config.create_session()
-    try:
-        session.load_primaries(geant4_bank)
-        session.beam_on()
-        results = session.get_results()
-        summary = {
-            "handoff_bank_size": N,
-            "loaded_primaries": int(results.loaded_primaries),
-            "events_run": int(results.last_events_run),
-            "status": str(results.status),
-            "primary_summary": geant4_config.primary_summary(results),
-        }
-    finally:
-        session.close()
+    # use the cached geant4 bridge session
+    session = geant4_config.get_session()
+    session.load_primaries(geant4_bank)
+    session.beam_on()
+    results = session.get_results()
 
+    # collect exact-bank handoff summary
+    summary = {
+        "source_mode": "bank",
+        "source_size": N,
+        "handoff_bank_size": N,
+        "loaded_primaries": int(results.loaded_primaries),
+        "events_run": int(results.last_events_run),
+        "status": str(results.status),
+        "primary_summary": geant4_config.primary_summary(results),
+    }
+
+    # verify geant4 loaded every handoff particle
     if summary["loaded_primaries"] != N:
         raise RuntimeError(
             "Geant4 coupling mismatch: loaded_primaries does not match handoff bank size."

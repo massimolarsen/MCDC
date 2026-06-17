@@ -17,16 +17,17 @@ def run_handoff_from_simulation(
     simulation: np.ndarray,
     data: np.ndarray | None = None,
 ) -> dict[str, Any]:
+    # require serial mcdc state for geant4 handoff
     if simulation["mpi_size"] != 1:
         raise RuntimeError(
             "Geant4 handoff coupling currently supports mpi_size == 1 only."
         )
 
-    # Bank mode is the exact-particle replay path and remains the reference mode.
+    # run exact-particle bank handoff
     if CONFIG.source_mode == "bank":
         return run_bank_handoff(simulation)
 
-    # Distribution mode needs finalized tally means, which live in the data array.
+    # run sampled distribution handoff
     if CONFIG.source_mode != "distribution":
         raise RuntimeError("Geant4 source_mode must be 'bank' or 'distribution'.")
     if data is None:
