@@ -61,7 +61,6 @@ def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
         "loaded_primaries": int(results.loaded_primaries),
         "events_run": int(results.last_events_run),
         "status": str(results.status),
-        "primary_summary": geant4_config.primary_summary(results),
     }
 
     # verify geant4 loaded every handoff particle

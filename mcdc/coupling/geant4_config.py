@@ -98,17 +98,3 @@ def get_session() -> Any:
     SESSION.initialize()
     SESSION_CONFIG = config_key
     return SESSION
-
-
-def primary_summary(results) -> dict[str, Any]:
-    # convert bridge result vectors to plain python values
-    return {
-        "first_primary": list(results.first_primary),
-        "last_primary": list(results.last_primary),
-        "min_position_mm": list(results.min_position_mm),
-        "max_position_mm": list(results.max_position_mm),
-        "min_direction": list(results.min_direction),
-        "max_direction": list(results.max_direction),
-        "min_energy_mev": float(results.min_energy_mev),
-        "max_energy_mev": float(results.max_energy_mev),
-    }

@@ -18,19 +18,6 @@ def validate_distribution_config(cfg: Geant4HandoffConfig) -> None:
         raise RuntimeError("Distribution source mode requires source_tally_name.")
     if cfg.distribution_box_cm is None:
         raise RuntimeError("Distribution source mode requires distribution_box_cm.")
-    if len(cfg.distribution_box_cm) != 3:
-        raise RuntimeError("distribution_box_cm must contain x, y, and z bounds.")
-    for axis, bounds in zip(("x", "y", "z"), cfg.distribution_box_cm):
-        if len(bounds) != 2:
-            raise RuntimeError(
-                f"distribution_box_cm {axis} bounds must have two values."
-            )
-        lower = float(bounds[0])
-        upper = float(bounds[1])
-        if not np.isfinite(lower) or not np.isfinite(upper) or lower >= upper:
-            raise RuntimeError(
-                f"distribution_box_cm {axis} bounds must be finite with min < max."
-            )
 
 
 def build_source_distribution_payload(
@@ -49,31 +36,6 @@ def build_source_distribution_payload(
     if tally is None:
         raise RuntimeError(
             f"Could not find source tally named '{cfg.source_tally_name}'."
-        )
-
-    # require tally fields used for source reconstruction
-    required_fields = (
-        "filter_direction",
-        "filter_energy",
-        "scores_offset",
-        "scores_length",
-        "mu_offset",
-        "mu_length",
-        "azi_offset",
-        "azi_length",
-        "energy_offset",
-        "energy_length",
-        "bin_shape_offset",
-        "bin_shape_length",
-        "bin_sum_offset",
-        "bin_length",
-    )
-    tally_fields = tally.keys() if isinstance(tally, dict) else tally.dtype.names
-    missing_fields = [field for field in required_fields if field not in tally_fields]
-    if missing_fields:
-        raise RuntimeError(
-            "Distribution source tally is missing required fields: "
-            + ", ".join(missing_fields)
         )
 
     if not bool(tally["filter_direction"]):
@@ -185,7 +147,6 @@ def run_distribution_handoff(
         "status": str(results.status),
         "source_tally_name": payload["tally_name"],
         "source_total_weight": payload["total_weight"],
-        "primary_summary": geant4_config.primary_summary(results),
     }
 
     # verify geant4 consumed the requested number of samples

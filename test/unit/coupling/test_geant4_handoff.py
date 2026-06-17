@@ -65,7 +65,7 @@ def _distribution_simulation_and_data(
         chunks.append(np.asarray(values, dtype=np.float64).ravel())
     data = np.concatenate(chunks)
 
-    tally = {
+    tally_values = {
         "name": tally_name,
         "filter_direction": filter_direction,
         "filter_energy": filter_energy,
@@ -82,9 +82,13 @@ def _distribution_simulation_and_data(
         "bin_sum_offset": offsets["bin_sum"],
         "bin_length": mean.size,
     }
+    tallies = np.zeros(1, dtype=TALLY_DTYPE)
+    for field, value in tally_values.items():
+        tallies[0][field] = value
+
     simulation = {
         "mpi_size": 1,
-        "tallies": [tally],
+        "tallies": tallies,
         "bank_handoff": {
             "size": np.asarray([0], dtype=np.int64),
             "particle_data": np.array([], dtype=PARTICLE_DTYPE),
@@ -163,11 +167,6 @@ def test_build_source_distribution_payload_uses_current_in_tally():
 
 def test_build_source_distribution_payload_uses_structured_mcdc_tally():
     simulation, data, weights = _distribution_simulation_and_data()
-    tally = simulation["tallies"][0]
-    structured_tallies = np.zeros(1, dtype=TALLY_DTYPE)
-    for field, value in tally.items():
-        structured_tallies[0][field] = value
-    simulation["tallies"] = structured_tallies
 
     payload = build_distribution_payload(simulation, data, _distribution_config())
 
@@ -201,21 +200,12 @@ def test_build_source_distribution_payload_warns_when_collapsing_time_bins():
     np.testing.assert_allclose(payload["weights"], (2.0 * weights).ravel())
 
 
-def test_build_source_distribution_payload_rejects_missing_tally_field():
-    simulation, data, _ = _distribution_simulation_and_data()
-    del simulation["tallies"][0]["bin_sum_offset"]
-
-    with pytest.raises(RuntimeError, match="missing required fields: bin_sum_offset"):
-        build_distribution_payload(simulation, data, _distribution_config())
-
-
 @pytest.mark.parametrize(
     "config_update, match",
     [
         ({"n_geant4_particles": 0}, "n_geant4_particles > 0"),
         ({"source_tally_name": ""}, "source_tally_name"),
         ({"distribution_box_cm": None}, "distribution_box_cm"),
-        ({"distribution_box_cm": ((0.0, 0.0), (-1.0, 1.0), (-1.0, 1.0))}, "min < max"),
     ],
 )
 def test_build_source_distribution_payload_rejects_invalid_config(config_update, match):
@@ -253,14 +243,6 @@ def test_run_handoff_distribution_loads_source_distribution(monkeypatch):
         loaded_primaries = 12
         last_events_run = 12
         status = "ok"
-        first_primary = []
-        last_primary = []
-        min_position_mm = [0.0, 0.0, 0.0]
-        max_position_mm = [0.0, 0.0, 0.0]
-        min_direction = [0.0, 0.0, 0.0]
-        max_direction = [0.0, 0.0, 0.0]
-        min_energy_mev = 0.0
-        max_energy_mev = 0.0
 
     class FakeSession:
         def __init__(self):
@@ -302,15 +284,6 @@ def test_run_handoff_distribution_checks_bridge_results(
     simulation, data, _ = _distribution_simulation_and_data()
 
     class FakeResults:
-        first_primary = []
-        last_primary = []
-        min_position_mm = [0.0, 0.0, 0.0]
-        max_position_mm = [0.0, 0.0, 0.0]
-        min_direction = [0.0, 0.0, 0.0]
-        max_direction = [0.0, 0.0, 0.0]
-        min_energy_mev = 0.0
-        max_energy_mev = 0.0
-
         def __init__(self):
             self.loaded_primaries = loaded_primaries
             self.last_events_run = events_run
