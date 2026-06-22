@@ -263,30 +263,33 @@ def create_tally_dataset(file, mcdc, data):
 def _surface_mesh_grids(surface_tally):
     Nu = surface_tally["surface_mesh_Nu"]
     Nv = surface_tally["surface_mesh_Nv"]
-    x = np.linspace(
+    x_u_edges = np.linspace(
         surface_tally["surface_mesh_x_min"],
         surface_tally["surface_mesh_x_max"],
         Nu + 1,
     )
-    y = np.linspace(
+    y_u_edges = np.linspace(
         surface_tally["surface_mesh_y_min"],
         surface_tally["surface_mesh_y_max"],
         Nu + 1,
     )
-    y_v = np.linspace(
+    y_v_edges = np.linspace(
         surface_tally["surface_mesh_y_min"],
         surface_tally["surface_mesh_y_max"],
         Nv + 1,
     )
-    z = np.linspace(
+    z_v_edges = np.linspace(
         surface_tally["surface_mesh_z_min"],
         surface_tally["surface_mesh_z_max"],
         Nv + 1,
     )
 
+    # face-local grids follow x:y/z, y:x/z, z:x/y
     face = np.asarray(["xmin", "xmax", "ymin", "ymax", "zmin", "zmax"], dtype="S4")
-    u = np.asarray([y, y, x, x, x, x])
-    v = np.asarray([z, z, z, z, y_v, y_v])
+    u = np.asarray([y_u_edges, y_u_edges, x_u_edges, x_u_edges, x_u_edges, x_u_edges])
+    v = np.asarray(
+        [z_v_edges, z_v_edges, z_v_edges, z_v_edges, y_v_edges, y_v_edges]
+    )
 
     return face, u, v
 

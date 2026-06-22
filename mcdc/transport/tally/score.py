@@ -45,11 +45,8 @@ def _surface_mesh_bin(value, lower, upper, N):
         return -1
     if value > upper + COINCIDENCE_TOLERANCE:
         return -1
-    if value <= lower + COINCIDENCE_TOLERANCE:
-        return 0
-    if value >= upper - COINCIDENCE_TOLERANCE:
-        return N - 1
 
+    # clamp points that land on a mesh boundary
     i = int((value - lower) / (upper - lower) * N)
     if i < 0:
         return 0
@@ -67,56 +64,47 @@ def _surface_mesh_indices(particle, surface, tally):
     Nu = tally["surface_mesh_Nu"]
     Nv = tally["surface_mesh_Nv"]
 
+    i_face = -1
     if surface_ID == tally["surface_mesh_xmin_surface_ID"]:
-        i_u = _surface_mesh_bin(
-            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nu
-        )
-        i_v = _surface_mesh_bin(
-            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
-        )
-        return 0, i_u, i_v
-    if surface_ID == tally["surface_mesh_xmax_surface_ID"]:
-        i_u = _surface_mesh_bin(
-            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nu
-        )
-        i_v = _surface_mesh_bin(
-            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
-        )
-        return 1, i_u, i_v
-    if surface_ID == tally["surface_mesh_ymin_surface_ID"]:
-        i_u = _surface_mesh_bin(
-            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
-        )
-        i_v = _surface_mesh_bin(
-            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
-        )
-        return 2, i_u, i_v
-    if surface_ID == tally["surface_mesh_ymax_surface_ID"]:
-        i_u = _surface_mesh_bin(
-            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
-        )
-        i_v = _surface_mesh_bin(
-            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
-        )
-        return 3, i_u, i_v
-    if surface_ID == tally["surface_mesh_zmin_surface_ID"]:
-        i_u = _surface_mesh_bin(
-            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
-        )
-        i_v = _surface_mesh_bin(
-            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nv
-        )
-        return 4, i_u, i_v
-    if surface_ID == tally["surface_mesh_zmax_surface_ID"]:
-        i_u = _surface_mesh_bin(
-            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
-        )
-        i_v = _surface_mesh_bin(
-            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nv
-        )
-        return 5, i_u, i_v
+        i_face = 0
+    elif surface_ID == tally["surface_mesh_xmax_surface_ID"]:
+        i_face = 1
+    elif surface_ID == tally["surface_mesh_ymin_surface_ID"]:
+        i_face = 2
+    elif surface_ID == tally["surface_mesh_ymax_surface_ID"]:
+        i_face = 3
+    elif surface_ID == tally["surface_mesh_zmin_surface_ID"]:
+        i_face = 4
+    elif surface_ID == tally["surface_mesh_zmax_surface_ID"]:
+        i_face = 5
 
-    return -1, -1, -1
+    if i_face == -1:
+        return -1, -1, -1
+
+    # x faces use y/z, y faces use x/z, z faces use x/y
+    if i_face < 2:
+        i_u = _surface_mesh_bin(
+            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
+        )
+    elif i_face < 4:
+        i_u = _surface_mesh_bin(
+            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            z, tally["surface_mesh_z_min"], tally["surface_mesh_z_max"], Nv
+        )
+    else:
+        i_u = _surface_mesh_bin(
+            x, tally["surface_mesh_x_min"], tally["surface_mesh_x_max"], Nu
+        )
+        i_v = _surface_mesh_bin(
+            y, tally["surface_mesh_y_min"], tally["surface_mesh_y_max"], Nv
+        )
+
+    return i_face, i_u, i_v
 
 
 @njit

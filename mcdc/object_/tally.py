@@ -135,11 +135,6 @@ class Tally(ObjectPolymorphic):
                     "Surface tally currently supports only " "scores=['net-current']."
                 )
 
-            if surface_mesh is not None and surface is not None:
-                print_error(
-                    "surface_mesh is supported only for cell-filtered current tallies."
-                )
-
             # Cell-filtered current tallies share the surface-crossing estimator.
             return super().__new__(TallySurface)
 
@@ -356,7 +351,7 @@ def _parse_surface_mesh(surface_mesh):
     return Nu, Nv
 
 
-def _box_surface_mesh_metadata(cell):
+def _box_surface_mesh_bounds(cell):
     surfaces_by_type = {
         SURFACE_PLANE_X: [],
         SURFACE_PLANE_Y: [],
@@ -377,6 +372,7 @@ def _box_surface_mesh_metadata(cell):
                 "with exactly two PlaneX, two PlaneY, and two PlaneZ surfaces."
             )
 
+    # plane surfaces store bounds as -J, so larger -J is the lower face.
     x_surfaces = sorted(
         surfaces_by_type[SURFACE_PLANE_X], key=lambda surface: -surface.J
     )
@@ -397,20 +393,20 @@ def _box_surface_mesh_metadata(cell):
     if x_min >= x_max or y_min >= y_max or z_min >= z_max:
         print_error("surface_mesh box bounds must have positive extent in x, y, and z.")
 
-    return {
-        "xmin_surface_ID": x_surfaces[0].ID,
-        "xmax_surface_ID": x_surfaces[1].ID,
-        "ymin_surface_ID": y_surfaces[0].ID,
-        "ymax_surface_ID": y_surfaces[1].ID,
-        "zmin_surface_ID": z_surfaces[0].ID,
-        "zmax_surface_ID": z_surfaces[1].ID,
-        "x_min": x_min,
-        "x_max": x_max,
-        "y_min": y_min,
-        "y_max": y_max,
-        "z_min": z_min,
-        "z_max": z_max,
-    }
+    return (
+        x_surfaces[0].ID,
+        x_surfaces[1].ID,
+        y_surfaces[0].ID,
+        y_surfaces[1].ID,
+        z_surfaces[0].ID,
+        z_surfaces[1].ID,
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        z_min,
+        z_max,
+    )
 
 
 # ======================================================================================
@@ -474,16 +470,16 @@ class TallySurface(Tally):
     ):
         type_ = TALLY_SURFACE
         surface_mesh_shape = None
-        surface_mesh_metadata = None
         surface_mesh_Nu = 0
         surface_mesh_Nv = 0
+        surface_mesh_bounds = None
         if surface_mesh is not None:
             if surface is not None or cell is None:
                 print_error(
                     "surface_mesh is supported only for cell-filtered current tallies."
                 )
             surface_mesh_Nu, surface_mesh_Nv = _parse_surface_mesh(surface_mesh)
-            surface_mesh_metadata = _box_surface_mesh_metadata(cell)
+            surface_mesh_bounds = _box_surface_mesh_bounds(cell)
             surface_mesh_shape = (6, surface_mesh_Nu, surface_mesh_Nv)
 
         super(Tally, self).__init__(type_)
@@ -535,43 +531,49 @@ class TallySurface(Tally):
         self.z_min = -INF
         self.z_max = INF
 
-        self.use_surface_mesh = surface_mesh is not None
-        self.surface_mesh_Nu = surface_mesh_Nu
-        self.surface_mesh_Nv = surface_mesh_Nv
-        self.surface_mesh_stride_face = 0
-        self.surface_mesh_stride_u = 0
-        self.surface_mesh_stride_v = 0
-        self.surface_mesh_xmin_surface_ID = -1
-        self.surface_mesh_xmax_surface_ID = -1
-        self.surface_mesh_ymin_surface_ID = -1
-        self.surface_mesh_ymax_surface_ID = -1
-        self.surface_mesh_zmin_surface_ID = -1
-        self.surface_mesh_zmax_surface_ID = -1
-        self.surface_mesh_x_min = 0.0
-        self.surface_mesh_x_max = 0.0
-        self.surface_mesh_y_min = 0.0
-        self.surface_mesh_y_max = 0.0
-        self.surface_mesh_z_min = 0.0
-        self.surface_mesh_z_max = 0.0
-        if self.use_surface_mesh:
+        if surface_mesh is None:
+            self.use_surface_mesh = False
+            self.surface_mesh_Nu = 0
+            self.surface_mesh_Nv = 0
+            self.surface_mesh_stride_face = 0
+            self.surface_mesh_stride_u = 0
+            self.surface_mesh_stride_v = 0
+            self.surface_mesh_xmin_surface_ID = -1
+            self.surface_mesh_xmax_surface_ID = -1
+            self.surface_mesh_ymin_surface_ID = -1
+            self.surface_mesh_ymax_surface_ID = -1
+            self.surface_mesh_zmin_surface_ID = -1
+            self.surface_mesh_zmax_surface_ID = -1
+            self.surface_mesh_x_min = 0.0
+            self.surface_mesh_x_max = 0.0
+            self.surface_mesh_y_min = 0.0
+            self.surface_mesh_y_max = 0.0
+            self.surface_mesh_z_min = 0.0
+            self.surface_mesh_z_max = 0.0
+        else:
+            self.use_surface_mesh = True
+            self.surface_mesh_Nu = surface_mesh_Nu
+            self.surface_mesh_Nv = surface_mesh_Nv
             N_score = len(self.scores)
             self.surface_mesh_stride_v = N_score
             self.surface_mesh_stride_u = self.surface_mesh_Nv * N_score
             self.surface_mesh_stride_face = (
                 self.surface_mesh_Nu * self.surface_mesh_Nv * N_score
             )
-            self.surface_mesh_xmin_surface_ID = surface_mesh_metadata["xmin_surface_ID"]
-            self.surface_mesh_xmax_surface_ID = surface_mesh_metadata["xmax_surface_ID"]
-            self.surface_mesh_ymin_surface_ID = surface_mesh_metadata["ymin_surface_ID"]
-            self.surface_mesh_ymax_surface_ID = surface_mesh_metadata["ymax_surface_ID"]
-            self.surface_mesh_zmin_surface_ID = surface_mesh_metadata["zmin_surface_ID"]
-            self.surface_mesh_zmax_surface_ID = surface_mesh_metadata["zmax_surface_ID"]
-            self.surface_mesh_x_min = surface_mesh_metadata["x_min"]
-            self.surface_mesh_x_max = surface_mesh_metadata["x_max"]
-            self.surface_mesh_y_min = surface_mesh_metadata["y_min"]
-            self.surface_mesh_y_max = surface_mesh_metadata["y_max"]
-            self.surface_mesh_z_min = surface_mesh_metadata["z_min"]
-            self.surface_mesh_z_max = surface_mesh_metadata["z_max"]
+            (
+                self.surface_mesh_xmin_surface_ID,
+                self.surface_mesh_xmax_surface_ID,
+                self.surface_mesh_ymin_surface_ID,
+                self.surface_mesh_ymax_surface_ID,
+                self.surface_mesh_zmin_surface_ID,
+                self.surface_mesh_zmax_surface_ID,
+                self.surface_mesh_x_min,
+                self.surface_mesh_x_max,
+                self.surface_mesh_y_min,
+                self.surface_mesh_y_max,
+                self.surface_mesh_z_min,
+                self.surface_mesh_z_max,
+            ) = surface_mesh_bounds
 
         if self.spatial_filter_type == SPATIAL_FILTER_CELL and (
             x is not None or y is not None or z is not None
