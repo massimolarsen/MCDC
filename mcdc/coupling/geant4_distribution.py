@@ -144,6 +144,8 @@ def run_distribution_handoff(
         "source_size": payload["n_events"],
         "loaded_primaries": int(results.loaded_primaries),
         "events_run": int(results.last_events_run),
+        "total_edep_mev": float(results.last_total_edep_mev),
+        "dose_gy": float(results.last_dose_gy),
         "status": str(results.status),
         "source_tally_name": payload["tally_name"],
         "source_total_weight": payload["total_weight"],
@@ -163,4 +165,5 @@ def run_distribution_handoff(
             f"Geant4 distribution coupling failed with status '{summary['status']}'."
         )
 
+    geant4_config.write_summary_hdf5(summary)
     return summary

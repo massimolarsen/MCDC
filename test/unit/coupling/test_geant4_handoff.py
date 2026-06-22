@@ -242,6 +242,8 @@ def test_run_handoff_distribution_loads_source_distribution(monkeypatch):
     class FakeResults:
         loaded_primaries = 12
         last_events_run = 12
+        last_total_edep_mev = 1.25
+        last_dose_gy = 2.5e-9
         status = "ok"
 
     class FakeSession:
@@ -267,6 +269,8 @@ def test_run_handoff_distribution_loads_source_distribution(monkeypatch):
     assert summary["source_size"] == 12
     assert "handoff_bank_size" not in summary
     assert summary["events_run"] == 12
+    assert summary["total_edep_mev"] == 1.25
+    assert summary["dose_gy"] == 2.5e-9
     assert fake_session.loaded_distribution is not None
     np.testing.assert_allclose(fake_session.loaded_distribution[4], weights.ravel())
 
@@ -287,6 +291,8 @@ def test_run_handoff_distribution_checks_bridge_results(
         def __init__(self):
             self.loaded_primaries = loaded_primaries
             self.last_events_run = events_run
+            self.last_total_edep_mev = 0.0
+            self.last_dose_gy = 0.0
             self.status = status
 
     class FakeSession:

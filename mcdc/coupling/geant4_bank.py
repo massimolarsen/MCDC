@@ -34,14 +34,18 @@ def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
     # read exact handoff bank size
     N = int(simulation["bank_handoff"]["size"][0])
     if N <= 0:
-        return {
+        summary = {
             "source_mode": "bank",
             "source_size": 0,
             "handoff_bank_size": 0,
             "loaded_primaries": 0,
             "events_run": 0,
+            "total_edep_mev": 0.0,
+            "dose_gy": 0.0,
             "status": "skipped_empty_handoff",
         }
+        geant4_config.write_summary_hdf5(summary)
+        return summary
 
     # convert handoff bank to bridge primary array
     handoff_particles = simulation["bank_handoff"]["particle_data"][:N]
@@ -60,6 +64,8 @@ def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
         "handoff_bank_size": N,
         "loaded_primaries": int(results.loaded_primaries),
         "events_run": int(results.last_events_run),
+        "total_edep_mev": float(results.last_total_edep_mev),
+        "dose_gy": float(results.last_dose_gy),
         "status": str(results.status),
     }
 
@@ -69,4 +75,5 @@ def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
             "Geant4 coupling mismatch: loaded_primaries does not match handoff bank size."
         )
 
+    geant4_config.write_summary_hdf5(summary)
     return summary

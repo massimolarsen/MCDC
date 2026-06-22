@@ -490,6 +490,7 @@ def surface_crossing(P_arr, simulation, data):
         entered_cell = simulation["cells"][post_cell_ID]
         if entered_cell["handoff"]:
             particle_bank_module.bank_handoff_particle(P_arr, simulation)
+            P["alive"] = False
 
     # Need to check new cell later?
     if P["alive"] and not BC == BC_REFLECTIVE:

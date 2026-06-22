@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import h5py
 import importlib.machinery
 import importlib.util
 import pathlib
@@ -19,6 +20,7 @@ class Geant4HandoffConfig:
     n_geant4_particles: int = 0
     source_tally_name: str = ""
     distribution_box_cm: tuple[tuple[float, float], ...] | None = None
+    geant4_output_path: str = ""
 
 
 CONFIG = Geant4HandoffConfig()
@@ -32,6 +34,21 @@ def configure(**kwargs) -> None:
         if not hasattr(CONFIG, key):
             raise ValueError(f"Unknown Geant4 coupling option: {key}")
         setattr(CONFIG, key, value)
+
+
+def write_summary_hdf5(summary: dict[str, Any]) -> None:
+    if not CONFIG.geant4_output_path:
+        return
+
+    # write bridge result fields to a separate geant4 output file
+    output_path = pathlib.Path(CONFIG.geant4_output_path)
+    with h5py.File(output_path, "w") as file:
+        string_dtype = h5py.string_dtype(encoding="utf-8")
+        for key, value in summary.items():
+            if isinstance(value, str):
+                file.create_dataset(key, data=value, dtype=string_dtype)
+            else:
+                file.create_dataset(key, data=value)
 
 
 def _session_config_key(cfg: Geant4HandoffConfig) -> tuple[Any, ...]:
