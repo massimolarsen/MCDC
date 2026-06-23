@@ -87,9 +87,9 @@ def build_source_distribution_payload(
             "Distribution source tally must have mu/azi/energy/time axes."
         )
 
-    if any(size > 1 for size in current_in_mean.shape[3:]):
+    if current_in_mean.shape[3] > 1:
         warnings.warn(
-            "Distribution source mode collapses tally axes beyond mu/azi/energy.",
+            "Distribution source mode collapses tally time bins.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -98,6 +98,12 @@ def build_source_distribution_payload(
     # decodes this C-order flat array as mu-major, azi-middle, energy-minor.
     weights = np.sum(current_in_mean, axis=tuple(range(3, current_in_mean.ndim)))
     weights = np.maximum(weights, 0.0)
+
+    # The tally mean is per-source-particle normalized (closeout divides by
+    # N_particle). Multiply it back so the weights carry the absolute integrated
+    # current entering the volume, matching the raw weights used in bank mode.
+    N_particle = int(simulation["settings"]["N_particle"])
+    weights = weights * N_particle
     total = float(np.sum(weights))
     if not total > 0.0:
         raise RuntimeError(

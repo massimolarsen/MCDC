@@ -7,7 +7,7 @@ COUPLING_TEST_DIR = Path(__file__).resolve().parent
 
 
 def mcdc_output_name(name):
-    return str(COUPLING_TEST_DIR / "mcdc_h5" / name)
+    return f"mcdc_h5/{name}"
 
 
 def geant4_output_path(filename):

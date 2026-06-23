@@ -35,6 +35,7 @@ def _distribution_simulation_and_data(
     filter_direction=True,
     filter_energy=True,
     weights=None,
+    n_particle=1,
 ):
     if scores is None:
         scores = [99, SCORE_CURRENT_IN]
@@ -88,6 +89,7 @@ def _distribution_simulation_and_data(
 
     simulation = {
         "mpi_size": 1,
+        "settings": {"N_particle": n_particle},
         "tallies": tallies,
         "bank_handoff": {
             "size": np.asarray([0], dtype=np.int64),
@@ -165,6 +167,16 @@ def test_build_source_distribution_payload_uses_current_in_tally():
     assert payload["total_weight"] == np.sum(weights)
 
 
+def test_build_source_distribution_payload_unnormalizes_by_n_particle():
+    # The tally mean is per-source-particle normalized; the payload must scale it
+    # back by N_particle so weights carry the absolute integrated current.
+    simulation, data, weights = _distribution_simulation_and_data(n_particle=2000)
+    payload = build_distribution_payload(simulation, data, _distribution_config())
+
+    np.testing.assert_allclose(payload["weights"], 2000.0 * weights.ravel())
+    assert payload["total_weight"] == 2000.0 * np.sum(weights)
+
+
 def test_build_source_distribution_payload_uses_structured_mcdc_tally():
     simulation, data, weights = _distribution_simulation_and_data()
 
@@ -194,7 +206,7 @@ def test_build_source_distribution_payload_warns_when_collapsing_time_bins():
     data = np.concatenate([data[:mean_offset], mean.ravel()])
     tally["bin_length"] = mean.size
 
-    with pytest.warns(RuntimeWarning, match="collapses tally axes"):
+    with pytest.warns(RuntimeWarning, match="collapses tally time bins"):
         payload = build_distribution_payload(simulation, data, _distribution_config())
 
     np.testing.assert_allclose(payload["weights"], (2.0 * weights).ravel())

@@ -14,9 +14,10 @@ from common import (
     mcdc_output_name,
 )
 
-ENERGY_BINS_EV = np.array([0.0, 1.0e6, 5.0e6, 10.0e6, 20.0e6])
-MU_BINS = np.linspace(-1.0, 1.0, 7)
-AZI_BINS = np.linspace(-np.pi, np.pi, 9)
+ENERGY_BINS_EV = np.array([13.99e6, 14.01e6])
+MU_BINS = np.array([-1.0e-3, 1.0e-3])
+AZI_BINS = np.array([-1.0e-3, 1.0e-3])
+SURFACE_MESH = (4, 4)
 
 target, target_cell = build_vacuum_handoff_model(
     mcdc,
@@ -24,16 +25,18 @@ target, target_cell = build_vacuum_handoff_model(
 )
 
 mcdc.Tally(
-    name="vac_straight_src",
+    name="validation_dist_src",
     cell=target_cell,
     scores=["current-in"],
     mu=MU_BINS,
     azi=AZI_BINS,
     energy=ENERGY_BINS_EV,
+    surface_mesh=SURFACE_MESH,
 )
 
-mcdc.settings.N_particle = 500
-mcdc.settings.output_name = mcdc_output_name("ct04_vac_straight")
+mcdc.settings.N_particle = 2000
+mcdc.settings.active_bank_buffer = 2 * mcdc.settings.N_particle
+mcdc.settings.output_name = mcdc_output_name("ct03_validation_dist")
 
 mcdc.enable_geant4_handoff(
     bridge_build_dir=bridge_build_dir(),
@@ -42,14 +45,14 @@ mcdc.enable_geant4_handoff(
     detector_material="G4_Si",
     physics_list="QGSP_BIC",
     source_mode="distribution",
-    n_geant4_particles=500,
-    source_tally_name="vac_straight_src",
+    n_geant4_particles=2000,
+    source_tally_name="validation_dist_src",
     distribution_box_cm=(
         target["x_span_cm"],
         target["y_span_cm"],
         target["z_span_cm"],
     ),
-    geant4_output_path=geant4_output_path("ct04_vac_straight_geant4.h5"),
+    geant4_output_path=geant4_output_path("ct03_validation_dist_geant4.h5"),
 )
 
 mcdc.run()
