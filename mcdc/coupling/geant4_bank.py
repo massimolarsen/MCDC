@@ -42,6 +42,11 @@ def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
             "events_run": 0,
             "total_edep_mev": 0.0,
             "dose_gy": 0.0,
+            "edep_spectrum_edges_mev": np.asarray([], dtype=np.float64),
+            "edep_spectrum_counts": np.asarray([], dtype=np.int64),
+            "edep_spectrum_edep_mev": np.asarray([], dtype=np.float64),
+            "edep_spectrum_underflow": 0,
+            "edep_spectrum_overflow": 0,
             "status": "skipped_empty_handoff",
         }
         geant4_config.write_summary_hdf5(summary)
@@ -66,6 +71,17 @@ def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
         "events_run": int(results.last_events_run),
         "total_edep_mev": float(results.last_total_edep_mev),
         "dose_gy": float(results.last_dose_gy),
+        "edep_spectrum_edges_mev": np.asarray(
+            results.edep_spectrum_edges_mev, dtype=np.float64
+        ),
+        "edep_spectrum_counts": np.asarray(
+            results.edep_spectrum_counts, dtype=np.int64
+        ),
+        "edep_spectrum_edep_mev": np.asarray(
+            results.edep_spectrum_edep_mev, dtype=np.float64
+        ),
+        "edep_spectrum_underflow": int(results.edep_spectrum_underflow),
+        "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
         "status": str(results.status),
     }
 

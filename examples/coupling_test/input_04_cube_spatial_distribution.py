@@ -47,11 +47,6 @@ mcdc.enable_geant4_handoff(
     source_mode="distribution",
     n_geant4_particles=N_GEANT4_PARTICLES,
     source_tally_name="cube_spatial_src",
-    distribution_box_cm=(
-        sram["x_span_cm"],
-        sram["y_span_cm"],
-        sram["z_span_cm"],
-    ),
     geant4_output_path=geant4_output_path("ct04_cube_spatial_geant4.h5"),
 )
 

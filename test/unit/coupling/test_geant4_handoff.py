@@ -1,11 +1,12 @@
 import numpy as np
 import pytest
 
-from mcdc.constant import SCORE_CURRENT_IN
+from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE
 from mcdc.coupling import geant4_config, geant4_handoff
 from mcdc.coupling.geant4_bank import convert_handoff_bank_to_geant4
 from mcdc.coupling.geant4_distribution import build_source_distribution_payload
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
+from mcdc.numba_types import surface_tally as SURFACE_TALLY_DTYPE
 from mcdc.numba_types import tally as TALLY_DTYPE
 
 convert_handoff_bank = convert_handoff_bank_to_geant4
@@ -36,21 +37,27 @@ def _distribution_simulation_and_data(
     filter_energy=True,
     weights=None,
     n_particle=1,
+    surface_mesh=True,
+    child_type=TALLY_SURFACE,
+    time_bins=1,
 ):
     if scores is None:
         scores = [99, SCORE_CURRENT_IN]
     if weights is None:
-        weights = np.arange(8, dtype=np.float64).reshape(2, 2, 2) + 1.0
+        weights = np.arange(2 * 2 * 2 * 6 * 2 * 3, dtype=np.float64).reshape(
+            2, 2, 2, 6, 2, 3
+        ) + 1.0
 
     scores = np.asarray(scores, dtype=np.float64)
     mu = np.asarray([-1.0, 0.0, 1.0], dtype=np.float64)
     azi = np.asarray([-np.pi, 0.0, np.pi], dtype=np.float64)
     energy = np.asarray([0.0, 1.0e6, 2.0e6], dtype=np.float64)
-    shape = np.asarray([2, 2, 2, 1, len(scores)], dtype=np.float64)
+    shape = np.asarray([2, 2, 2, time_bins, 6, 2, 3, len(scores)], dtype=np.float64)
     mean = np.zeros(tuple(shape.astype(int)), dtype=np.float64)
     if SCORE_CURRENT_IN in scores:
         current_idx = int(np.where(scores == SCORE_CURRENT_IN)[0][0])
-        mean[..., 0, current_idx] = weights
+        for i_time in range(time_bins):
+            mean[:, :, :, i_time, :, :, :, current_idx] = weights
 
     offsets = {}
     chunks = []
@@ -82,15 +89,29 @@ def _distribution_simulation_and_data(
         "bin_shape_length": len(shape),
         "bin_sum_offset": offsets["bin_sum"],
         "bin_length": mean.size,
+        "child_type": child_type,
+        "child_ID": 0,
     }
     tallies = np.zeros(1, dtype=TALLY_DTYPE)
     for field, value in tally_values.items():
         tallies[0][field] = value
 
+    surface_tallies = np.zeros(1, dtype=SURFACE_TALLY_DTYPE)
+    surface_tallies[0]["use_surface_mesh"] = surface_mesh
+    surface_tallies[0]["surface_mesh_Nu"] = 2
+    surface_tallies[0]["surface_mesh_Nv"] = 3
+    surface_tallies[0]["surface_mesh_x_min"] = -1.0
+    surface_tallies[0]["surface_mesh_x_max"] = 1.0
+    surface_tallies[0]["surface_mesh_y_min"] = -2.0
+    surface_tallies[0]["surface_mesh_y_max"] = 2.0
+    surface_tallies[0]["surface_mesh_z_min"] = -3.0
+    surface_tallies[0]["surface_mesh_z_max"] = 3.0
+
     simulation = {
         "mpi_size": 1,
         "settings": {"N_particle": n_particle},
         "tallies": tallies,
+        "surface_tallies": surface_tallies,
         "bank_handoff": {
             "size": np.asarray([0], dtype=np.int64),
             "particle_data": np.array([], dtype=PARTICLE_DTYPE),
@@ -104,7 +125,6 @@ def _distribution_config(**kwargs):
         "source_mode": "distribution",
         "n_geant4_particles": 12,
         "source_tally_name": "source_tally",
-        "distribution_box_cm": ((-1.0, 1.0), (-2.0, 2.0), (-3.0, 3.0)),
     }
     values.update(kwargs)
     return Geant4HandoffConfig(**values)
@@ -163,6 +183,8 @@ def test_build_source_distribution_payload_uses_current_in_tally():
     np.testing.assert_allclose(payload["azi_edges"], [-np.pi, 0.0, np.pi])
     np.testing.assert_allclose(payload["energy_edges_mev"], [0.0, 1.0, 2.0])
     np.testing.assert_allclose(payload["weights"], weights.ravel())
+    assert payload["Nu"] == 2
+    assert payload["Nv"] == 3
     assert payload["n_events"] == 12
     assert payload["total_weight"] == np.sum(weights)
 
@@ -187,24 +209,7 @@ def test_build_source_distribution_payload_uses_structured_mcdc_tally():
 
 
 def test_build_source_distribution_payload_warns_when_collapsing_time_bins():
-    simulation, data, weights = _distribution_simulation_and_data()
-    tally = simulation["tallies"][0]
-
-    shape_offset = int(tally["bin_shape_offset"])
-    mean_offset = int(tally["bin_sum_offset"])
-    scores_offset = int(tally["scores_offset"])
-    scores_length = int(tally["scores_length"])
-    scores = data[scores_offset : scores_offset + scores_length].astype(int)
-    current_idx = int(np.where(scores == SCORE_CURRENT_IN)[0][0])
-
-    shape = np.asarray([2, 2, 2, 2, len(scores)], dtype=np.float64)
-    mean = np.zeros(tuple(shape.astype(int)), dtype=np.float64)
-    mean[..., 0, current_idx] = weights
-    mean[..., 1, current_idx] = weights
-
-    data[shape_offset : shape_offset + len(shape)] = shape
-    data = np.concatenate([data[:mean_offset], mean.ravel()])
-    tally["bin_length"] = mean.size
+    simulation, data, weights = _distribution_simulation_and_data(time_bins=2)
 
     with pytest.warns(RuntimeWarning, match="collapses tally time bins"):
         payload = build_distribution_payload(simulation, data, _distribution_config())
@@ -217,7 +222,6 @@ def test_build_source_distribution_payload_warns_when_collapsing_time_bins():
     [
         ({"n_geant4_particles": 0}, "n_geant4_particles > 0"),
         ({"source_tally_name": ""}, "source_tally_name"),
-        ({"distribution_box_cm": None}, "distribution_box_cm"),
     ],
 )
 def test_build_source_distribution_payload_rejects_invalid_config(config_update, match):
@@ -236,7 +240,9 @@ def test_build_source_distribution_payload_rejects_invalid_config(config_update,
         ({"scores": [99]}, "current-in"),
         ({"filter_direction": False}, "mu/azi"),
         ({"filter_energy": False}, "energy"),
-        ({"weights": np.zeros((2, 2, 2))}, "zero total"),
+        ({"child_type": 1}, "surface-mesh"),
+        ({"surface_mesh": False}, "surface_mesh"),
+        ({"weights": np.zeros((2, 2, 2, 6, 2, 3))}, "zero total"),
     ],
 )
 def test_build_source_distribution_payload_rejects_invalid_tally(
@@ -256,6 +262,11 @@ def test_run_handoff_distribution_loads_source_distribution(monkeypatch):
         last_events_run = 12
         last_total_edep_mev = 1.25
         last_dose_gy = 2.5e-9
+        edep_spectrum_edges_mev = [0.0, 1.0, 2.0]
+        edep_spectrum_counts = [10, 2]
+        edep_spectrum_edep_mev = [0.25, 1.0]
+        edep_spectrum_underflow = 0
+        edep_spectrum_overflow = 0
         status = "ok"
 
     class FakeSession:
@@ -283,8 +294,14 @@ def test_run_handoff_distribution_loads_source_distribution(monkeypatch):
     assert summary["events_run"] == 12
     assert summary["total_edep_mev"] == 1.25
     assert summary["dose_gy"] == 2.5e-9
+    np.testing.assert_allclose(summary["edep_spectrum_edges_mev"], [0.0, 1.0, 2.0])
+    np.testing.assert_array_equal(summary["edep_spectrum_counts"], [10, 2])
+    np.testing.assert_allclose(summary["edep_spectrum_edep_mev"], [0.25, 1.0])
     assert fake_session.loaded_distribution is not None
     np.testing.assert_allclose(fake_session.loaded_distribution[4], weights.ravel())
+    assert fake_session.loaded_distribution[5] == 2
+    assert fake_session.loaded_distribution[6] == 3
+    assert fake_session.loaded_distribution[7] == 12
 
 
 @pytest.mark.parametrize(
@@ -305,6 +322,11 @@ def test_run_handoff_distribution_checks_bridge_results(
             self.last_events_run = events_run
             self.last_total_edep_mev = 0.0
             self.last_dose_gy = 0.0
+            self.edep_spectrum_edges_mev = []
+            self.edep_spectrum_counts = []
+            self.edep_spectrum_edep_mev = []
+            self.edep_spectrum_underflow = 0
+            self.edep_spectrum_overflow = 0
             self.status = status
 
     class FakeSession:

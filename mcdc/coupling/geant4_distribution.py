@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mcdc.constant import SCORE_CURRENT_IN
+from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE
 from mcdc.coupling import geant4_config
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
 
@@ -16,8 +16,6 @@ def validate_distribution_config(cfg: Geant4HandoffConfig) -> None:
         raise RuntimeError("Distribution source mode requires n_geant4_particles > 0.")
     if not cfg.source_tally_name:
         raise RuntimeError("Distribution source mode requires source_tally_name.")
-    if cfg.distribution_box_cm is None:
-        raise RuntimeError("Distribution source mode requires distribution_box_cm.")
 
 
 def build_source_distribution_payload(
@@ -42,6 +40,12 @@ def build_source_distribution_payload(
         raise RuntimeError("Distribution source tally must define mu/azi filters.")
     if not bool(tally["filter_energy"]):
         raise RuntimeError("Distribution source tally must define energy bins.")
+    if int(tally["child_type"]) != TALLY_SURFACE:
+        raise RuntimeError("Distribution source tally must be a surface-mesh tally.")
+
+    surface_tally = simulation["surface_tallies"][int(tally["child_ID"])]
+    if not bool(surface_tally["use_surface_mesh"]):
+        raise RuntimeError("Distribution source tally must define surface_mesh.")
 
     # load score ids from the flat data array
     scores_offset = int(tally["scores_offset"])
@@ -82,9 +86,9 @@ def build_source_distribution_payload(
     mean_length = int(tally["bin_length"])
     mean = data[mean_offset : mean_offset + mean_length].reshape(shape)
     current_in_mean = np.take(mean, current_in_idx, axis=-1)
-    if current_in_mean.ndim < 4:
+    if current_in_mean.ndim != 7:
         raise RuntimeError(
-            "Distribution source tally must have mu/azi/energy/time axes."
+            "Distribution source tally must have mu/azi/energy/time/face/u/v axes."
         )
 
     if current_in_mean.shape[3] > 1:
@@ -94,9 +98,16 @@ def build_source_distribution_payload(
             stacklevel=2,
         )
 
-    # collapse extra tally axes before passing weights to the bridge. The bridge
-    # decodes this C-order flat array as mu-major, azi-middle, energy-minor.
-    weights = np.sum(current_in_mean, axis=tuple(range(3, current_in_mean.ndim)))
+    Nu = int(surface_tally["surface_mesh_Nu"])
+    Nv = int(surface_tally["surface_mesh_Nv"])
+    if current_in_mean.shape[4:] != (6, Nu, Nv):
+        raise RuntimeError(
+            "Distribution source tally surface_mesh shape must be face/u/v."
+        )
+
+    # collapse time only. The bridge decodes this C-order flat array as
+    # mu, azi, energy, face, u, v, with v fastest.
+    weights = np.sum(current_in_mean, axis=3)
     weights = np.maximum(weights, 0.0)
 
     # The tally mean is per-source-particle normalized (closeout divides by
@@ -111,13 +122,34 @@ def build_source_distribution_payload(
         )
 
     # convert source box and energy edges to Geant4 units
-    box_bounds_mm = np.asarray(cfg.distribution_box_cm, dtype=np.float64) * 10.0
+    box_bounds_mm = (
+        np.asarray(
+            [
+                [
+                    surface_tally["surface_mesh_x_min"],
+                    surface_tally["surface_mesh_x_max"],
+                ],
+                [
+                    surface_tally["surface_mesh_y_min"],
+                    surface_tally["surface_mesh_y_max"],
+                ],
+                [
+                    surface_tally["surface_mesh_z_min"],
+                    surface_tally["surface_mesh_z_max"],
+                ],
+            ],
+            dtype=np.float64,
+        )
+        * 10.0
+    )
     return {
         "box_bounds_mm": box_bounds_mm,
         "mu_edges": mu_edges,
         "azi_edges": azi_edges,
         "energy_edges_mev": energy_edges_ev * 1.0e-6,
         "weights": np.ascontiguousarray(weights.ravel()),
+        "Nu": Nu,
+        "Nv": Nv,
         "n_events": int(cfg.n_geant4_particles),
         "total_weight": total,
         "tally_name": cfg.source_tally_name,
@@ -139,6 +171,8 @@ def run_distribution_handoff(
         payload["azi_edges"],
         payload["energy_edges_mev"],
         payload["weights"],
+        payload["Nu"],
+        payload["Nv"],
         payload["n_events"],
     )
     session.beam_on()
@@ -152,6 +186,17 @@ def run_distribution_handoff(
         "events_run": int(results.last_events_run),
         "total_edep_mev": float(results.last_total_edep_mev),
         "dose_gy": float(results.last_dose_gy),
+        "edep_spectrum_edges_mev": np.asarray(
+            results.edep_spectrum_edges_mev, dtype=np.float64
+        ),
+        "edep_spectrum_counts": np.asarray(
+            results.edep_spectrum_counts, dtype=np.int64
+        ),
+        "edep_spectrum_edep_mev": np.asarray(
+            results.edep_spectrum_edep_mev, dtype=np.float64
+        ),
+        "edep_spectrum_underflow": int(results.edep_spectrum_underflow),
+        "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
         "status": str(results.status),
         "source_tally_name": payload["tally_name"],
         "source_total_weight": payload["total_weight"],

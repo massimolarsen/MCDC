@@ -15,13 +15,15 @@ from common import (
 )
 
 ENERGY_BINS_EV = np.array([13.99e6, 14.01e6])
-N_MCDC_PARTICLES = 2000
-ACTIVE_BANK_BUFFER = 10000
+N_MCDC_PARTICLES = 10000
+ACTIVE_BANK_BUFFER = N_MCDC_PARTICLES * 2
 
 target, target_cell = build_vacuum_handoff_model(
     mcdc,
     source_energy_ev=14.0e6,
-    handoff=True,
+    handoff_bank=True,
+    source_y_span_cm=(-1.0, 1.0),
+    source_z_span_cm=(-1.0, 1.0),
 )
 
 mcdc.Tally(

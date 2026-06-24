@@ -19,7 +19,6 @@ class Geant4HandoffConfig:
     source_mode: str = "bank"
     n_geant4_particles: int = 0
     source_tally_name: str = ""
-    distribution_box_cm: tuple[tuple[float, float], ...] | None = None
     geant4_output_path: str = ""
 
 

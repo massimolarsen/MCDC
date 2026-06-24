@@ -17,6 +17,7 @@ from common import (
 ENERGY_BINS_EV = np.array([0.0, 5.0e6, 20.0e6])
 MU_BINS = np.linspace(-1.0, 1.0, 5)
 AZI_BINS = np.linspace(-np.pi, np.pi, 5)
+SURFACE_MESH = (1, 1)
 
 target, target_cell = build_vacuum_handoff_model(
     mcdc,
@@ -30,6 +31,7 @@ mcdc.Tally(
     mu=MU_BINS,
     azi=AZI_BINS,
     energy=ENERGY_BINS_EV,
+    surface_mesh=SURFACE_MESH,
 )
 
 mcdc.settings.N_particle = 300
@@ -44,11 +46,6 @@ mcdc.enable_geant4_handoff(
     source_mode="distribution",
     n_geant4_particles=300,
     source_tally_name="energy_high_src",
-    distribution_box_cm=(
-        target["x_span_cm"],
-        target["y_span_cm"],
-        target["z_span_cm"],
-    ),
     geant4_output_path=geant4_output_path("ct05_energy_high_geant4.h5"),
 )
 

@@ -22,6 +22,8 @@ SURFACE_MESH = (4, 4)
 target, target_cell = build_vacuum_handoff_model(
     mcdc,
     source_energy_ev=14.0e6,
+    source_y_span_cm=(-1.0, 1.0),
+    source_z_span_cm=(-1.0, 1.0),
 )
 
 mcdc.Tally(
@@ -34,7 +36,7 @@ mcdc.Tally(
     surface_mesh=SURFACE_MESH,
 )
 
-mcdc.settings.N_particle = 2000
+mcdc.settings.N_particle = 10000
 mcdc.settings.active_bank_buffer = 2 * mcdc.settings.N_particle
 mcdc.settings.output_name = mcdc_output_name("ct03_validation_dist")
 
@@ -45,13 +47,8 @@ mcdc.enable_geant4_handoff(
     detector_material="G4_Si",
     physics_list="QGSP_BIC",
     source_mode="distribution",
-    n_geant4_particles=2000,
+    n_geant4_particles=10000,
     source_tally_name="validation_dist_src",
-    distribution_box_cm=(
-        target["x_span_cm"],
-        target["y_span_cm"],
-        target["z_span_cm"],
-    ),
     geant4_output_path=geant4_output_path("ct03_validation_dist_geant4.h5"),
 )
 

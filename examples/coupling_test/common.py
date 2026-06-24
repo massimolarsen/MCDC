@@ -61,7 +61,13 @@ def g4_world_size_from_handoff_zone(zone, padding_scale=1.2):
     return tuple(padding_scale * length_mm for length_mm in zone_size_mm)
 
 
-def build_vacuum_handoff_model(mcdc, source_energy_ev, handoff=False):
+def build_vacuum_handoff_model(
+    mcdc,
+    source_energy_ev,
+    handoff_bank=False,
+    source_y_span_cm=(-0.75, 0.75),
+    source_z_span_cm=(-0.75, 0.75),
+):
     vacuum = mcdc.Material(name="Vacuum", nuclide_composition={"Si28": 0.0})
 
     world = box_region(
@@ -79,15 +85,15 @@ def build_vacuum_handoff_model(mcdc, source_energy_ev, handoff=False):
         name="Target Handoff Box",
         region=target["region"],
         fill=vacuum,
-        handoff=handoff,
+        handoff=handoff_bank,
     )
     mcdc.Cell(name="Vacuum Outside Target", region=outside_region, fill=vacuum)
 
     mcdc.Source(
         name="Monoenergetic +x Neutron Source",
         x=[-5.0, -4.9],
-        y=[-0.75, 0.75],
-        z=[-0.75, 0.75],
+        y=source_y_span_cm,
+        z=source_z_span_cm,
         direction=[1.0, 0.0, 0.0],
         energy=source_energy_ev,
     )
@@ -95,7 +101,7 @@ def build_vacuum_handoff_model(mcdc, source_energy_ev, handoff=False):
     return target, target_cell
 
 
-def build_cube_in_cube_model(mcdc, handoff=False):
+def build_cube_in_cube_model(mcdc, handoff_bank=False):
     vacuum = mcdc.Material(name="Vacuum", nuclide_composition={"Si28": 0.0})
     aluminum = mcdc.Material(
         name="Aluminum", nuclide_composition={"Si28": 0.06022694744}
@@ -156,7 +162,7 @@ def build_cube_in_cube_model(mcdc, handoff=False):
         name="Inner SRAM",
         region=sram["region"],
         fill=vacuum,
-        handoff=handoff,
+        handoff=handoff_bank,
     )
     mcdc.Cell(name="Vacuum", region=vacuum_region, fill=vacuum)
 
