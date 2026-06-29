@@ -4,8 +4,6 @@ from typing import Any
 
 import numpy as np
 
-from mcdc.coupling import geant4_config
-
 
 def convert_handoff_bank_to_geant4(particles: np.ndarray) -> np.ndarray:
     # require neutron-only handoff particles for now
@@ -30,66 +28,35 @@ def convert_handoff_bank_to_geant4(particles: np.ndarray) -> np.ndarray:
     return bank
 
 
-def run_bank_handoff(simulation: np.ndarray) -> dict[str, Any]:
+def build_bank_payload(simulation: np.ndarray) -> dict[str, Any] | None:
     # read exact handoff bank size
     N = int(simulation["bank_handoff"]["size"][0])
     if N <= 0:
-        summary = {
-            "source_mode": "bank",
-            "source_size": 0,
-            "handoff_bank_size": 0,
-            "loaded_primaries": 0,
-            "events_run": 0,
-            "total_edep_mev": 0.0,
-            "dose_gy": 0.0,
-            "edep_spectrum_edges_mev": np.asarray([], dtype=np.float64),
-            "edep_spectrum_counts": np.asarray([], dtype=np.int64),
-            "edep_spectrum_edep_mev": np.asarray([], dtype=np.float64),
-            "edep_spectrum_underflow": 0,
-            "edep_spectrum_overflow": 0,
-            "status": "skipped_empty_handoff",
-        }
-        geant4_config.write_summary_hdf5(summary)
-        return summary
+        return None
 
     # convert handoff bank to bridge primary array
     handoff_particles = simulation["bank_handoff"]["particle_data"][:N]
     geant4_bank = convert_handoff_bank_to_geant4(handoff_particles)
-
-    # use the cached geant4 bridge session
-    session = geant4_config.get_session()
-    session.load_primaries(geant4_bank)
-    session.beam_on()
-    results = session.get_results()
-
-    # collect exact-bank handoff summary
-    summary = {
+    return {
         "source_mode": "bank",
         "source_size": N,
-        "handoff_bank_size": N,
-        "loaded_primaries": int(results.loaded_primaries),
-        "events_run": int(results.last_events_run),
-        "total_edep_mev": float(results.last_total_edep_mev),
-        "dose_gy": float(results.last_dose_gy),
-        "edep_spectrum_edges_mev": np.asarray(
-            results.edep_spectrum_edges_mev, dtype=np.float64
-        ),
-        "edep_spectrum_counts": np.asarray(
-            results.edep_spectrum_counts, dtype=np.int64
-        ),
-        "edep_spectrum_edep_mev": np.asarray(
-            results.edep_spectrum_edep_mev, dtype=np.float64
-        ),
-        "edep_spectrum_underflow": int(results.edep_spectrum_underflow),
-        "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
-        "status": str(results.status),
+        "bank": geant4_bank,
     }
 
-    # verify geant4 loaded every handoff particle
-    if summary["loaded_primaries"] != N:
-        raise RuntimeError(
-            "Geant4 coupling mismatch: loaded_primaries does not match handoff bank size."
-        )
 
-    geant4_config.write_summary_hdf5(summary)
-    return summary
+def empty_bank_summary() -> dict[str, Any]:
+    return {
+        "source_mode": "bank",
+        "source_size": 0,
+        "handoff_bank_size": 0,
+        "loaded_primaries": 0,
+        "events_run": 0,
+        "total_edep_mev": 0.0,
+        "dose_gy": 0.0,
+        "edep_spectrum_edges_mev": np.asarray([], dtype=np.float64),
+        "edep_spectrum_counts": np.asarray([], dtype=np.int64),
+        "edep_spectrum_edep_mev": np.asarray([], dtype=np.float64),
+        "edep_spectrum_underflow": 0,
+        "edep_spectrum_overflow": 0,
+        "status": "skipped_empty_handoff",
+    }

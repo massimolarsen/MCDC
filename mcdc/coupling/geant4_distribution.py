@@ -6,7 +6,6 @@ from typing import Any
 import numpy as np
 
 from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE
-from mcdc.coupling import geant4_config
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
 
 
@@ -121,27 +120,27 @@ def build_source_distribution_payload(
             "Distribution source tally has zero total current-in weight."
         )
 
-    # convert source box and energy edges to Geant4 units
-    box_bounds_mm = (
-        np.asarray(
+    # convert the global mcdc source box to the local geant4 detector frame
+    box_bounds_cm = np.asarray(
+        [
             [
-                [
-                    surface_tally["surface_mesh_x_min"],
-                    surface_tally["surface_mesh_x_max"],
-                ],
-                [
-                    surface_tally["surface_mesh_y_min"],
-                    surface_tally["surface_mesh_y_max"],
-                ],
-                [
-                    surface_tally["surface_mesh_z_min"],
-                    surface_tally["surface_mesh_z_max"],
-                ],
+                surface_tally["surface_mesh_x_min"],
+                surface_tally["surface_mesh_x_max"],
             ],
-            dtype=np.float64,
-        )
-        * 10.0
+            [
+                surface_tally["surface_mesh_y_min"],
+                surface_tally["surface_mesh_y_max"],
+            ],
+            [
+                surface_tally["surface_mesh_z_min"],
+                surface_tally["surface_mesh_z_max"],
+            ],
+        ],
+        dtype=np.float64,
     )
+    box_center_cm = np.mean(box_bounds_cm, axis=1, keepdims=True)
+    box_bounds_mm = (box_bounds_cm - box_center_cm) * 10.0
+
     return {
         "box_bounds_mm": box_bounds_mm,
         "mu_edges": mu_edges,
@@ -151,70 +150,7 @@ def build_source_distribution_payload(
         "Nu": Nu,
         "Nv": Nv,
         "n_events": int(cfg.n_geant4_particles),
-        "total_weight": total,
-        "tally_name": cfg.source_tally_name,
+        "source_size": int(cfg.n_geant4_particles),
+        "source_total_weight": total,
+        "source_tally_name": cfg.source_tally_name,
     }
-
-
-def run_distribution_handoff(
-    simulation: np.ndarray,
-    data: np.ndarray,
-    cfg: Geant4HandoffConfig,
-) -> dict[str, Any]:
-    payload = build_source_distribution_payload(simulation, data, cfg)
-
-    # use the cached geant4 bridge session
-    session = geant4_config.get_session()
-    session.load_source_distribution(
-        payload["box_bounds_mm"],
-        payload["mu_edges"],
-        payload["azi_edges"],
-        payload["energy_edges_mev"],
-        payload["weights"],
-        payload["Nu"],
-        payload["Nv"],
-        payload["n_events"],
-    )
-    session.beam_on()
-    results = session.get_results()
-
-    # collect distribution handoff summary
-    summary = {
-        "source_mode": "distribution",
-        "source_size": payload["n_events"],
-        "loaded_primaries": int(results.loaded_primaries),
-        "events_run": int(results.last_events_run),
-        "total_edep_mev": float(results.last_total_edep_mev),
-        "dose_gy": float(results.last_dose_gy),
-        "edep_spectrum_edges_mev": np.asarray(
-            results.edep_spectrum_edges_mev, dtype=np.float64
-        ),
-        "edep_spectrum_counts": np.asarray(
-            results.edep_spectrum_counts, dtype=np.int64
-        ),
-        "edep_spectrum_edep_mev": np.asarray(
-            results.edep_spectrum_edep_mev, dtype=np.float64
-        ),
-        "edep_spectrum_underflow": int(results.edep_spectrum_underflow),
-        "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
-        "status": str(results.status),
-        "source_tally_name": payload["tally_name"],
-        "source_total_weight": payload["total_weight"],
-    }
-
-    # verify geant4 consumed the requested number of samples
-    if summary["events_run"] != payload["n_events"]:
-        raise RuntimeError(
-            "Geant4 distribution coupling mismatch: events_run does not match n_geant4_particles."
-        )
-    if summary["loaded_primaries"] != payload["n_events"]:
-        raise RuntimeError(
-            "Geant4 distribution coupling mismatch: loaded_primaries does not match n_geant4_particles."
-        )
-    if summary["status"] != "ok":
-        raise RuntimeError(
-            f"Geant4 distribution coupling failed with status '{summary['status']}'."
-        )
-
-    geant4_config.write_summary_hdf5(summary)
-    return summary

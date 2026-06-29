@@ -88,11 +88,11 @@ def run():
 
     # Optional Geant4 handoff coupling. This is intentionally outside the Numba
     # transport kernels and runs only at a coarse simulation boundary.
-    if simulation["mpi_master"] and geant4_handoff.CONFIG.enabled:
+    if simulation["mpi_master"] and geant4_handoff.has_configs():
         coupling_summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
         print_module.print_msg(
             " Geant4 handoff summary: "
-            f"source_mode={coupling_summary['source_mode']} "
+            f"n_regions={coupling_summary['n_regions']} "
             f"source_size={coupling_summary['source_size']} "
             f"loaded_primaries={coupling_summary['loaded_primaries']} "
             f"events_run={coupling_summary['events_run']} "
