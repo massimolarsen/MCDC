@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 
-from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE
+from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE_CROSSING
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
 
 
@@ -39,10 +39,10 @@ def build_source_distribution_payload(
         raise RuntimeError("Distribution source tally must define mu/azi filters.")
     if not bool(tally["filter_energy"]):
         raise RuntimeError("Distribution source tally must define energy bins.")
-    if int(tally["child_type"]) != TALLY_SURFACE:
+    if int(tally["child_type"]) != TALLY_SURFACE_CROSSING:
         raise RuntimeError("Distribution source tally must be a surface-mesh tally.")
 
-    surface_tally = simulation["surface_tallies"][int(tally["child_ID"])]
+    surface_tally = simulation["surface_crossing_tallies"][int(tally["child_ID"])]
     if not bool(surface_tally["use_surface_mesh"]):
         raise RuntimeError("Distribution source tally must define surface_mesh.")
 

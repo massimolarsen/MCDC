@@ -13,7 +13,7 @@ import operator
 from functools import reduce
 from numpy import float64
 from numpy.typing import NDArray
-from typing import Annotated, Iterable
+from typing import Annotated, Sequence
 from types import NoneType
 
 ####
@@ -30,18 +30,18 @@ from mcdc.constant import (
     SCORE_COLLISION,
     SCORE_CAPTURE,
     SCORE_FISSION,
-    SCORE_NET_CURRENT,
+    SCORE_CURRENT_NET,
     SCORE_ENERGY_DEPOSITION,
     SCORE_CURRENT_IN,
     SCORE_CURRENT_OUT,
-    SPATIAL_FILTER_CELL,
-    SPATIAL_FILTER_SURFACE,
-    SPATIAL_FILTER_MESH,
-    SPATIAL_FILTER_NONE,
     SURFACE_PLANE_X,
     SURFACE_PLANE_Y,
     SURFACE_PLANE_Z,
-    TALLY_SURFACE,
+    SUPPORTED_SCORES,
+    SUPPORTED_SCORES_SURFACE_CROSSING,
+    SUPPORTED_SCORES_TRACKLENGTH,
+    SUPPORTED_SCORES_COLLISION,
+    TALLY_SURFACE_CROSSING,
     TALLY_COLLISION,
     TALLY_TRACKLENGTH,
 )
@@ -50,23 +50,16 @@ from mcdc.object_.base import ObjectPolymorphic
 from mcdc.object_.simulation import simulation
 from mcdc.print_ import print_1d_array, print_error
 
-SURFACE_SCORES = {"net-current"}
-CELL_CURRENT_SCORES = {"net-current", "current-in", "current-out"}
-TRACKLENGTH_SCORES = {"flux", "density", "collision", "capture", "fission"}
-COLLISION_SCORES = {"energy_deposition"}
-
 
 class Tally(ObjectPolymorphic):
-    """
-    Define a tally.
-    """
-
     # Annotations for Numba mode
     label: str = "tally"
-    #
+
+    # Basic properties
     name: str
     scores: list[int]
-    #
+
+    # Non-spatial filters
     filter_direction: bool
     filter_energy: bool
     filter_time: bool
@@ -75,12 +68,14 @@ class Tally(ObjectPolymorphic):
     polar_reference: Annotated[NDArray[float64], (3,)]
     energy: NDArray[float64]
     time: NDArray[float64]
-    #
+
+    # Score bins
     bin: NDArray[float64]
     bin_sum: NDArray[float64]
     bin_sum_square: NDArray[float64]
     bin_shape: list[int]
-    #
+
+    # Filter strides
     stride_mu: int
     stride_azi: int
     stride_energy: int
@@ -93,73 +88,66 @@ class Tally(ObjectPolymorphic):
         surface: Surface | NoneType = None,
         cell: Cell | NoneType = None,
         mesh: MeshBase | NoneType = None,
-        mu: Iterable[float] | NoneType = None,
-        azi: Iterable[float] | NoneType = None,
-        polar_reference: Iterable[float] | NoneType = None,
-        energy: Iterable[float] | str | NoneType = None,
-        time: Iterable[float] | NoneType = None,
-        x: Iterable[float] | NoneType = None,
-        y: Iterable[float] | NoneType = None,
-        z: Iterable[float] | NoneType = None,
-        surface_mesh: Iterable[int] | NoneType = None,
-    ) -> TallySurface | TallyTracklength | TallyCollision:
-        # Determine type and create the tally self based on the provided
-        # spatial filters and scores
+        mu: Sequence[float] | NoneType = None,
+        azi: Sequence[float] | NoneType = None,
+        polar_reference: Sequence[float] | NoneType = None,
+        energy: Sequence[float] | str | NoneType = None,
+        time: Sequence[float] | NoneType = None,
+        spatial_shape: tuple[int, ...] | NoneType = None,
+        surface_mesh: Sequence[int] | NoneType = None,
+    ) -> TallySurfaceCrossing | TallyTracklength | TallyCollision:
+        # Determine tally estimator type and create the instance based on the provided
+        # spatial filter and scores
 
-        has_current_score = any(score in CELL_CURRENT_SCORES for score in scores)
+        # Check scores
+        if len(scores) == 0:
+            print_error(f"Tally needs a score.")
+        if not (set(scores) <= SUPPORTED_SCORES):
+            print_error(f"Unsupported tally scores: {set(scores) - SUPPORTED_SCORES}")
 
-        if surface_mesh is not None and not has_current_score:
+        # Determine the tally type based on the provided scores
+        if set(scores) <= SUPPORTED_SCORES_SURFACE_CROSSING:
+            tally_type = TALLY_SURFACE_CROSSING
+        elif set(scores) <= SUPPORTED_SCORES_TRACKLENGTH:
+            tally_type = TALLY_TRACKLENGTH
+        elif set(scores) <= SUPPORTED_SCORES_COLLISION:
+            tally_type = TALLY_COLLISION
+        else:
+            print_error(
+                f"Cannot mix tally scores with different estimators.\n  Surfaces crossing: {set(scores) & SUPPORTED_SCORES_SURFACE_CROSSING}\n  Tracklength: {set(scores) & SUPPORTED_SCORES_TRACKLENGTH}\n  Collision: {set(scores) & SUPPORTED_SCORES_COLLISION}"
+            )
+            tally_type = -1
+
+        # Check spatial filters
+        if tally_type == TALLY_SURFACE_CROSSING:
+            if surface is None and cell is None:
+                print_error("Surface-crossing tally needs surface or cell filter.")
+            if mesh is not None:
+                print_error("Surface-crossing tally does not support mesh filter.")
+            if surface_mesh is not None and (surface is not None or cell is None):
+                print_error(
+                    "surface_mesh is supported only for cell-filtered current tallies."
+                )
+        elif surface_mesh is not None:
             print_error(
                 "surface_mesh is supported only for cell-filtered current tallies."
             )
 
-        # Surface/cell current tally
-        if has_current_score:
-            for score in scores:
-                if score not in CELL_CURRENT_SCORES:
-                    print_error(
-                        "Cannot mix current scores with non-current scores "
-                        f"in one tally. Current scores: {CELL_CURRENT_SCORES}."
-                    )
+        if tally_type == TALLY_COLLISION:
+            if surface is not None:
+                print_error("Collision tally does not support surface filter")
 
-            if surface is not None and cell is not None:
-                print_error(
-                    "Current tally must specify exactly one of surface or cell."
-                )
+        if tally_type == TALLY_TRACKLENGTH:
+            if surface is not None:
+                print_error("Tracklength tally does not support surface filter")
 
-            if surface is None and cell is None:
-                print_error("Current scores need either a surface or a cell tally.")
-
-            if surface is not None and not set(scores) <= SURFACE_SCORES:
-                print_error(
-                    "Surface tally currently supports only " "scores=['net-current']."
-                )
-
-            # Cell-filtered current tallies share the surface-crossing estimator.
-            return super().__new__(TallySurface)
-
-        # Unsupported score for explicit surface selector
-        if surface is not None:
-            for score in scores:
-                print_error(
-                    f"Scoring '{score}' with surface tally is not supported. "
-                    f"Supported surface tally scores: {SURFACE_SCORES}."
-                )
-
-        # Collision tally
-        if set(scores) <= COLLISION_SCORES:
-            return super().__new__(TallyCollision)
-
-        # Tracklength tally
-        if set(scores) <= TRACKLENGTH_SCORES:
-            return super().__new__(TallyTracklength)
-
-        # Error: Unsupported score combination
-        print_error(
-            "Cannot mix tracklength scores with collision ones."
-            f"\n  Tracklength scores: {TRACKLENGTH_SCORES}"
-            f"\n  Collision scores: {COLLISION_SCORES}"
-        )
+        # Create the instance based on the tally type
+        if tally_type == TALLY_SURFACE_CROSSING:
+            return object.__new__(TallySurfaceCrossing)
+        elif tally_type == TALLY_TRACKLENGTH:
+            return object.__new__(TallyTracklength)
+        else:  # tally_type == TALLY_COLLISION:
+            return object.__new__(TallyCollision)
 
     def __init__(
         self,
@@ -168,15 +156,12 @@ class Tally(ObjectPolymorphic):
         surface: Surface | NoneType = None,
         cell: Cell | NoneType = None,
         mesh: MeshBase | NoneType = None,
-        mu: Iterable[float] | NoneType = None,
-        azi: Iterable[float] | NoneType = None,
-        polar_reference: Iterable[float] | NoneType = None,
-        energy: Iterable[float] | str | NoneType = None,
-        time: Iterable[float] | NoneType = None,
-        x: Iterable[float] | NoneType = None,
-        y: Iterable[float] | NoneType = None,
-        z: Iterable[float] | NoneType = None,
-        spatial_shape: tuple[int] | NoneType = None,
+        mu: Sequence[float] | NoneType = None,
+        azi: Sequence[float] | NoneType = None,
+        polar_reference: Sequence[float] | NoneType = None,
+        energy: Sequence[float] | str | NoneType = None,
+        time: Sequence[float] | NoneType = None,
+        spatial_shape: tuple[int, ...] | NoneType = None,
     ):
         # Set name
         if name != "":
@@ -197,8 +182,8 @@ class Tally(ObjectPolymorphic):
                 self.scores.append(SCORE_CAPTURE)
             elif score == "fission":
                 self.scores.append(SCORE_FISSION)
-            elif score == "net-current":
-                self.scores.append(SCORE_NET_CURRENT)
+            elif score == "current-net":
+                self.scores.append(SCORE_CURRENT_NET)
             elif score == "current-in":
                 self.scores.append(SCORE_CURRENT_IN)
             elif score == "current-out":
@@ -309,8 +294,8 @@ class Tally(ObjectPolymorphic):
 def decode_type(type_):
     if type_ == TALLY_TRACKLENGTH:
         return "Tracklength tally"
-    elif type_ == TALLY_SURFACE:
-        return "Surface tally"
+    elif type_ == TALLY_SURFACE_CROSSING:
+        return "Surface crossing tally"
     elif type_ == TALLY_COLLISION:
         return "Collision tally"
 
@@ -326,14 +311,14 @@ def decode_score_type(type_, lower_case=False):
         return "Capture" if not lower_case else "capture"
     elif type_ == SCORE_FISSION:
         return "Fission" if not lower_case else "fission"
-    elif type_ == SCORE_NET_CURRENT:
-        return "Net current" if not lower_case else "net-current"
-    elif type_ == SCORE_ENERGY_DEPOSITION:
-        return "Energy deposition" if not lower_case else "energy_deposition"
+    elif type_ == SCORE_CURRENT_NET:
+        return "Current net" if not lower_case else "current-net"
     elif type_ == SCORE_CURRENT_IN:
         return "Current in" if not lower_case else "current-in"
     elif type_ == SCORE_CURRENT_OUT:
         return "Current out" if not lower_case else "current-out"
+    elif type_ == SCORE_ENERGY_DEPOSITION:
+        return "Energy deposition" if not lower_case else "energy_deposition"
 
 
 def _parse_surface_mesh(surface_mesh):
@@ -410,29 +395,22 @@ def _box_surface_mesh_bounds(cell):
 
 
 # ======================================================================================
-# Surface tally
+# Surface-crossing tally
 # ======================================================================================
 
 
-class TallySurface(Tally):
+class TallySurfaceCrossing(Tally):
     # Annotations for Numba mode
-    label: str = "surface_tally"
-    non_numba: list[str] = ["spatial_filter"]
-    #
-    spatial_filter: Surface | Cell
-    spatial_filter_type: int
-    spatial_filter_ID: int
-    surface: Surface
-    filter_surface_bounds: bool
-    has_x_bounds: bool
-    has_y_bounds: bool
-    has_z_bounds: bool
-    x_min: float
-    x_max: float
-    y_min: float
-    y_max: float
-    z_min: float
-    z_max: float
+    label: str = "surface_crossing_tally"
+    non_numba: list[str] = ["surface", "cell"]
+
+    # Spatial filters
+    surface: Surface | NoneType
+    surface_filtered: bool
+    surface_filter_ID: int
+    cell: Cell | NoneType
+    cell_filtered: bool
+    cell_filter_ID: int
     use_surface_mesh: bool
     surface_mesh_Nu: int
     surface_mesh_Nv: int
@@ -458,17 +436,14 @@ class TallySurface(Tally):
         cell: Cell | NoneType = None,
         name: str = "",
         scores: list[str] = ["flux"],
-        mu: Iterable[float] | NoneType = None,
-        azi: Iterable[float] | NoneType = None,
-        polar_reference: Iterable[float] | NoneType = None,
-        energy: Iterable[float] | str | NoneType = None,
-        time: Iterable[float] | NoneType = None,
-        x: Iterable[float] | NoneType = None,
-        y: Iterable[float] | NoneType = None,
-        z: Iterable[float] | NoneType = None,
-        surface_mesh: Iterable[int] | NoneType = None,
+        mu: Sequence[float] | NoneType = None,
+        azi: Sequence[float] | NoneType = None,
+        polar_reference: Sequence[float] | NoneType = None,
+        energy: Sequence[float] | str | NoneType = None,
+        time: Sequence[float] | NoneType = None,
+        surface_mesh: Sequence[int] | NoneType = None,
     ):
-        type_ = TALLY_SURFACE
+        type_ = TALLY_SURFACE_CROSSING
         surface_mesh_shape = None
         surface_mesh_Nu = 0
         surface_mesh_Nv = 0
@@ -494,42 +469,36 @@ class TallySurface(Tally):
             spatial_shape=surface_mesh_shape,
         )
 
-        if SCORE_ENERGY_DEPOSITION in self.scores:
-            print_error(
-                "Score 'energy_deposition' uses the collision estimator and is not supported "
-                "for this tally type."
-            )
+        # ==============================================================================
+        # Set spatial filters
+        # ==============================================================================
 
-        if surface is not None and cell is not None:
-            print_error("Surface tally must specify exactly one of surface or cell.")
-        if surface is None and cell is None:
-            print_error("Surface tally requires either a surface or a cell.")
+        self.surface = surface
+        self.cell = cell
 
+        # Default, no filter
+        self.surface_filtered = False
+        self.surface_filter_ID = -1
+        self.cell_filtered = False
+        self.cell_filter_ID = -1
+
+        # Surface filter
         if surface is not None:
-            self.spatial_filter = surface
-            self.spatial_filter_type = SPATIAL_FILTER_SURFACE
-            self.spatial_filter_ID = surface.ID
-            self.surface = surface
-            surface.tallies.append(self)
-        else:
-            self.spatial_filter = cell
-            self.spatial_filter_type = SPATIAL_FILTER_CELL
-            self.spatial_filter_ID = cell.ID
-            self.surface = cell.surfaces[0]
-            for boundary_surface in cell.surfaces:
-                boundary_surface.tallies.append(self)
+            self.surface_filtered = True
+            self.surface_filter_ID = surface.ID
 
-        # Optional bounds for axis-aligned planar surface tallies.
-        self.filter_surface_bounds = False
-        self.has_x_bounds = False
-        self.has_y_bounds = False
-        self.has_z_bounds = False
-        self.x_min = -INF
-        self.x_max = INF
-        self.y_min = -INF
-        self.y_max = INF
-        self.z_min = -INF
-        self.z_max = INF
+            # Attach to the surface
+            surface.tallies.append(self)
+
+        # Cell filter
+        if cell is not None:
+            self.cell_filtered = True
+            self.cell_filter_ID = cell.ID
+
+            # Attach to all bounding surfaces of the cell if surface filter is not specified
+            if surface is None:
+                for boundary_surface in cell.surfaces:
+                    boundary_surface.tallies.append(self)
 
         if surface_mesh is None:
             self.use_surface_mesh = False
@@ -575,69 +544,12 @@ class TallySurface(Tally):
                 self.surface_mesh_z_max,
             ) = surface_mesh_bounds
 
-        if self.spatial_filter_type == SPATIAL_FILTER_CELL and (
-            x is not None or y is not None or z is not None
-        ):
-            print_error(
-                "Cell-filtered surface current tally does not support explicit x/y/z bounds."
-            )
-
-        if x is not None:
-            x = np.array(x, dtype=float)
-            if len(x) != 2:
-                print_error(
-                    "Surface tally bound x must have exactly two values [min, max]."
-                )
-            self.has_x_bounds = True
-            self.x_min = min(x[0], x[1])
-            self.x_max = max(x[0], x[1])
-
-        if y is not None:
-            y = np.array(y, dtype=float)
-            if len(y) != 2:
-                print_error(
-                    "Surface tally bound y must have exactly two values [min, max]."
-                )
-            self.has_y_bounds = True
-            self.y_min = min(y[0], y[1])
-            self.y_max = max(y[0], y[1])
-
-        if z is not None:
-            z = np.array(z, dtype=float)
-            if len(z) != 2:
-                print_error(
-                    "Surface tally bound z must have exactly two values [min, max]."
-                )
-            self.has_z_bounds = True
-            self.z_min = min(z[0], z[1])
-            self.z_max = max(z[0], z[1])
-
-        self.filter_surface_bounds = (
-            self.has_x_bounds or self.has_y_bounds or self.has_z_bounds
-        )
-
-        if self.filter_surface_bounds:
-            if self.surface.type not in (
-                SURFACE_PLANE_X,
-                SURFACE_PLANE_Y,
-                SURFACE_PLANE_Z,
-            ):
-                print_error(
-                    "Bounded surface tally currently supports only PlaneX, PlaneY, and PlaneZ surfaces."
-                )
-            if self.surface.type == SURFACE_PLANE_X and self.has_x_bounds:
-                print_error("PlaneX surface tally bounds may only use y and/or z.")
-            if self.surface.type == SURFACE_PLANE_Y and self.has_y_bounds:
-                print_error("PlaneY surface tally bounds may only use x and/or z.")
-            if self.surface.type == SURFACE_PLANE_Z and self.has_z_bounds:
-                print_error("PlaneZ surface tally bounds may only use x and/or y.")
-
     def __repr__(self):
         text = super().__repr__()
-        if self.spatial_filter_type == SPATIAL_FILTER_SURFACE:
-            text += f"  - Surface: {self.spatial_filter.name}\n"
-        elif self.spatial_filter_type == SPATIAL_FILTER_CELL:
-            text += f"  - Cell filter: {self.spatial_filter.name}\n"
+        if isinstance(self.surface, Surface):
+            text += f"  - Surface filter: {self.surface.name}\n"
+        if isinstance(self.cell, Cell):
+            text += f"  - Cell filter: {self.cell.name}\n"
         text += super()._phasespace_filter_text()
         if self.use_surface_mesh:
             text += (
@@ -655,14 +567,20 @@ class TallySurface(Tally):
 
 
 class TallyCollision(Tally):
+    # Annotations for Numba mode
     label: str = "collision_tally"
-    non_numba: list[str] = ["spatial_filter"]
+    non_numba: list[str] = ["cell", "mesh"]
 
-    spatial_filter: Cell | MeshBase | NoneType
-    spatial_filter_type: int
-    spatial_filter_ID: int
-    spatial_filter_subtype: int
+    # Spatial filters
+    cell: Cell | NoneType
+    cell_filtered: bool
+    cell_filter_ID: int
+    mesh: MeshBase | NoneType
+    mesh_filtered: bool
+    mesh_filter_type: int
+    mesh_filter_ID: int
 
+    # Mesh filter strides
     mesh_stride_z: int
     mesh_stride_y: int
     mesh_stride_x: int
@@ -673,11 +591,11 @@ class TallyCollision(Tally):
         mesh: MeshBase | NoneType = None,
         name: str = "",
         scores: list[str] = ["energy_deposition"],
-        mu: Iterable[float] | NoneType = None,
-        azi: Iterable[float] | NoneType = None,
-        polar_reference: Iterable[float] | NoneType = None,
-        energy: Iterable[float] | str | NoneType = None,
-        time: Iterable[float] | NoneType = None,
+        mu: Sequence[float] | NoneType = None,
+        azi: Sequence[float] | NoneType = None,
+        polar_reference: Sequence[float] | NoneType = None,
+        energy: Sequence[float] | str | NoneType = None,
+        time: Sequence[float] | NoneType = None,
     ):
         type_ = TALLY_COLLISION
         spatial_shape = None
@@ -696,61 +614,59 @@ class TallyCollision(Tally):
             spatial_shape=spatial_shape,
         )
 
-        if len(self.scores) != 1 or SCORE_ENERGY_DEPOSITION not in self.scores:
-            print_error(
-                "Collision tally currently supports only scores=['energy_deposition']."
-            )
-
-        # Support check
-        if SCORE_ENERGY_DEPOSITION in self.scores and mesh is None:
-            print_error(
-                "Score 'energy_deposition' is currently only supported with a mesh spatial filter."
-            )
-
         # ==============================================================================
-        # Set spatial filter
+        # Set spatial filters
         # ==============================================================================
 
-        # Default: no filter
-        self.spatial_filter = None
-        self.spatial_filter_type = SPATIAL_FILTER_NONE
-        self.spatial_filter_subtype = -1
-        self.spatial_filter_ID = -1
+        self.cell = cell
+        self.mesh = mesh
+
+        # Default, no filter
+        self.cell_filtered = False
+        self.cell_filter_ID = -1
+        self.mesh_filtered = False
+        self.mesh_filter_ID = -1
+        self.mesh_filter_type = -1
         self.mesh_stride_z = -1
         self.mesh_stride_y = -1
         self.mesh_stride_x = -1
 
         # Cell filter
         if cell is not None:
-            self.spatial_filter = cell
-            self.spatial_filter_type = SPATIAL_FILTER_CELL
-            self.spatial_filter_ID = cell.ID
+            self.cell_filtered = True
+            self.cell_filter_ID = cell.ID
 
-            # Attach tally to the cell
-            cell.tallies.append(self)
+            # Attach to the cell
+            cell.collision_tallies.append(self)
 
         # Mesh filter
         if mesh is not None:
-            self.spatial_filter = mesh
-            self.spatial_filter_type = SPATIAL_FILTER_MESH
-            if isinstance(mesh, MeshStructured):
-                self.spatial_filter_subtype = MESH_STRUCTURED
-            elif isinstance(mesh, MeshUniform):
-                self.spatial_filter_subtype = MESH_UNIFORM
-            self.spatial_filter_ID = mesh.ID
+            self.mesh_filtered = True
+            self.mesh_filter_ID = mesh.ID
 
-            # Set the strides
+            # Mesh type
+            if isinstance(mesh, MeshStructured):
+                self.mesh_filter_type = MESH_STRUCTURED
+            elif isinstance(mesh, MeshUniform):
+                self.mesh_filter_type = MESH_UNIFORM
+
+            # Mesh strides
             N_score = len(self.scores)
             self.mesh_stride_z = N_score
             self.mesh_stride_y = N_score * mesh.Nz
             self.mesh_stride_x = N_score * mesh.Nz * mesh.Ny
 
+        # Attach to all cells if cell filter is not specified
+        if cell is None:
+            for cell_ in simulation.cells:
+                cell_.collision_tallies.append(self)
+
     def __repr__(self):
         text = super().__repr__()
-        if self.spatial_filter_type == SPATIAL_FILTER_CELL:
-            text += f"  - Cell: {self.spatial_filter.name}\n"
-        elif self.spatial_filter_type == SPATIAL_FILTER_MESH:
-            text += f"  - Mesh: {mesh_module.decode_type(self.spatial_filter.type)} (ID {self.spatial_filter.ID})\n"
+        if isinstance(self.cell, Cell):
+            text += f"  - Cell filter: {self.cell.name}\n"
+        if isinstance(self.mesh, MeshBase):
+            text += f"  - Mesh: {mesh_module.decode_type(self.mesh.type)} (ID {self.mesh.ID})\n"
         text += super()._phasespace_filter_text()
         text += f"  - Bin shape [mu, azi, energy, time, score]: {self.bin_shape} \n"
         return text
@@ -764,13 +680,18 @@ class TallyCollision(Tally):
 class TallyTracklength(Tally):
     # Annotations for Numba mode
     label: str = "tracklength_tally"
-    non_numba: list[str] = ["spatial_filter"]
-    #
-    spatial_filter: Cell | MeshBase | NoneType
-    spatial_filter_type: int
-    spatial_filter_ID: int
-    spatial_filter_subtype: int
-    #
+    non_numba: list[str] = ["cell", "mesh"]
+
+    # Spatial filters
+    cell: Cell | NoneType
+    cell_filtered: bool
+    cell_filter_ID: int
+    mesh: MeshBase | NoneType
+    mesh_filtered: bool
+    mesh_filter_type: int
+    mesh_filter_ID: int
+
+    # Mesh filter strides
     mesh_stride_z: int
     mesh_stride_y: int
     mesh_stride_x: int
@@ -781,11 +702,11 @@ class TallyTracklength(Tally):
         mesh: MeshBase | NoneType = None,
         name: str = "",
         scores: list[str] = ["flux"],
-        mu: Iterable[float] | NoneType = None,
-        azi: Iterable[float] | NoneType = None,
-        polar_reference: Iterable[float] | NoneType = None,
-        energy: Iterable[float] | str | NoneType = None,
-        time: Iterable[float] | NoneType = None,
+        mu: Sequence[float] | NoneType = None,
+        azi: Sequence[float] | NoneType = None,
+        polar_reference: Sequence[float] | NoneType = None,
+        energy: Sequence[float] | str | NoneType = None,
+        time: Sequence[float] | NoneType = None,
     ):
         type_ = TALLY_TRACKLENGTH
         spatial_shape = None
@@ -805,49 +726,58 @@ class TallyTracklength(Tally):
         )
 
         # ==============================================================================
-        # Set spatial filter
+        # Set spatial filters
         # ==============================================================================
 
-        # Default: no filter
-        self.spatial_filter = None
-        self.spatial_filter_type = SPATIAL_FILTER_NONE
-        self.spatial_filter_subtype = -1
-        self.spatial_filter_ID = -1
+        self.cell = cell
+        self.mesh = mesh
+
+        # Default, no filter
+        self.cell_filtered = False
+        self.cell_filter_ID = -1
+        self.mesh_filtered = False
+        self.mesh_filter_ID = -1
+        self.mesh_filter_type = -1
         self.mesh_stride_z = -1
         self.mesh_stride_y = -1
         self.mesh_stride_x = -1
 
         # Cell filter
         if cell is not None:
-            self.spatial_filter = cell
-            self.spatial_filter_type = SPATIAL_FILTER_CELL
-            self.spatial_filter_ID = cell.ID
+            self.cell_filtered = True
+            self.cell_filter_ID = cell.ID
 
-            # Attach tally to the cell
-            cell.tallies.append(self)
+            # Attach to the cell
+            cell.tracklength_tallies.append(self)
 
         # Mesh filter
-        elif mesh is not None:
-            self.spatial_filter = mesh
-            self.spatial_filter_type = SPATIAL_FILTER_MESH
-            if isinstance(mesh, MeshStructured):
-                self.spatial_filter_subtype = MESH_STRUCTURED
-            elif isinstance(mesh, MeshUniform):
-                self.spatial_filter_subtype = MESH_UNIFORM
-            self.spatial_filter_ID = mesh.ID
+        if mesh is not None:
+            self.mesh_filtered = True
+            self.mesh_filter_ID = mesh.ID
 
-            # Set the strides
+            # Mesh type
+            if isinstance(mesh, MeshStructured):
+                self.mesh_filter_type = MESH_STRUCTURED
+            elif isinstance(mesh, MeshUniform):
+                self.mesh_filter_type = MESH_UNIFORM
+
+            # Mesh strides
             N_score = len(self.scores)
             self.mesh_stride_z = N_score
             self.mesh_stride_y = N_score * mesh.Nz
             self.mesh_stride_x = N_score * mesh.Nz * mesh.Ny
 
+        # Attach to all cells if cell filter is not specified
+        if cell is None:
+            for cell_ in simulation.cells:
+                cell_.tracklength_tallies.append(self)
+
     def __repr__(self):
         text = super().__repr__()
-        if self.spatial_filter_type == SPATIAL_FILTER_CELL:
-            text += f"  - Cell: {self.spatial_filter.name}\n"
-        elif self.spatial_filter_type == SPATIAL_FILTER_MESH:
-            text += f"  - Mesh: {mesh_module.decode_type(self.spatial_filter.type)} (ID {self.spatial_filter.ID})\n"
+        if isinstance(self.cell, Cell):
+            text += f"  - Cell filter: {self.cell.name}\n"
+        if isinstance(self.mesh, MeshBase):
+            text += f"  - Mesh: {mesh_module.decode_type(self.mesh.type)} (ID {self.mesh.ID})\n"
         text += super()._phasespace_filter_text()
         text += f"  - Bin shape [mu, azi, energy, time, score]: {self.bin_shape} \n"
         return text

@@ -10,7 +10,6 @@ import mcdc.print_ as print_module
 from mcdc.constant import (
     MESH_UNIFORM,
     MESH_STRUCTURED,
-    SPATIAL_FILTER_MESH,
 )
 
 # ======================================================================================
@@ -153,7 +152,11 @@ def create_runtime_dataset(file, mcdc):
 
 
 def create_tally_dataset(file, mcdc, data):
-    from mcdc.constant import TALLY_TRACKLENGTH, TALLY_COLLISION, TALLY_SURFACE
+    from mcdc.constant import (
+        TALLY_TRACKLENGTH,
+        TALLY_COLLISION,
+        TALLY_SURFACE_CROSSING,
+    )
     from mcdc.object_.tally import decode_score_type
 
     # Loop over all tally types
@@ -184,11 +187,8 @@ def create_tally_dataset(file, mcdc, data):
         elif tally["child_type"] == TALLY_COLLISION:
             mesh_filtered_tally = mcdc["collision_tallies"][tally["child_ID"]]
 
-        if (
-            mesh_filtered_tally is not None
-            and mesh_filtered_tally["spatial_filter_type"] == SPATIAL_FILTER_MESH
-        ):
-            mesh_base = mcdc["meshes"][mesh_filtered_tally["spatial_filter_ID"]]
+        if mesh_filtered_tally is not None and mesh_filtered_tally["mesh_filtered"]:
+            mesh_base = mcdc["meshes"][mesh_filtered_tally["mesh_filter_ID"]]
             mesh_type = mesh_base["child_type"]
             mesh_ID = mesh_base["child_ID"]
             if mesh_type == MESH_UNIFORM:
@@ -212,8 +212,8 @@ def create_tally_dataset(file, mcdc, data):
             file.create_dataset(f"tallies/{tally_name}/grid/z", data=z)
 
         surface_mesh_tally = None
-        if tally["child_type"] == TALLY_SURFACE:
-            surface_tally = mcdc["surface_tallies"][tally["child_ID"]]
+        if tally["child_type"] == TALLY_SURFACE_CROSSING:
+            surface_tally = mcdc["surface_crossing_tallies"][tally["child_ID"]]
             if surface_tally["use_surface_mesh"]:
                 surface_mesh_tally = surface_tally
 
@@ -235,10 +235,7 @@ def create_tally_dataset(file, mcdc, data):
 
         # Roll tally so that score is in the front
         roll_reference = 4
-        if (
-            mesh_filtered_tally is not None
-            and mesh_filtered_tally["spatial_filter_type"] == SPATIAL_FILTER_MESH
-        ):
+        if mesh_filtered_tally is not None and mesh_filtered_tally["mesh_filtered"]:
             roll_reference = 7
         if surface_mesh_tally is not None:
             roll_reference = 7

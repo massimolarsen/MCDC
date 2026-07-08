@@ -1,8 +1,8 @@
 import numpy as np
 
-from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE
+from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE_CROSSING
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
-from mcdc.numba_types import surface_tally as SURFACE_TALLY_DTYPE
+from mcdc.numba_types import surface_crossing_tally as SURFACE_CROSSING_TALLY_DTYPE
 from mcdc.numba_types import tally as TALLY_DTYPE
 
 
@@ -31,7 +31,7 @@ def distribution_simulation_and_data(
     weights=None,
     n_particle=1,
     surface_mesh=True,
-    child_type=TALLY_SURFACE,
+    child_type=TALLY_SURFACE_CROSSING,
     time_bins=1,
 ):
     if scores is None:
@@ -89,22 +89,22 @@ def distribution_simulation_and_data(
     for field, value in tally_values.items():
         tallies[0][field] = value
 
-    surface_tallies = np.zeros(1, dtype=SURFACE_TALLY_DTYPE)
-    surface_tallies[0]["use_surface_mesh"] = surface_mesh
-    surface_tallies[0]["surface_mesh_Nu"] = 2
-    surface_tallies[0]["surface_mesh_Nv"] = 3
-    surface_tallies[0]["surface_mesh_x_min"] = -1.0
-    surface_tallies[0]["surface_mesh_x_max"] = 1.0
-    surface_tallies[0]["surface_mesh_y_min"] = -2.0
-    surface_tallies[0]["surface_mesh_y_max"] = 2.0
-    surface_tallies[0]["surface_mesh_z_min"] = -3.0
-    surface_tallies[0]["surface_mesh_z_max"] = 3.0
+    surface_crossing_tallies = np.zeros(1, dtype=SURFACE_CROSSING_TALLY_DTYPE)
+    surface_crossing_tallies[0]["use_surface_mesh"] = surface_mesh
+    surface_crossing_tallies[0]["surface_mesh_Nu"] = 2
+    surface_crossing_tallies[0]["surface_mesh_Nv"] = 3
+    surface_crossing_tallies[0]["surface_mesh_x_min"] = -1.0
+    surface_crossing_tallies[0]["surface_mesh_x_max"] = 1.0
+    surface_crossing_tallies[0]["surface_mesh_y_min"] = -2.0
+    surface_crossing_tallies[0]["surface_mesh_y_max"] = 2.0
+    surface_crossing_tallies[0]["surface_mesh_z_min"] = -3.0
+    surface_crossing_tallies[0]["surface_mesh_z_max"] = 3.0
 
     simulation = {
         "mpi_size": 1,
         "settings": {"N_particle": n_particle},
         "tallies": tallies,
-        "surface_tallies": surface_tallies,
+        "surface_crossing_tallies": surface_crossing_tallies,
         "bank_handoff": {
             "size": np.asarray([0], dtype=np.int64),
             "particle_data": np.array([], dtype=PARTICLE_DTYPE),

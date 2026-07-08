@@ -27,7 +27,7 @@ def test_build_source_distribution_payload_uses_current_in_tally():
 
 def test_build_source_distribution_payload_recenters_source_box_for_geant4():
     simulation, data, _ = distribution_simulation_and_data()
-    surface_tally = simulation["surface_tallies"][0]
+    surface_tally = simulation["surface_crossing_tallies"][0]
     surface_tally["surface_mesh_x_min"] = 1.0
     surface_tally["surface_mesh_x_max"] = 2.0
     surface_tally["surface_mesh_y_min"] = -2.0

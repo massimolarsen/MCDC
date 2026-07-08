@@ -1,5 +1,4 @@
 import math
-import numpy as np
 
 from numba import njit
 
@@ -297,7 +296,7 @@ def elastic_scattering(reaction, particle_container, element, simulation, data):
         # ---------------------------------------------------------------------
 
         multi_table = simulation["multi_table_distributions"][reaction["mu_ID"]]
-        mu0 = sample_multi_table(E, particle_container, multi_table, data)
+        mu0 = sample_multi_table(E, particle_container, multi_table, simulation, data)
 
     else:
         # ---------------------------------------------------------------------
@@ -439,23 +438,23 @@ def ionization(
 
     # Sample subshell
     N = int(reaction["N_subshell"])
-    xs_vals = np.empty(N, dtype=np.float64)
-
     total = 0.0
     for i in range(N):
         xs_sub_ID = int(
             mcdc_get.electron_ionization_reaction.subshell_x_IDs(i, reaction, data)
         )
         xs_sub_table = simulation["data"][xs_sub_ID]
-        xs_sub_i = evaluate_data(E, xs_sub_table, simulation, data)
-        xs_vals[i] = xs_sub_i
-        total += xs_sub_i
+        total += evaluate_data(E, xs_sub_table, simulation, data)
 
     xi = rng.lcg(particle_container) * total
     total_acc = 0.0
     chosen = 0
     for i in range(N):
-        total_acc += xs_vals[i]
+        xs_sub_ID = int(
+            mcdc_get.electron_ionization_reaction.subshell_x_IDs(i, reaction, data)
+        )
+        xs_sub_table = simulation["data"][xs_sub_ID]
+        total_acc += evaluate_data(E, xs_sub_table, simulation, data)
         if total_acc >= xi:
             chosen = i
             break
@@ -524,7 +523,7 @@ def ionization(
             particle["uz"] = pz_after / norm
 
     # Add secondary particle to bank
-    particle_container_new = np.zeros(1, type_.particle_data)
+    particle_container_new = util.local_array(1, type_.particle_data)
     particle_new = particle_container_new[0]
     particle_module.copy_as_child(particle_container_new, particle_container)
 
