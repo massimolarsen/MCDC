@@ -87,6 +87,12 @@ dev = [
   "pytest",
 ]
 
+viewer = [
+  "manifold3d",
+  "pyvista",
+  "trimesh",
+]
+
 [project.urls]
 Homepage = "https://mcdc.readthedocs.io/"
 Documentation = "https://mcdc.readthedocs.io/"
