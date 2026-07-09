@@ -17,6 +17,7 @@ def test_payload_round_trip_distribution(tmp_path):
         "detector_size_mm": (10.0, 20.0, 30.0),
         "detector_material": "G4_Si",
         "physics_list": "QGSP_BIC",
+        "random_seed": 777,
         "source_size": 4,
         "source_tally_name": "cpu_src",
         "source_total_weight": 2.5,
@@ -36,6 +37,7 @@ def test_payload_round_trip_distribution(tmp_path):
 
     assert result["name"] == "cpu"
     assert result["source_mode"] == "distribution"
+    assert int(result["random_seed"]) == 777
     np.testing.assert_allclose(result["box_bounds_mm"], payload["box_bounds_mm"])
     np.testing.assert_allclose(result["weights"], payload["weights"])
     assert int(result["n_events"]) == 4
@@ -52,6 +54,7 @@ class SessionConfig:
         self.detector_size_mm = []
         self.detector_material = ""
         self.physics_list = ""
+        self.random_seed = 0
 
 class Results:
     loaded_primaries = 3
@@ -67,6 +70,8 @@ class Results:
 
 class Session:
     def __init__(self, config):
+        if config.random_seed != 13579:
+            raise RuntimeError("random seed was not passed to bridge")
         self.config = config
     def initialize(self):
         pass
@@ -95,6 +100,7 @@ class Session:
             "detector_size_mm": (10.0, 10.0, 10.0),
             "detector_material": "G4_Si",
             "physics_list": "QGSP_BIC",
+            "random_seed": 13579,
             "source_size": 3,
             "bank": np.ones((3, 10)),
         },
@@ -110,5 +116,6 @@ class Session:
     assert result.returncode == 0
     with h5py.File(output_path, "r") as file:
         assert file["source_mode"][()].decode("utf-8") == "bank"
+        assert int(file["random_seed"][()]) == 13579
         assert int(file["events_run"][()]) == 3
         assert float(file["total_edep_mev"][()]) == 1.5

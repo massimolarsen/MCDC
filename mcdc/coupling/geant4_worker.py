@@ -98,6 +98,7 @@ def result_summary(results, payload: dict[str, Any]) -> dict[str, Any]:
         "edep_spectrum_underflow": int(results.edep_spectrum_underflow),
         "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
         "status": str(results.status),
+        "random_seed": int(payload["random_seed"]),
     }
     if source_mode == "bank":
         summary["handoff_bank_size"] = source_size
@@ -116,6 +117,7 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     session_cfg.detector_size_mm = list(payload["detector_size_mm"])
     session_cfg.detector_material = str(payload["detector_material"])
     session_cfg.physics_list = str(payload["physics_list"])
+    session_cfg.random_seed = int(payload["random_seed"])
 
     session = bridge.Session(session_cfg)
     session.initialize()

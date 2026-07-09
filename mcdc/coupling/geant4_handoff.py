@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -164,9 +165,20 @@ def _build_region_payload(
         "detector_size_mm": cfg.detector_size_mm,
         "detector_material": cfg.detector_material,
         "physics_list": cfg.physics_list,
+        "random_seed": _random_seed(cfg),
     }
     payload.update(source)
     return payload
+
+
+def _random_seed(cfg: Geant4HandoffConfig) -> int:
+    if cfg.random_seed is None:
+        return secrets.randbelow(2_147_483_646) + 1
+
+    seed = int(cfg.random_seed)
+    if seed <= 0:
+        raise RuntimeError("Geant4 random_seed must be a positive integer.")
+    return seed
 
 
 def _temporary_path(prefix: str, suffix: str) -> pathlib.Path:

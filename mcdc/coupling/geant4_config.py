@@ -17,6 +17,7 @@ class Geant4HandoffConfig:
     n_geant4_particles: int = 0
     source_tally_name: str = ""
     geant4_output_path: str = ""
+    random_seed: int | None = None
 
 
 CONFIGS: list[Geant4HandoffConfig] = []
