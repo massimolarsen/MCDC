@@ -270,50 +270,20 @@ void_cell = mcdc.Cell(region=void_region, fill=m_void)
 
 # =============================================================================
 # SOURCE
-# Monoenergetic CE source, isotropic across all six boundary-cube faces.
+# Debug source aimed upward through each sensitive volume from the -Z boundary.
 # =============================================================================
 
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
 
-boundary_sources = [
-    dict(
-        x=[boundary_x0 + source_inset, boundary_x0 + source_inset],
-        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
-        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-    ),
-    dict(
-        x=[boundary_x1 - source_inset, boundary_x1 - source_inset],
-        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
-        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-    ),
-    dict(
-        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
-        y=[boundary_y0 + source_inset, boundary_y0 + source_inset],
-        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-    ),
-    dict(
-        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
-        y=[boundary_y1 - source_inset, boundary_y1 - source_inset],
-        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-    ),
-    dict(
-        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
-        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
-        z=[boundary_z0 + source_inset, boundary_z0 + source_inset],
-    ),
-    dict(
-        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
-        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
-        z=[boundary_z1 - source_inset, boundary_z1 - source_inset],
-    ),
-]
-
-for source_bounds in boundary_sources:
+for _, _, bounds in sensitive_volumes:
+    x0, x1, y0, y1, _, _ = bounds
     mcdc.Source(
-        **source_bounds,
-        isotropic=True,
+        x=[x0, x1],
+        y=[y0, y1],
+        z=[boundary_z0 + source_inset, boundary_z0 + source_inset],
+        direction=[0.0, 0.0, 1.0],
         energy=source_energy_ev,
-        probability=1.0 / 6.0,
+        probability=1.0 / len(sensitive_volumes),
     )
 
 # =============================================================================
@@ -324,7 +294,7 @@ for name, cell, _ in sensitive_volumes:
     mcdc.Tally(
         name=f"{name}_g4_source",
         cell=cell,
-        scores=["current-in"],
+        scores=["current-in", "current-out"],
         mu=mu_bins,
         azi=azi_bins,
         energy=energy_bins_ev,
@@ -355,6 +325,6 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 100000
-mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
+mcdc.settings.N_particle = 100
+mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4_dbg"
 mcdc.run()
