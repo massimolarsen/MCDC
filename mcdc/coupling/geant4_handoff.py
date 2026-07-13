@@ -9,7 +9,11 @@ from typing import Any
 
 import numpy as np
 
-from mcdc.coupling.geant4_bank import build_bank_payload, empty_bank_summary
+from mcdc.coupling.geant4_bank import (
+    build_bank_payload,
+    empty_bank_summary,
+    empty_handoff_summary,
+)
 from mcdc.coupling.geant4_config import (
     CONFIGS,
     Geant4HandoffConfig,
@@ -104,6 +108,10 @@ def _run_one_region(
         summary = empty_bank_summary()
         summary["name"] = cfg.name
         return summary
+    if payload.get("status") == "skipped_empty_handoff":
+        if cfg.geant4_output_path:
+            geant4_worker.write_summary_hdf5(payload, cfg.geant4_output_path)
+        return payload
 
     payload_path = _temporary_path(f"mcdc_g4_{cfg.name}_", ".h5")
     user_output = bool(cfg.geant4_output_path)
@@ -155,7 +163,19 @@ def _build_region_payload(
         if source is None:
             return None
     else:
-        source = build_source_distribution_payload(simulation, data, cfg)
+        try:
+            source = build_source_distribution_payload(simulation, data, cfg)
+        except RuntimeError as exc:
+            if "zero total current-in weight" in str(exc):
+                summary = empty_handoff_summary("distribution")
+                summary["name"] = cfg.name
+                summary["source_tally_name"] = cfg.source_tally_name
+                summary["source_total_weight"] = 0.0
+                return summary
+            raise
+
+    if source.get("status") == "skipped_empty_handoff":
+        return source
 
     payload = {
         "name": cfg.name,

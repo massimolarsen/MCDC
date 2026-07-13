@@ -44,11 +44,10 @@ def build_bank_payload(simulation: np.ndarray) -> dict[str, Any] | None:
     }
 
 
-def empty_bank_summary() -> dict[str, Any]:
+def empty_handoff_summary(source_mode: str = "bank") -> dict[str, Any]:
     return {
-        "source_mode": "bank",
+        "source_mode": source_mode,
         "source_size": 0,
-        "handoff_bank_size": 0,
         "loaded_primaries": 0,
         "events_run": 0,
         "total_edep_mev": 0.0,
@@ -60,3 +59,9 @@ def empty_bank_summary() -> dict[str, Any]:
         "edep_spectrum_overflow": 0,
         "status": "skipped_empty_handoff",
     }
+
+
+def empty_bank_summary() -> dict[str, Any]:
+    summary = empty_handoff_summary("bank")
+    summary["handoff_bank_size"] = 0
+    return summary

@@ -50,9 +50,14 @@ def get_direction_index(particle_container, tally, data):
         pass
 
     mu = uz
-    azi = math.acos(ux / math.sqrt(ux * ux + uy * uy))
-    if uy < 0.0:
-        azi *= -1
+    radial = math.sqrt(ux * ux + uy * uy)
+    axial_direction = radial == 0.0
+    if axial_direction:
+        azi = 0.0
+    else:
+        azi = math.acos(ux / radial)
+        if uy < 0.0:
+            azi *= -1
 
     tolerance = COINCIDENCE_TOLERANCE_DIRECTION
 
@@ -62,7 +67,11 @@ def get_direction_index(particle_container, tally, data):
     # Above is equivalent to: grid_azi = mcdc_get.tally.azi_all(tally, data)
 
     i_mu = find_bin_with_tolerance(mu, grid_mu, tolerance)
-    i_azi = find_bin_with_tolerance(azi, grid_azi, tolerance)
+    # azimuth is arbitrary for directions exactly on the z-axis
+    if axial_direction:
+        i_azi = 0
+    else:
+        i_azi = find_bin_with_tolerance(azi, grid_azi, tolerance)
     return i_mu, i_azi
 
 

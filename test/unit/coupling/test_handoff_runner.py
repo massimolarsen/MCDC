@@ -80,6 +80,36 @@ def test_run_handoff_distribution_runs_worker_and_reads_hdf5(monkeypatch, tmp_pa
     assert weights.shape == (2, 2, 2, 6, 2, 3)
 
 
+def test_run_handoff_zero_distribution_skips_worker(monkeypatch, tmp_path):
+    simulation, data, _ = distribution_simulation_and_data(
+        weights=np.zeros((2, 2, 2, 6, 2, 3))
+    )
+    output_path = tmp_path / "skipped.h5"
+    geant4_config.configure(
+        **distribution_config(geant4_output_path=str(output_path)).__dict__
+    )
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("zero-current distribution should not spawn a worker")
+
+    monkeypatch.setattr(subprocess, "run", fail_run)
+
+    summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    assert summary["status"] == "ok"
+    assert summary["source_size"] == 0
+    region = summary["regions"][0]
+    assert region["name"] == "source_region"
+    assert region["source_mode"] == "distribution"
+    assert region["source_tally_name"] == "source_tally"
+    assert region["source_total_weight"] == 0.0
+    assert region["status"] == "skipped_empty_handoff"
+    assert output_path.exists()
+    written = geant4_config.read_summary_hdf5(str(output_path))
+    assert written["status"] == "skipped_empty_handoff"
+    assert written["source_total_weight"] == 0.0
+
+
 def test_run_handoff_uses_configured_random_seed(monkeypatch, tmp_path):
     simulation, data, _ = distribution_simulation_and_data()
     output_path = tmp_path / "g4.h5"
