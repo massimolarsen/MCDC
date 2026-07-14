@@ -11,63 +11,24 @@ import mcdc
 # vertically centered in that rail height. A 1 m boundary cube surrounds the
 # model and is centered at (5, 5, 5).
 #
-# Continuous-energy materials use the local HDF5 nuclear data library.
-# Nuclide compositions are atom densities in atoms/barn-cm.
+# Continuous-energy materials use the local HDF5 nuclear data library. This
+# checkout does not include Al, Cu, Li, or Co CE data, and the O/H files are
+# missing fields expected by this branch, so the non-silicon spacecraft
+# materials below are density-scaled Si proxy materials. Replace
+# them with real nuclide compositions when the needed CE data files are added.
 # =============================================================================
 
 # =============================================================================
 # MATERIALS
 # =============================================================================
 
-# Al7075, rho=2.81 g/cm3, wt%: 90 Al-27, 5 Zn-64, 3 Mg-24, 2 Cu-63.
-m_al7075 = mcdc.Material(
-    name="Al7075",
-    nuclide_composition={
-        "Al27": 0.056445980580537,
-        "Zn64": 0.0013235134207385,
-        "Mg24": 0.0021165961369498,
-        "Cu63": 0.0005378141989737,
-    },
-)
-# Al6061, rho=2.70 g/cm3, wt%: 98 Al-27, 1.2 Mg-24, 0.8 Si-28.
-m_al6061 = mcdc.Material(
-    name="Al6061",
-    nuclide_composition={
-        "Al27": 0.059057360465045,
-        "Mg24": 0.00081349602416576,
-        "Si28": 0.00046494828605733,
-    },
-)
-# FR4 proxy, rho=1.85 g/cm3, wt%: 28.0 Si-28, 51.9 O-16, 18.3 C-12, 1.8 H-1.
-m_epoxy = mcdc.Material(
-    name="FR4_proxy",
-    nuclide_composition={
-        "Si28": 0.01115014871193,
-        "O16": 0.036149980092044,
-        "C12": 0.01698996461915,
-        "H1": 0.019898026035757,
-    },
-)
-# Silicon, rho=2.329 g/cm3, wt%: 100 Si-28.
-m_silicon = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 0.050132618436459})
-# LiCoO2 proxy, rho=5.05 g/cm3, wt%: 6.661 Li-7, 60.551 Co-59, 32.788 O-16.
-m_licoo2 = mcdc.Material(
-    name="LiCoO2_proxy",
-    nuclide_composition={
-        "Li7": 0.028874848294873,
-        "Co59": 0.031246477802075,
-        "O16": 0.062341083116754,
-    },
-)
-# Copper, rho=8.96 g/cm3, wt%: 68.4792 Cu-63, 31.5208 Cu-65.
-m_copper = mcdc.Material(
-    name="Copper",
-    nuclide_composition={
-        "Cu63": 0.058716830763647,
-        "Cu65": 0.026195433536638,
-    },
-)
-# Void, rho=0.0 g/cm3, wt%: 100 void.
+# atom densities are in atoms/barn-cm
+m_al7075 = mcdc.Material(name="Al7075_proxy", nuclide_composition={"Si28": 0.0602})
+m_al6061 = mcdc.Material(name="Al6061_proxy", nuclide_composition={"Si28": 0.0586})
+m_epoxy = mcdc.Material(name="Epoxy_proxy", nuclide_composition={"Si28": 0.0383})
+m_silicon = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 0.0499})
+m_licoo2 = mcdc.Material(name="LiCoO2_proxy", nuclide_composition={"Si28": 0.0880})
+m_copper = mcdc.Material(name="Copper_proxy", nuclide_composition={"Si28": 0.0849})
 m_void = mcdc.Material(name="Void", nuclide_composition={"Si28": 0.0})
 
 EXAMPLE_DIR = Path(__file__).resolve().parent

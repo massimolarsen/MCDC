@@ -67,6 +67,7 @@ dummy_nuclide.h5
 source_particles.h5
 
 acelib
+acelibCubesat
 acelibSMALL
 hdf5lib
 
