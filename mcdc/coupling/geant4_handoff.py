@@ -11,7 +11,6 @@ import numpy as np
 
 from mcdc.coupling.geant4_bank import (
     build_bank_payload,
-    empty_bank_summary,
     empty_handoff_summary,
 )
 from mcdc.coupling.geant4_config import (
@@ -20,6 +19,7 @@ from mcdc.coupling.geant4_config import (
     add_config,
     clear_configs,
     configure,
+    normalized_device_components,
     read_summary_hdf5,
 )
 from mcdc.coupling.geant4_distribution import build_source_distribution_payload
@@ -56,9 +56,9 @@ def run_handoff_from_simulation(
 
     region_results = []
     failures = []
-    for index, cfg in enumerate(configs):
+    for cfg in configs:
         try:
-            region_results.append(_run_one_region(simulation, data, cfg, index))
+            region_results.append(_run_one_region(simulation, data, cfg))
         except Exception as exc:
             message = str(exc)
             failures.append(
@@ -101,11 +101,11 @@ def _run_one_region(
     simulation: np.ndarray,
     data: np.ndarray | None,
     cfg: Geant4HandoffConfig,
-    index: int,
 ) -> dict[str, Any]:
     payload = _build_region_payload(simulation, data, cfg)
     if payload is None:
-        summary = empty_bank_summary()
+        summary = empty_handoff_summary("bank")
+        summary["handoff_bank_size"] = 0
         summary["name"] = cfg.name
         return summary
     if payload.get("status") == "skipped_empty_handoff":
@@ -184,9 +184,26 @@ def _build_region_payload(
         "world_size_mm": cfg.world_size_mm,
         "detector_size_mm": cfg.detector_size_mm,
         "detector_material": cfg.detector_material,
+        "envelope_material": cfg.envelope_material,
         "physics_list": cfg.physics_list,
         "random_seed": _random_seed(cfg),
     }
+    components = normalized_device_components(cfg)
+    payload["component_names"] = np.asarray(
+        [component["name"] for component in components], dtype=object
+    )
+    payload["component_materials"] = np.asarray(
+        [component["material"] for component in components], dtype=object
+    )
+    payload["component_centers_mm"] = np.asarray(
+        [component["center_mm"] for component in components], dtype=np.float64
+    )
+    payload["component_sizes_mm"] = np.asarray(
+        [component["size_mm"] for component in components], dtype=np.float64
+    )
+    payload["component_score"] = np.asarray(
+        [component["score"] for component in components], dtype=np.bool_
+    )
     payload.update(source)
     return payload
 

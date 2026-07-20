@@ -235,9 +235,13 @@ def create_tally_dataset(file, mcdc, data):
 
         # Roll tally so that score is in the front
         roll_reference = 4
-        if mesh_filtered_tally is not None and mesh_filtered_tally["mesh_filtered"]:
-            roll_reference = 7
-        if surface_mesh_tally is not None:
+        if (
+            surface_mesh_tally is not None
+            or (
+                mesh_filtered_tally is not None
+                and mesh_filtered_tally["mesh_filtered"]
+            )
+        ):
             roll_reference = 7
         mean = np.rollaxis(mean, roll_reference, 0)
         sdev = np.rollaxis(sdev, roll_reference, 0)

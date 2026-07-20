@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import numpy as np
 import mcdc
@@ -71,6 +72,8 @@ m_copper = mcdc.Material(
 m_void = mcdc.Material(name="Void", nuclide_composition={"Si28": 0.0})
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
+# keep MCDC output_name short while still running from any directory
+os.chdir(EXAMPLE_DIR)
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
 
 source_energy_ev = 1.0e6
@@ -136,6 +139,16 @@ def g4_size_mm(bounds, padding_scale):
         padding_scale * 10.0 * (y1 - y0),
         padding_scale * 10.0 * (z1 - z0),
     )
+
+
+def centered_device_component(name, material, bounds):
+    return {
+        "name": name,
+        "material": material,
+        "center_mm": [0.0, 0.0, 0.0],
+        "size_mm": g4_size_mm(bounds, padding_scale=1.0),
+        "score": True,
+    }
 
 
 def geant4_output_path(filename):
@@ -287,6 +300,13 @@ sensitive_volumes = [
     ("comms", comms_sv, comms_sv_bounds),
 ]
 
+device_components = {
+    "obc": [centered_device_component("obc_silicon", "G4_Si", obc_sv_bounds)],
+    "eps": [centered_device_component("eps_active_lco", "LiCoO2", eps_sv_bounds)],
+    "adcs": [centered_device_component("adcs_silicon", "G4_Si", adcs_sv_bounds)],
+    "comms": [centered_device_component("comms_silicon", "G4_Si", comms_sv_bounds)],
+}
+
 # =============================================================================
 # VOID FILL
 # All remaining space inside the boundary cube.
@@ -351,12 +371,14 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
         bridge_build_dir=str(BRIDGE_BUILD_DIR),
         world_size_mm=g4_size_mm(bounds, padding_scale=1.2),
         detector_size_mm=g4_size_mm(bounds, padding_scale=1.0),
-        detector_material="G4_Si",
+        detector_material=device_components[name][0]["material"],
+        envelope_material="G4_Galactic",
+        device_components=device_components[name],
         physics_list="QGSP_BIC",
         source_mode="distribution",
         n_geant4_particles=n_geant4_particles,
         source_tally_name=f"{name}_g4_source",
-        geant4_output_path=geant4_output_path(f"cubesat_{name}_geant4.h5"),
+        geant4_output_path=geant4_output_path(f"cubesat_debug_{name}_geant4.h5"),
         random_seed=geant4_random_seeds[name],
     )
     if i == 0:

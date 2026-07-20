@@ -59,9 +59,3 @@ def empty_handoff_summary(source_mode: str = "bank") -> dict[str, Any]:
         "edep_spectrum_overflow": 0,
         "status": "skipped_empty_handoff",
     }
-
-
-def empty_bank_summary() -> dict[str, Any]:
-    summary = empty_handoff_summary("bank")
-    summary["handoff_bank_size"] = 0
-    return summary

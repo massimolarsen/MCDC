@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 import h5py
+import numpy as np
 from typing import Any
 
 
@@ -12,6 +14,8 @@ class Geant4HandoffConfig:
     world_size_mm: tuple[float, float, float] = (100.0, 100.0, 100.0)
     detector_size_mm: tuple[float, float, float] = (10.0, 10.0, 10.0)
     detector_material: str = "G4_Si"
+    envelope_material: str = "G4_Galactic"
+    device_components: list[dict[str, Any]] = field(default_factory=list)
     physics_list: str = "QGSP_BIC"
     source_mode: str = "bank"
     n_geant4_particles: int = 0
@@ -42,12 +46,82 @@ def clear_configs() -> None:
     CONFIGS.clear()
 
 
+def normalized_device_components(cfg: Geant4HandoffConfig) -> list[dict[str, Any]]:
+    components = list(cfg.device_components)
+    if not components:
+        components = [
+            {
+                "name": "detector",
+                "material": cfg.detector_material,
+                "center_mm": [0.0, 0.0, 0.0],
+                "size_mm": list(cfg.detector_size_mm),
+                "score": True,
+            }
+        ]
+
+    normalized = []
+    names = set()
+    for component in components:
+        name = str(component.get("name", ""))
+        material = str(component.get("material", ""))
+        center = np.asarray(component.get("center_mm", []), dtype=np.float64)
+        size = np.asarray(component.get("size_mm", []), dtype=np.float64)
+        score = bool(component.get("score", False))
+
+        if not name:
+            raise RuntimeError("Geant4 device component name cannot be empty.")
+        if name in names:
+            raise RuntimeError(f"Duplicate Geant4 device component name: {name}.")
+        names.add(name)
+        if not material:
+            raise RuntimeError(
+                f"Geant4 device component '{name}' material cannot be empty."
+            )
+        if center.shape != (3,):
+            raise RuntimeError(
+                f"Geant4 device component '{name}' center_mm must have length 3."
+            )
+        if size.shape != (3,):
+            raise RuntimeError(
+                f"Geant4 device component '{name}' size_mm must have length 3."
+            )
+        if not np.all(np.isfinite(center)):
+            raise RuntimeError(
+                f"Geant4 device component '{name}' center_mm must be finite."
+            )
+        if not np.all(np.isfinite(size)) or np.any(size <= 0.0):
+            raise RuntimeError(
+                f"Geant4 device component '{name}' size_mm entries must be positive."
+            )
+
+        normalized.append(
+            {
+                "name": name,
+                "material": material,
+                "center_mm": center,
+                "size_mm": size,
+                "score": score,
+            }
+        )
+    return normalized
+
+
+def _decode_hdf5_value(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    if isinstance(value, np.ndarray) and value.dtype.kind == "S":
+        return value.astype(str)
+    if isinstance(value, np.ndarray) and value.dtype.kind == "O":
+        decode = np.vectorize(
+            lambda item: item.decode("utf-8") if isinstance(item, bytes) else item
+        )
+        return decode(value)
+    return value
+
+
 def read_summary_hdf5(output_path: str) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     with h5py.File(output_path, "r") as file:
         for key, dataset in file.items():
-            value = dataset[()]
-            if isinstance(value, bytes):
-                value = value.decode("utf-8")
-            summary[key] = value
+            summary[key] = _decode_hdf5_value(dataset[()])
     return summary

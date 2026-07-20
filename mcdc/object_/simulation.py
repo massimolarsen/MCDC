@@ -95,6 +95,7 @@ class Simulation(ObjectSingleton):
     bank_handoff: ParticleBank
 
     # Simulation parameters
+    N_handoff_cell: int
     idx_work: int
     idx_cycle: int
     idx_census: int
@@ -187,6 +188,8 @@ class Simulation(ObjectSingleton):
         # ==============================================================================
         # Simulation parameters
         # ==============================================================================
+
+        self.N_handoff_cell = 0
 
         # Simulation indices
         self.idx_work = 0

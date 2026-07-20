@@ -1,7 +1,12 @@
 from pathlib import Path
+import os
 
 import numpy as np
 import mcdc
+
+EXAMPLE_DIR = Path(__file__).resolve().parent
+# keep MCDC output_name short while still running from any directory
+os.chdir(EXAMPLE_DIR)
 
 # =============================================================================
 # CARRE project — 1U CubeSat simplified geometry
@@ -70,22 +75,6 @@ m_copper = mcdc.Material(
 # Void, rho=0.0 g/cm3, wt%: 100 void.
 m_void = mcdc.Material(name="Void", nuclide_composition={"Si28": 0.0})
 
-EXAMPLE_DIR = Path(__file__).resolve().parent
-BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
-
-source_energy_ev = 1.0e6
-energy_bins_ev = np.logspace(3.0, np.log10(1.01 * source_energy_ev), 21)
-mu_bins = np.linspace(-1.0, 1.0, 9)
-azi_bins = np.linspace(-np.pi, np.pi, 9)
-surface_mesh = (2, 2)
-n_geant4_particles = 100
-geant4_random_seeds = {
-    "obc": 1001,
-    "eps": 1002,
-    "adcs": 1003,
-    "comms": 1004,
-}
-
 # =============================================================================
 # BOX HELPER
 # =============================================================================
@@ -136,6 +125,16 @@ def g4_size_mm(bounds, padding_scale):
         padding_scale * 10.0 * (y1 - y0),
         padding_scale * 10.0 * (z1 - z0),
     )
+
+
+def centered_device_component(name, material, bounds):
+    return {
+        "name": name,
+        "material": material,
+        "center_mm": [0.0, 0.0, 0.0],
+        "size_mm": g4_size_mm(bounds, padding_scale=1.0),
+        "score": True,
+    }
 
 
 def geant4_output_path(filename):
@@ -287,6 +286,13 @@ sensitive_volumes = [
     ("comms", comms_sv, comms_sv_bounds),
 ]
 
+device_components = {
+    "obc": [centered_device_component("obc_silicon", "G4_Si", obc_sv_bounds)],
+    "eps": [centered_device_component("eps_active_lco", "LiCoO2", eps_sv_bounds)],
+    "adcs": [centered_device_component("adcs_silicon", "G4_Si", adcs_sv_bounds)],
+    "comms": [centered_device_component("comms_silicon", "G4_Si", comms_sv_bounds)],
+}
+
 # =============================================================================
 # VOID FILL
 # All remaining space inside the boundary cube.
@@ -312,6 +318,11 @@ void_cell = mcdc.Cell(region=void_region, fill=m_void)
 # Monoenergetic CE source, isotropic across all six boundary-cube faces.
 # =============================================================================
 
+source_energy_ev = 1.0e6
+energy_bins_ev = np.logspace(3.0, np.log10(1.01 * source_energy_ev), 21)
+mu_bins = np.linspace(-1.0, 1.0, 9)
+azi_bins = np.linspace(-np.pi, np.pi, 9)
+surface_mesh = (2, 2)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
 
 boundary_sources = [
@@ -363,7 +374,7 @@ for name, cell, _ in sensitive_volumes:
     mcdc.Tally(
         name=f"{name}_g4_source",
         cell=cell,
-        scores=["current-in"],
+        scores=["current-in", "current-out"],
         mu=mu_bins,
         azi=azi_bins,
         energy=energy_bins_ev,
@@ -375,13 +386,24 @@ for name, cell, _ in sensitive_volumes:
 # SETTINGS AND RUN
 # =============================================================================
 
+BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
+n_geant4_particles = 10000
+geant4_random_seeds = {
+    "obc": 1001,
+    "eps": 1002,
+    "adcs": 1003,
+    "comms": 1004,
+}
+
 for i, (name, _, bounds) in enumerate(sensitive_volumes):
     handoff = dict(
         name=name,
         bridge_build_dir=str(BRIDGE_BUILD_DIR),
         world_size_mm=g4_size_mm(bounds, padding_scale=1.2),
         detector_size_mm=g4_size_mm(bounds, padding_scale=1.0),
-        detector_material="G4_Si",
+        detector_material=device_components[name][0]["material"],
+        envelope_material="G4_Galactic",
+        device_components=device_components[name],
         physics_list="QGSP_BIC",
         source_mode="distribution",
         n_geant4_particles=n_geant4_particles,
@@ -394,6 +416,6 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 100000
+mcdc.settings.N_particle = 200000
 mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
 mcdc.run()

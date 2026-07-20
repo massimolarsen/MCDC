@@ -1,3 +1,6 @@
+from pathlib import Path
+import os
+
 import numpy as np
 import mcdc
 
@@ -16,6 +19,10 @@ import mcdc
 # =============================================================================
 # MATERIALS
 # =============================================================================
+
+EXAMPLE_DIR = Path(__file__).resolve().parent
+# keep MCDC output_name short while still running from any directory
+os.chdir(EXAMPLE_DIR)
 
 # Al7075, rho=2.81 g/cm3, wt%: 90 Al-27, 5 Zn-64, 3 Mg-24, 2 Cu-63.
 m_al7075 = mcdc.Material(
@@ -301,5 +308,5 @@ mcdc.Tally(name="Comms SV current-in", cell=comms_sv, scores=["current-in"])
 # =============================================================================
 
 mcdc.settings.N_particle = 100
-mcdc.settings.output_name = "cubesat_CE"
+mcdc.settings.output_name = "mcdc_h5/cubesat_CE"
 mcdc.run()
