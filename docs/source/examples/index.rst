@@ -37,6 +37,7 @@ Advanced Examples
    moving_pellet
    fuel_array_packaged
    sphere_in_cube
+   cubesat
 
 Reactor Benchmarks
 ------------------
