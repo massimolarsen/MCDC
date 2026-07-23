@@ -20,7 +20,7 @@ Geometry and Materials
 ======================
 
 The CubeSat footprint spans :math:`x,y \in [0,10]` cm, with large rails
-covering :math:`z \in [0,11]` cm.  A 1 m vacuum boundary cube surrounds
+covering :math:`z \in [0,11]` cm.  A 50 cm vacuum boundary cube surrounds
 the model and is centered on the CubeSat.
 
 The geometry includes:
@@ -59,7 +59,7 @@ Numerical Setup
    * - **Tally score**
      - Energy deposition in the OBC, EPS, ADCS, and Comms sensitive volumes
    * - **Tally energy grid**
-     - Log-spaced bins from 10 eV to 20 MeV, with a 0 eV lower edge
+     - Log-spaced bins from :math:`10^{-2}` MeV to 20 MeV
    * - **Source particles**
      - :math:`10^{5}` (demonstration)
    * - **Output file**

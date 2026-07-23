@@ -1,14 +1,14 @@
 import numpy as np
 import mcdc
 
-ENERGY_BINS_EV = np.concatenate(([0.0], np.logspace(1.0, np.log10(20.0e6), 25)))
+
 
 # =============================================================================
 # CARRE project - 1U CubeSat simplified geometry
 #
 # Geometry is modeled with rectangular boxes. The CubeSat footprint is
 # x/y = 0->10 cm, the large rails span z = 0->11 cm, and the board stack is
-# vertically centered in that rail height. A 1 m boundary cube surrounds the
+# vertically centered in that rail height. A 50 cm boundary cube surrounds the
 # model and is centered at (5, 5, 5).
 #
 # Continuous-energy materials use the local HDF5 nuclear data library.
@@ -100,13 +100,38 @@ def box(
     return +sx0 & -sx1 & +sy0 & -sy1 & +sz0 & -sz1
 
 
+def stacked_board_sv(board_bounds, sv_bounds, board_fill, sv_fill):
+    bx0, bx1, by0, by1, bz0, bz1 = board_bounds
+    sx0, sx1, sy0, sy1, _, sz1 = sv_bounds
+
+    board_x0 = mcdc.Surface.PlaneX(x=bx0)
+    board_x1 = mcdc.Surface.PlaneX(x=bx1)
+    board_y0 = mcdc.Surface.PlaneY(y=by0)
+    board_y1 = mcdc.Surface.PlaneY(y=by1)
+    board_z0 = mcdc.Surface.PlaneZ(z=bz0)
+    shared_z = mcdc.Surface.PlaneZ(z=bz1)
+
+    sv_x0 = mcdc.Surface.PlaneX(x=sx0)
+    sv_x1 = mcdc.Surface.PlaneX(x=sx1)
+    sv_y0 = mcdc.Surface.PlaneY(y=sy0)
+    sv_y1 = mcdc.Surface.PlaneY(y=sy1)
+    sv_z1 = mcdc.Surface.PlaneZ(z=sz1)
+
+    board_region = +board_x0 & -board_x1 & +board_y0 & -board_y1 & +board_z0 & -shared_z
+    sv_region = +sv_x0 & -sv_x1 & +sv_y0 & -sv_y1 & +shared_z & -sv_z1
+    return (
+        mcdc.Cell(region=board_region, fill=board_fill),
+        mcdc.Cell(region=sv_region, fill=sv_fill),
+    )
+
+
 # =============================================================================
 # OUTER BOUNDARY
-# 100 cm x 100 cm x 100 cm vacuum cube centered on the CubeSat.
+# 50 cm x 50 cm x 50 cm vacuum cube centered on the CubeSat.
 # =============================================================================
 
 boundary_center = np.array([5.0, 5.0, 5.0])
-boundary_half_width = 50.0
+boundary_half_width = 25.0
 
 boundary_x0, boundary_y0, boundary_z0 = boundary_center - boundary_half_width
 boundary_x1, boundary_y1, boundary_z1 = boundary_center + boundary_half_width
@@ -222,24 +247,34 @@ antenna_cells = [mcdc.Cell(region=box(*d), fill=m_copper) for d in antenna_strip
 # =============================================================================
 
 # OBC board, z = 2.285 -> 2.445 cm
-obc_board = mcdc.Cell(region=box(0.5, 9.5, 0.5, 9.5, 2.285, 2.445), fill=m_epoxy)
+obc_board_bounds = (0.5, 9.5, 0.5, 9.5, 2.285, 2.445)
 # OBC sensitive volume: silicon, 3.6 x 2.7 x 0.6 cm
-obc_sv = mcdc.Cell(region=box(3.2, 6.8, 3.65, 6.35, 2.445, 3.045), fill=m_silicon)
+obc_sv_bounds = (3.2, 6.8, 3.65, 6.35, 2.445, 3.045)
+obc_board, obc_sv = stacked_board_sv(
+    obc_board_bounds, obc_sv_bounds, m_epoxy, m_silicon
+)
 
 # EPS board, z = 3.785 -> 3.945 cm
-eps_board = mcdc.Cell(region=box(0.5, 9.5, 0.5, 9.5, 3.785, 3.945), fill=m_epoxy)
+eps_board_bounds = (0.5, 9.5, 0.5, 9.5, 3.785, 3.945)
 # EPS sensitive volume: LiCoO2, 2.5 x 6.5 x 0.23 cm
-eps_sv = mcdc.Cell(region=box(3.75, 6.25, 1.75, 8.25, 3.945, 4.175), fill=m_licoo2)
+eps_sv_bounds = (3.75, 6.25, 1.75, 8.25, 3.945, 4.175)
+eps_board, eps_sv = stacked_board_sv(eps_board_bounds, eps_sv_bounds, m_epoxy, m_licoo2)
 
 # ADCS board, z = 5.785 -> 5.945 cm
-adcs_board = mcdc.Cell(region=box(0.5, 9.5, 0.5, 9.5, 5.785, 5.945), fill=m_epoxy)
+adcs_board_bounds = (0.5, 9.5, 0.5, 9.5, 5.785, 5.945)
 # ADCS sensitive volume: silicon, 4.5 x 4.5 x 1.8 cm
-adcs_sv = mcdc.Cell(region=box(2.75, 7.25, 2.75, 7.25, 5.945, 7.745), fill=m_silicon)
+adcs_sv_bounds = (2.75, 7.25, 2.75, 7.25, 5.945, 7.745)
+adcs_board, adcs_sv = stacked_board_sv(
+    adcs_board_bounds, adcs_sv_bounds, m_epoxy, m_silicon
+)
 
 # Comms board, z = 8.285 -> 8.445 cm
-comms_board = mcdc.Cell(region=box(0.5, 9.5, 0.5, 9.5, 8.285, 8.445), fill=m_epoxy)
+comms_board_bounds = (0.5, 9.5, 0.5, 9.5, 8.285, 8.445)
 # Comms sensitive volume: silicon, 1.1 x 0.97 x 0.27 cm
-comms_sv = mcdc.Cell(region=box(4.45, 5.55, 4.515, 5.485, 8.445, 8.715), fill=m_silicon)
+comms_sv_bounds = (4.45, 5.55, 4.515, 5.485, 8.445, 8.715)
+comms_board, comms_sv = stacked_board_sv(
+    comms_board_bounds, comms_sv_bounds, m_epoxy, m_silicon
+)
 
 # =============================================================================
 # VOID FILL
@@ -268,7 +303,7 @@ mcdc.Cell(region=void_region, fill=m_void)
 # =============================================================================
 
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
-source_energy_ev = 1.0e6
+source_energy_ev = 14.0e6
 
 boundary_sources = [
     dict(
@@ -322,6 +357,8 @@ for source_bounds in boundary_sources:
 # TALLIES
 # =============================================================================
 
+ENERGY_BINS_EV = np.logspace(np.log10(1.0e4), np.log10(14.0e6), 25)
+
 mcdc.Tally(
     name="OBC SV energy deposition",
     cell=obc_sv,
@@ -347,11 +384,16 @@ mcdc.Tally(
     energy=ENERGY_BINS_EV,
 )
 
+mcdc.Tally(name="OBC SV current-in", cell=obc_sv, scores=["current-in"])
+mcdc.Tally(name="EPS SV current-in", cell=eps_sv, scores=["current-in"])
+mcdc.Tally(name="ADCS SV current-in", cell=adcs_sv, scores=["current-in"])
+mcdc.Tally(name="Comms SV current-in", cell=comms_sv, scores=["current-in"])
+
 
 # =============================================================================
 # SETTINGS AND RUN
 # =============================================================================
 
-mcdc.settings.N_particle = 100000
+mcdc.settings.N_particle = 1000000
 mcdc.settings.output_name = "cubesat_CE"
 mcdc.run()
