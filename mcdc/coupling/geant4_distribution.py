@@ -9,20 +9,16 @@ from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE_CROSSING
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
 
 
-def validate_distribution_config(cfg: Geant4HandoffConfig) -> None:
-    # validate distribution source settings
-    if cfg.n_geant4_particles <= 0:
-        raise RuntimeError("Distribution source mode requires n_geant4_particles > 0.")
-    if not cfg.source_tally_name:
-        raise RuntimeError("Distribution source mode requires source_tally_name.")
-
-
 def build_source_distribution_payload(
     simulation: np.ndarray,
     data: np.ndarray,
     cfg: Geant4HandoffConfig,
 ) -> dict[str, Any]:
-    validate_distribution_config(cfg)
+    # validate distribution source settings
+    if cfg.n_geant4_particles <= 0:
+        raise RuntimeError("Distribution source mode requires n_geant4_particles > 0.")
+    if not cfg.source_tally_name:
+        raise RuntimeError("Distribution source mode requires source_tally_name.")
 
     # find configured source tally
     tally = None

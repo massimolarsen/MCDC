@@ -216,6 +216,8 @@ def preparation():
     if len(simulationPy.universes[0].cells) == 0:
         simulationPy.universes[0].cells = simulationPy.cells
 
+    simulationPy.N_handoff_cell = sum(1 for cell in simulationPy.cells if cell.handoff)
+
     # Initial guess
     simulationPy.k_eff = settings.k_init
 

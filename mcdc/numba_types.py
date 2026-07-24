@@ -873,6 +873,7 @@ def set_simulation(N: dict):
         ('bank_source', bank_source),
         ('bank_census', bank_census),
         ('bank_active', bank_active),
+        ('N_handoff_cell', int64),
         ('idx_work', int64),
         ('idx_cycle', int64),
         ('idx_census', int64),

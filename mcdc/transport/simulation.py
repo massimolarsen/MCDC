@@ -493,12 +493,13 @@ def surface_crossing(P_arr, simulation, data):
         )
 
     # bank particles that enter a Geant4 handoff cell
-    pre_cell_ID, post_cell_ID = _get_crossing_top_cell_IDs(P_arr, simulation, data)
-    if pre_cell_ID != post_cell_ID and post_cell_ID >= 0:
-        entered_cell = simulation["cells"][post_cell_ID]
-        if entered_cell["handoff"]:
-            particle_bank_module.bank_handoff_particle(P_arr, simulation)
-            P["alive"] = False
+    if simulation["N_handoff_cell"] > 0:
+        pre_cell_ID, post_cell_ID = _get_crossing_top_cell_IDs(P_arr, simulation, data)
+        if pre_cell_ID != post_cell_ID and post_cell_ID >= 0:
+            entered_cell = simulation["cells"][post_cell_ID]
+            if entered_cell["handoff"]:
+                particle_bank_module.bank_handoff_particle(P_arr, simulation)
+                P["alive"] = False
 
     # Flag to check new cell later
     if P["alive"]:

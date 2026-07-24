@@ -10,10 +10,20 @@ from typing import Any
 import h5py
 import numpy as np
 
+try:
+    from .geant4_config import _decode_hdf5_value
+except ImportError:
+    from geant4_config import _decode_hdf5_value
+
 
 ARRAY_FIELDS = {
     "bank",
     "box_bounds_mm",
+    "component_centers_mm",
+    "component_materials",
+    "component_names",
+    "component_score",
+    "component_sizes_mm",
     "mu_edges",
     "azi_edges",
     "energy_edges_mev",
@@ -23,22 +33,25 @@ ARRAY_FIELDS = {
 
 def write_payload(path: str | pathlib.Path, payload: dict[str, Any]) -> None:
     with h5py.File(path, "w") as file:
+        string_dtype = h5py.string_dtype(encoding="utf-8")
         for key, value in payload.items():
             if key in ARRAY_FIELDS:
-                file.create_dataset(key, data=value)
+                if key in {"component_names", "component_materials"}:
+                    file.create_dataset(
+                        key, data=np.asarray(value, dtype=object), dtype=string_dtype
+                    )
+                else:
+                    file.create_dataset(key, data=value)
             else:
                 file.attrs[key] = value
-
 
 def read_payload(path: str | pathlib.Path) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     with h5py.File(path, "r") as file:
         for key, value in file.attrs.items():
-            if isinstance(value, bytes):
-                value = value.decode("utf-8")
-            payload[key] = value
+            payload[key] = _decode_hdf5_value(value)
         for key, dataset in file.items():
-            payload[key] = dataset[()]
+            payload[key] = _decode_hdf5_value(dataset[()])
     return payload
 
 
@@ -71,6 +84,8 @@ def write_summary_hdf5(summary: dict[str, Any], output_path: str) -> None:
         for key, value in summary.items():
             if isinstance(value, str):
                 file.create_dataset(key, data=value, dtype=string_dtype)
+            elif isinstance(value, np.ndarray) and value.dtype.kind in {"U", "O"}:
+                file.create_dataset(key, data=value.astype(object), dtype=string_dtype)
             else:
                 file.create_dataset(key, data=value)
 
@@ -99,6 +114,18 @@ def result_summary(results, payload: dict[str, Any]) -> dict[str, Any]:
         "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
         "status": str(results.status),
         "random_seed": int(payload["random_seed"]),
+        "component_names": np.asarray(
+            getattr(results, "component_names", []), dtype=str
+        ),
+        "component_edep_mev": np.asarray(
+            getattr(results, "component_edep_mev", []), dtype=np.float64
+        ),
+        "component_mass_kg": np.asarray(
+            getattr(results, "component_mass_kg", []), dtype=np.float64
+        ),
+        "component_dose_gy": np.asarray(
+            getattr(results, "component_dose_gy", []), dtype=np.float64
+        ),
     }
     if source_mode == "bank":
         summary["handoff_bank_size"] = source_size
@@ -116,8 +143,10 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     session_cfg.world_size_mm = list(payload["world_size_mm"])
     session_cfg.detector_size_mm = list(payload["detector_size_mm"])
     session_cfg.detector_material = str(payload["detector_material"])
+    session_cfg.envelope_material = str(payload["envelope_material"])
     session_cfg.physics_list = str(payload["physics_list"])
     session_cfg.random_seed = int(payload["random_seed"])
+    session_cfg.device_components = _bridge_components(bridge, payload)
 
     session = bridge.Session(session_cfg)
     session.initialize()
@@ -152,6 +181,34 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
 
     write_summary_hdf5(summary, str(payload["geant4_output_path"]))
     return summary
+
+
+def _bridge_components(bridge, payload: dict[str, Any]):
+    names = np.asarray(payload["component_names"]).astype(str)
+    materials = np.asarray(payload["component_materials"]).astype(str)
+    centers = np.asarray(payload["component_centers_mm"], dtype=np.float64)
+    sizes = np.asarray(payload["component_sizes_mm"], dtype=np.float64)
+    scores = np.asarray(payload["component_score"], dtype=np.bool_)
+
+    components = []
+    for i, name in enumerate(names):
+        if hasattr(bridge, "DeviceComponent"):
+            component = bridge.DeviceComponent()
+            component.name = str(name)
+            component.material = str(materials[i])
+            component.center_mm = [float(x) for x in centers[i]]
+            component.size_mm = [float(x) for x in sizes[i]]
+            component.score = bool(scores[i])
+        else:
+            component = {
+                "name": str(name),
+                "material": str(materials[i]),
+                "center_mm": [float(x) for x in centers[i]],
+                "size_mm": [float(x) for x in sizes[i]],
+                "score": bool(scores[i]),
+            }
+        components.append(component)
+    return components
 
 
 def main(argv: list[str] | None = None) -> int:

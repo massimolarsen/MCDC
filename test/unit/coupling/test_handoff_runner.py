@@ -57,6 +57,11 @@ def test_run_handoff_distribution_runs_worker_and_reads_hdf5(monkeypatch, tmp_pa
 
     def fake_run(cmd, capture_output, text, check):
         payload = geant4_worker.read_payload(cmd[-1])
+        np.testing.assert_array_equal(payload["component_names"], ["detector"])
+        np.testing.assert_array_equal(payload["component_materials"], ["G4_Si"])
+        np.testing.assert_allclose(payload["component_sizes_mm"], [[10.0, 10.0, 10.0]])
+        np.testing.assert_array_equal(payload["component_score"], [True])
+        assert payload["envelope_material"] == "G4_Galactic"
         _write_fake_distribution_output(payload, total_edep_mev=1.25, dose_gy=2.5e-9)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
