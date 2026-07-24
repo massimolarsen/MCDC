@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/massimolarsen/Documents/Repos/MCDC/examples/testSiliconDiode/geant4_diode_example/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

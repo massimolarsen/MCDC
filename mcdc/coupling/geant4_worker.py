@@ -10,6 +10,11 @@ from typing import Any
 import h5py
 import numpy as np
 
+try:
+    from .geant4_config import _decode_hdf5_value
+except ImportError:
+    from geant4_config import _decode_hdf5_value
+
 
 ARRAY_FIELDS = {
     "bank",
@@ -39,20 +44,6 @@ def write_payload(path: str | pathlib.Path, payload: dict[str, Any]) -> None:
                     file.create_dataset(key, data=value)
             else:
                 file.attrs[key] = value
-
-
-def _decode_hdf5_value(value):
-    if isinstance(value, bytes):
-        return value.decode("utf-8")
-    if isinstance(value, np.ndarray) and value.dtype.kind == "S":
-        return value.astype(str)
-    if isinstance(value, np.ndarray) and value.dtype.kind == "O":
-        decode = np.vectorize(
-            lambda item: item.decode("utf-8") if isinstance(item, bytes) else item
-        )
-        return decode(value)
-    return value
-
 
 def read_payload(path: str | pathlib.Path) -> dict[str, Any]:
     payload: dict[str, Any] = {}
