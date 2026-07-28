@@ -46,6 +46,10 @@ def clear_configs() -> None:
     CONFIGS.clear()
 
 
+def has_configs() -> bool:
+    return len(CONFIGS) > 0
+
+
 def normalized_device_components(cfg: Geant4HandoffConfig) -> list[dict[str, Any]]:
     components = list(cfg.device_components)
     if not components:
@@ -55,6 +59,7 @@ def normalized_device_components(cfg: Geant4HandoffConfig) -> list[dict[str, Any
                 "material": cfg.detector_material,
                 "center_mm": [0.0, 0.0, 0.0],
                 "size_mm": list(cfg.detector_size_mm),
+                "parent": "",
                 "score": True,
             }
         ]
@@ -66,6 +71,7 @@ def normalized_device_components(cfg: Geant4HandoffConfig) -> list[dict[str, Any
         material = str(component.get("material", ""))
         center = np.asarray(component.get("center_mm", []), dtype=np.float64)
         size = np.asarray(component.get("size_mm", []), dtype=np.float64)
+        parent = str(component.get("parent", ""))
         score = bool(component.get("score", False))
 
         if not name:
@@ -100,10 +106,43 @@ def normalized_device_components(cfg: Geant4HandoffConfig) -> list[dict[str, Any
                 "material": material,
                 "center_mm": center,
                 "size_mm": size,
+                "parent": parent,
                 "score": score,
             }
         )
+    _validate_component_parents(normalized)
     return normalized
+
+
+def _validate_component_parents(components: list[dict[str, Any]]) -> None:
+    names = {component["name"] for component in components}
+    parent_by_name = {
+        component["name"]: component["parent"] for component in components
+    }
+
+    for component in components:
+        name = component["name"]
+        parent = component["parent"]
+        if parent == name:
+            raise RuntimeError(
+                f"Geant4 device component '{name}' cannot parent itself."
+            )
+        if parent and parent not in names:
+            raise RuntimeError(
+                f"Geant4 device component '{name}' references unknown parent '{parent}'."
+            )
+
+    for component in components:
+        seen = set()
+        name = component["name"]
+        parent = parent_by_name[name]
+        while parent:
+            if parent in seen:
+                raise RuntimeError(
+                    f"Geant4 device component parent cycle includes '{parent}'."
+                )
+            seen.add(parent)
+            parent = parent_by_name[parent]
 
 
 def _decode_hdf5_value(value):

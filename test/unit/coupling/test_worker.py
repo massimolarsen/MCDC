@@ -19,6 +19,7 @@ def test_payload_round_trip_distribution(tmp_path):
         "envelope_material": "G4_Galactic",
         "component_names": np.asarray(["die"]),
         "component_materials": np.asarray(["G4_Si"]),
+        "component_parents": np.asarray([""]),
         "component_centers_mm": np.asarray([[0.0, 0.0, 0.0]]),
         "component_sizes_mm": np.asarray([[10.0, 20.0, 30.0]]),
         "component_score": np.asarray([True]),
@@ -48,6 +49,7 @@ def test_payload_round_trip_distribution(tmp_path):
     np.testing.assert_allclose(result["weights"], payload["weights"])
     np.testing.assert_array_equal(result["component_names"], ["die"])
     np.testing.assert_array_equal(result["component_materials"], ["G4_Si"])
+    np.testing.assert_array_equal(result["component_parents"], [""])
     np.testing.assert_allclose(
         result["component_centers_mm"], payload["component_centers_mm"]
     )
@@ -94,6 +96,8 @@ class Session:
             raise RuntimeError("envelope material was not passed to bridge")
         if config.device_components[0]["name"] != "detector":
             raise RuntimeError("device components were not passed to bridge")
+        if config.device_components[0]["parent"] != "":
+            raise RuntimeError("component parent was not passed to bridge")
         self.config = config
     def initialize(self):
         pass
@@ -124,6 +128,7 @@ class Session:
             "envelope_material": "G4_Galactic",
             "component_names": np.asarray(["detector"]),
             "component_materials": np.asarray(["G4_Si"]),
+            "component_parents": np.asarray([""]),
             "component_centers_mm": np.asarray([[0.0, 0.0, 0.0]]),
             "component_sizes_mm": np.asarray([[10.0, 10.0, 10.0]]),
             "component_score": np.asarray([True]),

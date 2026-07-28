@@ -81,6 +81,7 @@ def run():
     # ==================================================================================
 
     import mcdc.output as output_module
+    import mcdc.coupling.geant4_config as geant4_config
     import mcdc.coupling.geant4_handoff as geant4_handoff
 
     # TIMER: output
@@ -88,7 +89,7 @@ def run():
 
     # Optional Geant4 handoff coupling. This is intentionally outside the Numba
     # transport kernels and runs only at a coarse simulation boundary.
-    if simulation["mpi_master"] and geant4_handoff.has_configs():
+    if simulation["mpi_master"] and geant4_config.has_configs():
         coupling_summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
         print_module.print_msg(
             " Geant4 handoff summary: "

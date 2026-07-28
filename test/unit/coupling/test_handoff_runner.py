@@ -59,6 +59,7 @@ def test_run_handoff_distribution_runs_worker_and_reads_hdf5(monkeypatch, tmp_pa
         payload = geant4_worker.read_payload(cmd[-1])
         np.testing.assert_array_equal(payload["component_names"], ["detector"])
         np.testing.assert_array_equal(payload["component_materials"], ["G4_Si"])
+        np.testing.assert_array_equal(payload["component_parents"], [""])
         np.testing.assert_allclose(payload["component_sizes_mm"], [[10.0, 10.0, 10.0]])
         np.testing.assert_array_equal(payload["component_score"], [True])
         assert payload["envelope_material"] == "G4_Galactic"
@@ -190,7 +191,9 @@ def test_run_handoff_generates_different_default_random_seeds(monkeypatch, tmp_p
     assert seeds[0] != seeds[1]
 
 
-def test_run_handoff_distribution_runs_all_workers_before_failure(monkeypatch, tmp_path):
+def test_run_handoff_distribution_runs_all_workers_before_failure(
+    monkeypatch, tmp_path
+):
     simulation, data, _ = distribution_simulation_and_data()
     tallies = np.zeros(2, dtype=simulation["tallies"].dtype)
     tallies[0] = simulation["tallies"][0]

@@ -4,6 +4,8 @@ import os
 import numpy as np
 import mcdc
 
+from cubesat_G4_devices import build_device_components
+
 EXAMPLE_DIR = Path(__file__).resolve().parent
 # keep MCDC output_name short while still running from any directory
 os.chdir(EXAMPLE_DIR)
@@ -125,16 +127,6 @@ def g4_size_mm(bounds, padding_scale):
         padding_scale * 10.0 * (y1 - y0),
         padding_scale * 10.0 * (z1 - z0),
     )
-
-
-def centered_device_component(name, material, bounds):
-    return {
-        "name": name,
-        "material": material,
-        "center_mm": [0.0, 0.0, 0.0],
-        "size_mm": g4_size_mm(bounds, padding_scale=1.0),
-        "score": True,
-    }
 
 
 def geant4_output_path(filename):
@@ -286,12 +278,7 @@ sensitive_volumes = [
     ("comms", comms_sv, comms_sv_bounds),
 ]
 
-device_components = {
-    "obc": [centered_device_component("obc_silicon", "G4_Si", obc_sv_bounds)],
-    "eps": [centered_device_component("eps_active_lco", "LiCoO2", eps_sv_bounds)],
-    "adcs": [centered_device_component("adcs_silicon", "G4_Si", adcs_sv_bounds)],
-    "comms": [centered_device_component("comms_silicon", "G4_Si", comms_sv_bounds)],
-}
+device_components = build_device_components()
 
 # =============================================================================
 # VOID FILL
@@ -303,8 +290,7 @@ all_component_cells = (
     [obc_board, obc_sv,
      eps_board, eps_sv,
      adcs_board, adcs_sv] +
-    [
-     comms_board, comms_sv]
+    [comms_board, comms_sv]
 )
 
 void_region = outer
@@ -387,12 +373,12 @@ for name, cell, _ in sensitive_volumes:
 # =============================================================================
 
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
-n_geant4_particles = 10000
+n_geant4_particles = 10000000
 geant4_random_seeds = {
-    "obc": 1001,
-    "eps": 1002,
-    "adcs": 1003,
-    "comms": 1004,
+    "obc": 10011,
+    "eps": 10021,
+    "adcs": 10031,
+    "comms": 10041,
 }
 
 for i, (name, _, bounds) in enumerate(sensitive_volumes):
@@ -401,7 +387,7 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
         bridge_build_dir=str(BRIDGE_BUILD_DIR),
         world_size_mm=g4_size_mm(bounds, padding_scale=1.2),
         detector_size_mm=g4_size_mm(bounds, padding_scale=1.0),
-        detector_material=device_components[name][0]["material"],
+        detector_material="G4_Galactic",
         envelope_material="G4_Galactic",
         device_components=device_components[name],
         physics_list="QGSP_BIC",
@@ -416,6 +402,6 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 200000
+mcdc.settings.N_particle = 100000
 mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
 mcdc.run()

@@ -1,14 +1,18 @@
-from mcdc.coupling.geant4_handoff import (
-    add_handoff,
+from mcdc.coupling.geant4_config import (
+    add_config,
+    clear_configs,
     configure,
-    disable,
+    has_configs,
+)
+from mcdc.coupling.geant4_handoff import (
     run_handoff_from_simulation,
 )
 
 # export geant4 coupling entrypoints
 __all__ = [
-    "add_handoff",
+    "add_config",
+    "clear_configs",
     "configure",
-    "disable",
+    "has_configs",
     "run_handoff_from_simulation",
 ]

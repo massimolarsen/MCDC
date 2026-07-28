@@ -89,6 +89,7 @@ def plot_source_current(mcdc_path, output_path):
             ax.stairs(energy_totals, energy_edges, label=region, linestyle=linestyle)
 
     ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.set_xlabel("Source energy [eV]")
     ax.set_ylabel("MCDC current-in")
     ax.set_title("CubeSat Geant4 Handoff Source Current")
@@ -110,6 +111,7 @@ def plot_geant4_edep(geant4_dir, pattern, output_path):
         ax.stairs(edep_mev, positive_log_edges(energy_edges), label=region, linestyle=linestyle)
 
     ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.set_xlabel("Deposited energy [MeV]")
     ax.set_ylabel("Weighted edep [MeV]")
     ax.set_title("CubeSat Geant4 Energy Deposition Spectrum")

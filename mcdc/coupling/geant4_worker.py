@@ -22,6 +22,7 @@ ARRAY_FIELDS = {
     "component_centers_mm",
     "component_materials",
     "component_names",
+    "component_parents",
     "component_score",
     "component_sizes_mm",
     "mu_edges",
@@ -36,7 +37,11 @@ def write_payload(path: str | pathlib.Path, payload: dict[str, Any]) -> None:
         string_dtype = h5py.string_dtype(encoding="utf-8")
         for key, value in payload.items():
             if key in ARRAY_FIELDS:
-                if key in {"component_names", "component_materials"}:
+                if key in {
+                    "component_names",
+                    "component_materials",
+                    "component_parents",
+                }:
                     file.create_dataset(
                         key, data=np.asarray(value, dtype=object), dtype=string_dtype
                     )
@@ -44,6 +49,7 @@ def write_payload(path: str | pathlib.Path, payload: dict[str, Any]) -> None:
                     file.create_dataset(key, data=value)
             else:
                 file.attrs[key] = value
+
 
 def read_payload(path: str | pathlib.Path) -> dict[str, Any]:
     payload: dict[str, Any] = {}
@@ -67,7 +73,9 @@ def load_bridge(build_dir: str):
                 module_path = candidate
                 break
     if module_path is None:
-        raise RuntimeError(f"Could not find built geant4_bridge module under: {build_path}")
+        raise RuntimeError(
+            f"Could not find built geant4_bridge module under: {build_path}"
+        )
 
     spec = importlib.util.spec_from_file_location("geant4_bridge", module_path)
     if spec is None or spec.loader is None:
@@ -186,6 +194,9 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
 def _bridge_components(bridge, payload: dict[str, Any]):
     names = np.asarray(payload["component_names"]).astype(str)
     materials = np.asarray(payload["component_materials"]).astype(str)
+    parents = np.asarray(payload.get("component_parents", [""] * len(names))).astype(
+        str
+    )
     centers = np.asarray(payload["component_centers_mm"], dtype=np.float64)
     sizes = np.asarray(payload["component_sizes_mm"], dtype=np.float64)
     scores = np.asarray(payload["component_score"], dtype=np.bool_)
@@ -196,6 +207,7 @@ def _bridge_components(bridge, payload: dict[str, Any]):
             component = bridge.DeviceComponent()
             component.name = str(name)
             component.material = str(materials[i])
+            component.parent = str(parents[i])
             component.center_mm = [float(x) for x in centers[i]]
             component.size_mm = [float(x) for x in sizes[i]]
             component.score = bool(scores[i])
@@ -203,6 +215,7 @@ def _bridge_components(bridge, payload: dict[str, Any]):
             component = {
                 "name": str(name),
                 "material": str(materials[i]),
+                "parent": str(parents[i]),
                 "center_mm": [float(x) for x in centers[i]],
                 "size_mm": [float(x) for x in sizes[i]],
                 "score": bool(scores[i]),

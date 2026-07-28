@@ -16,26 +16,11 @@ from mcdc.coupling.geant4_bank import (
 from mcdc.coupling.geant4_config import (
     CONFIGS,
     Geant4HandoffConfig,
-    add_config,
-    clear_configs,
-    configure,
     normalized_device_components,
     read_summary_hdf5,
 )
 from mcdc.coupling.geant4_distribution import build_source_distribution_payload
 from mcdc.coupling import geant4_worker
-
-
-def has_configs() -> bool:
-    return len(CONFIGS) > 0
-
-
-def add_handoff(**kwargs) -> None:
-    add_config(**kwargs)
-
-
-def disable() -> None:
-    clear_configs()
 
 
 def run_handoff_from_simulation(
@@ -62,7 +47,9 @@ def run_handoff_from_simulation(
         except Exception as exc:
             message = str(exc)
             failures.append(
-                message if message.startswith(f"{cfg.name}:") else f"{cfg.name}: {message}"
+                message
+                if message.startswith(f"{cfg.name}:")
+                else f"{cfg.name}: {message}"
             )
 
     summary = _aggregate(region_results)
@@ -195,6 +182,9 @@ def _build_region_payload(
     payload["component_materials"] = np.asarray(
         [component["material"] for component in components], dtype=object
     )
+    payload["component_parents"] = np.asarray(
+        [component["parent"] for component in components], dtype=object
+    )
     payload["component_centers_mm"] = np.asarray(
         [component["center_mm"] for component in components], dtype=np.float64
     )
@@ -241,7 +231,9 @@ def _worker_failure(
 def _aggregate(regions: list[dict[str, Any]]) -> dict[str, Any]:
     status = (
         "ok"
-        if all(region["status"] in {"ok", "skipped_empty_handoff"} for region in regions)
+        if all(
+            region["status"] in {"ok", "skipped_empty_handoff"} for region in regions
+        )
         else "error"
     )
     return {
