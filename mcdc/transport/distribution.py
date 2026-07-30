@@ -31,6 +31,7 @@ from mcdc.transport.util import find_bin, linear_interpolation
 # General distribution samplers
 # ======================================================================================
 
+
 @njit
 def sample_distribution(E, distribution, rng_state, simulation, data):
     return _sample_distribution(E, distribution, rng_state, simulation, data, False)
