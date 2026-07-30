@@ -14,7 +14,12 @@ from mcdc.viewer.motion import (
     infer_time_steps,
     shift_state_at_time,
 )
-from mcdc.viewer.render import build_frame_entry, show_frame, step_frame
+from mcdc.viewer.render import (
+    add_global_opacity_slider,
+    build_frame_entry,
+    show_frame,
+    step_frame,
+)
 from mcdc.viewer.types import RenderState
 
 
@@ -24,6 +29,9 @@ def geo_viewer_3d_time(
     dynamic_bounds=False,
     save_animation_path=None,
     animation_fps=12,
+    labels=False,
+    color_by="material",
+    opacity_slider=True,
 ):
     """Render a time-stepped 3D geometry view."""
 
@@ -81,6 +89,7 @@ def geo_viewer_3d_time(
                 primitive_resolution=DEFAULT_PRIMITIVE_RESOLUTION,
                 shifts=shifts,
                 time_label=format_frame_label(index, len(times), time_value),
+                color_by=color_by,
             )
         )
 
@@ -92,23 +101,22 @@ def geo_viewer_3d_time(
             frame_cache=frame_cache,
             save_animation_path=save_animation_path,
             animation_fps=animation_fps,
+            labels=labels,
         )
 
     render_state = RenderState()
 
     # interactive controls
     def step_next():
-        step_frame(plotter, frame_cache, render_state, delta=1)
+        step_frame(plotter, frame_cache, render_state, delta=1, labels=labels)
 
     def step_prev():
-        step_frame(plotter, frame_cache, render_state, delta=-1)
+        step_frame(plotter, frame_cache, render_state, delta=-1, labels=labels)
 
     plotter.add_key_event("Right", step_next)
     plotter.add_key_event("Left", step_prev)
-    plotter.add_key_event("n", step_next)
-    plotter.add_key_event("p", step_prev)
     plotter.add_text(
-        "Left/Right (or p/n) to step time (precomputed)",
+        "Left/Right to step time (precomputed)",
         position="lower_left",
         name="mcdc_controls",
     )
@@ -120,5 +128,7 @@ def geo_viewer_3d_time(
         )
 
     # initial render
-    show_frame(plotter, frame_cache, render_state, frame_index=0)
+    show_frame(plotter, frame_cache, render_state, frame_index=0, labels=labels)
+    if opacity_slider:
+        add_global_opacity_slider(plotter, render_state)
     plotter.show(auto_close=False)

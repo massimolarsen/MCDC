@@ -9,7 +9,12 @@ from mcdc.viewer.meshing import (
     bounds_from_planes_with_shift,
 )
 from mcdc.viewer.motion import zero_shift_state
-from mcdc.viewer.render import build_frame_entry, render_frame_entry
+from mcdc.viewer.render import (
+    add_global_opacity_slider,
+    build_frame_entry,
+    render_frame_entry,
+)
+from mcdc.viewer.types import RenderState
 from mcdc.viewer.export import (
     IMAGE_EXTENSIONS,
     export_frame_cache_animation,
@@ -22,6 +27,9 @@ def geo_viewer_3d_static(
     simulation,
     save_animation_path=None,
     animation_fps=12,
+    labels=False,
+    color_by="material",
+    opacity_slider=True,
 ):
     """Render a single-frame 3D geometry view."""
 
@@ -44,10 +52,20 @@ def geo_viewer_3d_static(
         primitive_resolution=DEFAULT_PRIMITIVE_RESOLUTION,
         shifts=shifts,
         time_label=None,
+        color_by=color_by,
     )
-    rendered, _ = render_frame_entry(plotter, frame_entry, actor_names=[])
+    rendered, _ = render_frame_entry(
+        plotter,
+        frame_entry,
+        actor_names=[],
+        labels=labels,
+    )
     if not rendered:
         return
+
+    render_state = RenderState()
+    if opacity_slider:
+        add_global_opacity_slider(plotter, render_state)
 
     # export
     if save_animation_path:
@@ -57,6 +75,7 @@ def geo_viewer_3d_static(
                 pv=pv,
                 frame_entry=frame_entry,
                 save_image_path=save_animation_path,
+                labels=labels,
             )
         else:
             print(f"[geometry] Saving single-frame animation to {save_animation_path}")
@@ -65,6 +84,7 @@ def geo_viewer_3d_static(
                 frame_cache=[frame_entry],
                 save_animation_path=save_animation_path,
                 animation_fps=animation_fps,
+                labels=labels,
             )
 
     # interactive view

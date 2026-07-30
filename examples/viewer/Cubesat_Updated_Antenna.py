@@ -1,6 +1,23 @@
+import argparse
+
 import numpy as np
 import mcdc
 from mcdc.viewer import geo_viewer_3d
+
+
+def bool_arg(value):
+    if value.lower() in {"true", "1", "yes", "on"}:
+        return True
+    if value.lower() in {"false", "0", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError("expected true or false")
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--labels", type=bool_arg, default=True)
+parser.add_argument("--color-by", choices=["material", "cell"], default="material")
+parser.add_argument("--opacity-slider", type=bool_arg, default=True)
+args = parser.parse_args()
 
 # =============================================================================
 # CARRE project — 1U CubeSat simplified geometry
@@ -321,4 +338,9 @@ mcdc.Tally(name="Comms SV current-in", cell=comms_sv, scores=["current-in"])
 # =============================================================================
 
 mcdc.settings.N_particle = 100
-geo_viewer_3d(mcdc.object_.simulation.simulation)
+geo_viewer_3d(
+    mcdc.object_.simulation.simulation,
+    labels=args.labels,
+    color_by=args.color_by,
+    opacity_slider=args.opacity_slider,
+)

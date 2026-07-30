@@ -10,6 +10,19 @@ from mcdc.viewer.meshing import region_mesh, trimesh_to_pyvista
 from mcdc.viewer.types import CellVisual, FrameEntry, RenderState, SourceVisual
 
 DEFAULT_ALPHA = 0.6
+CELL_LABEL_ACTOR = "mcdc_cell_labels"
+MATERIAL_PALETTE = [
+    (0.12, 0.47, 0.71),
+    (1.00, 0.50, 0.05),
+    (0.17, 0.63, 0.17),
+    (0.84, 0.15, 0.16),
+    (0.58, 0.40, 0.74),
+    (0.55, 0.34, 0.29),
+    (0.89, 0.47, 0.76),
+    (0.50, 0.50, 0.50),
+    (0.74, 0.74, 0.13),
+    (0.09, 0.75, 0.81),
+]
 
 
 def cell_background_policy(display_name, material_name):
@@ -23,30 +36,50 @@ def cell_background_policy(display_name, material_name):
     return skip, fade
 
 
-def cell_display_properties(simulation):
+def cell_display_properties(simulation, color_by="material"):
     """Assign display colors and opacities to simulation cells."""
 
-    # material display defaults
-    palette = [
-        (0.12, 0.47, 0.71),
-        (1.00, 0.50, 0.05),
-        (0.17, 0.63, 0.17),
-        (0.84, 0.15, 0.16),
-        (0.58, 0.40, 0.74),
-        (0.55, 0.34, 0.29),
-    ]
-    out = []
+    if color_by not in {"cell", "material"}:
+        raise ValueError("color_by must be 'cell' or 'material'.")
+
+    cell_data = []
+    visible_materials = set()
     for index, cell in enumerate(simulation.cells):
         cell_name = getattr(cell, "name", f"cell_{index}")
         material_name = getattr(cell.fill, "name", str(cell.fill))
         display_name = cell_name or material_name
         skip, fade = cell_background_policy(display_name, material_name)
+        cell_data.append((display_name, material_name, skip, fade))
+        if not skip:
+            visible_materials.add(material_name)
+
+    material_colors = {
+        material_name: MATERIAL_PALETTE[index % len(MATERIAL_PALETTE)]
+        for index, material_name in enumerate(sorted(visible_materials))
+    }
+
+    out = []
+    for index, cell in enumerate(simulation.cells):
+        display_name, material_name, skip, fade = cell_data[index]
         if skip:
             out.append(None)
             continue
-        color = palette[index % len(palette)]
+        color = (
+            material_colors[material_name]
+            if color_by == "material"
+            else MATERIAL_PALETTE[index % len(MATERIAL_PALETTE)]
+        )
         opacity = min(DEFAULT_ALPHA, 0.15) if fade else DEFAULT_ALPHA
-        out.append((display_name, color, opacity))
+        legend_label = material_name if color_by == "material" else display_name
+        out.append(
+            {
+                "label": display_name,
+                "material": material_name,
+                "color": color,
+                "opacity": opacity,
+                "legend": legend_label,
+            }
+        )
     return out
 
 
@@ -58,6 +91,7 @@ def build_frame_entry(
     primitive_resolution,
     shifts,
     time_label=None,
+    color_by="material",
 ):
     """Precompute all renderable data for a single frame."""
 
@@ -65,12 +99,11 @@ def build_frame_entry(
     cell_visuals: list[CellVisual] = []
     legend_entries: list[tuple[str, tuple[float, float, float]]] = []
     rendered_geometry = False
-    cell_props = cell_display_properties(simulation)
+    cell_props = cell_display_properties(simulation, color_by=color_by)
     for index, cell in enumerate(simulation.cells):
         props = cell_props[index]
         if props is None:
             continue
-        cell_name, color, opacity = props
         try:
             mesh_tm = region_mesh(
                 cell.region,
@@ -93,12 +126,12 @@ def build_frame_entry(
             CellVisual(
                 actor_name=f"mcdc_cell_{index}",
                 mesh=mesh_pv,
-                color=color,
-                opacity=opacity,
-                label=cell_name,
+                color=props["color"],
+                opacity=props["opacity"],
+                label=props["label"],
             )
         )
-        legend_entries.append((cell_name, color))
+        legend_entries.append((props["legend"], props["color"]))
         rendered_geometry = True
 
     if not rendered_geometry:
@@ -158,25 +191,121 @@ def build_frame_entry(
     )
 
 
-def render_frame_entry(plotter, frame_entry, actor_names):
+def _mesh_center(mesh):
+    if hasattr(mesh, "center"):
+        return np.asarray(mesh.center, dtype=float)
+    if hasattr(mesh, "bounds"):
+        bounds = np.asarray(mesh.bounds, dtype=float)
+        return np.array(
+            [
+                0.5 * (bounds[0] + bounds[1]),
+                0.5 * (bounds[2] + bounds[3]),
+                0.5 * (bounds[4] + bounds[5]),
+            ]
+        )
+    return None
+
+
+def _add_cell_labels(plotter, cell_visuals):
+    points = []
+    labels = []
+    for cell_visual in cell_visuals:
+        center = _mesh_center(cell_visual.mesh)
+        if center is None:
+            continue
+        points.append(center)
+        labels.append(cell_visual.label)
+
+    if not labels:
+        return None
+
+    plotter.add_point_labels(
+        np.asarray(points),
+        labels,
+        font_size=10,
+        point_size=0,
+        shape_opacity=0.2,
+        always_visible=False,
+        name=CELL_LABEL_ACTOR,
+    )
+    return CELL_LABEL_ACTOR
+
+
+def _actor_property(actor):
+    if hasattr(actor, "GetProperty"):
+        return actor.GetProperty()
+    if hasattr(actor, "prop"):
+        return actor.prop
+    return None
+
+
+def _set_actor_opacity(actor, opacity):
+    prop = _actor_property(actor)
+    if prop is None:
+        return
+    if hasattr(prop, "SetOpacity"):
+        prop.SetOpacity(float(opacity))
+    elif hasattr(prop, "opacity"):
+        prop.opacity = float(opacity)
+
+
+def add_global_opacity_slider(plotter, render_state):
+    """Add a single slider controlling all rendered cell actor opacities."""
+
+    def set_opacity(value):
+        render_state.opacity_scale = float(value)
+        for actor, base_opacity in getattr(plotter, "_mcdc_cell_actors", []):
+            _set_actor_opacity(actor, base_opacity * render_state.opacity_scale)
+        plotter.render()
+
+    plotter.add_slider_widget(
+        set_opacity,
+        (0.02, 1.0),
+        value=render_state.opacity_scale,
+        title="Cell opacity",
+        pointa=(0.68, 0.08),
+        pointb=(0.96, 0.08),
+        color=(0.12, 0.47, 0.71),
+        interaction_event="always",
+        style="modern",
+        title_height=0.025,
+        title_color=(0.12, 0.12, 0.12),
+        fmt="%.2f",
+        slider_width=0.025,
+        tube_width=0.006,
+    )
+
+
+def render_frame_entry(
+    plotter,
+    frame_entry,
+    actor_names,
+    labels=False,
+    opacity_scale=1.0,
+):
     """Render a prepared frame entry and return the active actor names."""
 
     # actor replacement
     for actor_name in actor_names:
         plotter.remove_actor(actor_name, reset_camera=False)
     new_actor_names = []
+    cell_actor_records = []
 
     # cell actors
     for cell_visual in frame_entry.cells:
-        plotter.add_mesh(
+        actor = plotter.add_mesh(
             cell_visual.mesh,
             color=cell_visual.color,
-            opacity=cell_visual.opacity,
+            opacity=cell_visual.opacity * opacity_scale,
             smooth_shading=False,
             name=cell_visual.actor_name,
             reset_camera=False,
         )
+        if actor is not None:
+            cell_actor_records.append((actor, cell_visual.opacity))
         new_actor_names.append(cell_visual.actor_name)
+
+    plotter._mcdc_cell_actors = cell_actor_records
 
     # source actors
     for source_visual in frame_entry.sources:
@@ -201,6 +330,12 @@ def render_frame_entry(plotter, frame_entry, actor_names):
             )
         new_actor_names.append(source_visual.actor_name)
 
+    # cell labels
+    if labels:
+        label_actor = _add_cell_labels(plotter, frame_entry.cells)
+        if label_actor is not None:
+            new_actor_names.append(label_actor)
+
     # overlays
     plotter.add_legend(frame_entry.legend, bcolor=None, name="mcdc_legend")
     if frame_entry.label is not None:
@@ -214,7 +349,7 @@ def render_frame_entry(plotter, frame_entry, actor_names):
     return frame_entry.has_geometry, new_actor_names
 
 
-def show_frame(plotter, frame_cache, render_state, frame_index):
+def show_frame(plotter, frame_cache, render_state, frame_index, labels=False):
     """Render one frame from the cache into the active plotter."""
 
     # re-entrant guard
@@ -228,6 +363,8 @@ def show_frame(plotter, frame_cache, render_state, frame_index):
             plotter=plotter,
             frame_entry=frame_cache[index],
             actor_names=render_state.actor_names,
+            labels=labels,
+            opacity_scale=render_state.opacity_scale,
         )
         if rendered:
             render_state.actor_names = actor_names
@@ -237,7 +374,7 @@ def show_frame(plotter, frame_cache, render_state, frame_index):
         render_state.updating = False
 
 
-def step_frame(plotter, frame_cache, render_state, delta):
+def step_frame(plotter, frame_cache, render_state, delta, labels=False):
     """Advance the current render state by a signed frame delta."""
 
     # frame stepping
@@ -246,4 +383,5 @@ def step_frame(plotter, frame_cache, render_state, delta):
         frame_cache=frame_cache,
         render_state=render_state,
         frame_index=render_state.current_frame_index + delta,
+        labels=labels,
     )

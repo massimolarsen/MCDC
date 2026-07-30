@@ -16,6 +16,9 @@ def geo_viewer_3d(
     dynamic_bounds=False,
     save_animation_path=None,
     animation_fps=12,
+    labels=False,
+    color_by="material",
+    opacity_slider=True,
 ):
     # mode selection
     has_motion = any(getattr(s, "moving", False) for s in simulation.surfaces) or any(
@@ -34,6 +37,9 @@ def geo_viewer_3d(
             dynamic_bounds=dynamic_bounds,
             save_animation_path=save_animation_path,
             animation_fps=animation_fps,
+            labels=labels,
+            color_by=color_by,
+            opacity_slider=opacity_slider,
         )
 
     # static view
@@ -41,4 +47,7 @@ def geo_viewer_3d(
         simulation=simulation,
         save_animation_path=save_animation_path,
         animation_fps=animation_fps,
+        labels=labels,
+        color_by=color_by,
+        opacity_slider=opacity_slider,
     )

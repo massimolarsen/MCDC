@@ -76,4 +76,5 @@ class RenderState:
 
     current_frame_index: int = 0
     actor_names: list[str] = field(default_factory=list)
+    opacity_scale: float = 1.0
     updating: bool = False

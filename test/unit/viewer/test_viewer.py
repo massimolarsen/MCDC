@@ -15,8 +15,14 @@ from mcdc.object_.simulation import simulation
 from mcdc.viewer.geometry import geo_viewer_3d
 from mcdc.viewer.meshing import Bounds3D, bounds_from_planes_with_shift, region_mesh
 from mcdc.viewer.motion import infer_time_steps, translation_at_time
-from mcdc.viewer.render import build_frame_entry
-from mcdc.viewer.types import ShiftState
+from mcdc.viewer.render import (
+    add_global_opacity_slider,
+    build_frame_entry,
+    cell_display_properties,
+    render_frame_entry,
+)
+from mcdc.viewer.time_view import geo_viewer_3d_time
+from mcdc.viewer.types import CellVisual, FrameEntry, ShiftState
 
 
 class FakeMesh:
@@ -82,6 +88,7 @@ class FakeTrimesh:
 
 class FakePolyData:
     n_points = 3
+    center = (0.5, 0.5, 0.5)
 
 
 class FakePyVista:
@@ -173,16 +180,229 @@ def test_geo_viewer_dispatches_static_and_time(monkeypatch):
     monkeypatch.setattr("mcdc.viewer.geometry.geo_viewer_3d_static", fake_static)
     monkeypatch.setattr("mcdc.viewer.geometry.geo_viewer_3d_time", fake_time)
 
-    geo_viewer_3d(SimpleNamespace(surfaces=[], sources=[]))
-    geo_viewer_3d(SimpleNamespace(surfaces=[], sources=[]), time_steps=[0.0, 1.0])
+    geo_viewer_3d(SimpleNamespace(surfaces=[], sources=[]), labels=True)
+    geo_viewer_3d(
+        SimpleNamespace(surfaces=[], sources=[]),
+        time_steps=[0.0, 1.0],
+        labels=True,
+    )
 
     moving_surface = SimpleNamespace(
         moving=True,
         move_time_grid=np.array([0.0, 1.0, np.inf]),
     )
-    geo_viewer_3d(SimpleNamespace(surfaces=[moving_surface], sources=[]))
+    geo_viewer_3d(SimpleNamespace(surfaces=[moving_surface], sources=[]), labels=True)
 
     assert [name for name, _ in calls] == ["static", "time", "time"]
+    assert all(call[1]["labels"] is True for call in calls)
+
+
+class FakePlotter:
+    def __init__(self):
+        self.labels = []
+        self.meshes = []
+        self.removed = []
+        self.legend = None
+        self.text = []
+        self.key_events = {}
+        self.slider_callback = None
+        self.slider_args = None
+        self.slider_kwargs = None
+        self.render_count = 0
+
+    def remove_actor(self, actor_name, reset_camera=False):
+        self.removed.append(actor_name)
+
+    def add_axes(self):
+        return None
+
+    def show_grid(self):
+        return None
+
+    def add_mesh(self, mesh, **kwargs):
+        actor = FakeActor()
+        self.meshes.append((mesh, kwargs))
+        return actor
+
+    def add_point_labels(self, points, labels, **kwargs):
+        self.labels.append((points, labels, kwargs))
+
+    def add_legend(self, legend, **kwargs):
+        self.legend = legend
+
+    def add_text(self, *args, **kwargs):
+        self.text.append((args, kwargs))
+        return None
+
+    def add_slider_widget(self, callback, *args, **kwargs):
+        self.slider_callback = callback
+        self.slider_args = args
+        self.slider_kwargs = kwargs
+
+    def add_key_event(self, key, callback):
+        self.key_events[key] = callback
+
+    def render(self):
+        self.render_count += 1
+
+    def show(self, **kwargs):
+        return None
+
+
+class FakeProperty:
+    def __init__(self):
+        self.opacity = None
+
+    def SetOpacity(self, value):
+        self.opacity = value
+
+
+class FakeActor:
+    def __init__(self):
+        self.property = FakeProperty()
+
+    def GetProperty(self):
+        return self.property
+
+
+def cell_visual():
+    return CellVisual(
+        actor_name="cell_0",
+        mesh=SimpleNamespace(center=(1.0, 2.0, 3.0)),
+        color=(0.1, 0.2, 0.3),
+        opacity=0.6,
+        label="fuel",
+    )
+
+
+def single_cell_frame():
+    return FrameEntry(
+        cells=[cell_visual()],
+        sources=[],
+        legend=[("fuel", (0.1, 0.2, 0.3))],
+        label=None,
+        has_geometry=True,
+    )
+
+
+def test_render_frame_entry_adds_cell_labels_when_enabled():
+    plotter = FakePlotter()
+    frame = single_cell_frame()
+
+    rendered, actor_names = render_frame_entry(
+        plotter,
+        frame,
+        actor_names=[],
+        labels=True,
+    )
+
+    assert rendered
+    assert "mcdc_cell_labels" in actor_names
+    assert plotter.labels[0][1] == ["fuel"]
+    np.testing.assert_allclose(plotter.labels[0][0], [[1.0, 2.0, 3.0]])
+
+
+def test_render_frame_entry_skips_cell_labels_by_default():
+    plotter = FakePlotter()
+    frame = single_cell_frame()
+
+    _, actor_names = render_frame_entry(plotter, frame, actor_names=[])
+
+    assert "mcdc_cell_labels" not in actor_names
+    assert plotter.labels == []
+
+
+def test_material_color_mode_uses_same_color_for_same_material():
+    cells = [
+        SimpleNamespace(ID=0, name="a", fill=SimpleNamespace(name="Silicon")),
+        SimpleNamespace(ID=1, name="b", fill=SimpleNamespace(name="Silicon")),
+        SimpleNamespace(ID=2, name="c", fill=SimpleNamespace(name="Copper")),
+    ]
+    props = cell_display_properties(SimpleNamespace(cells=cells), color_by="material")
+
+    assert props[0]["color"] == props[1]["color"]
+    assert props[0]["color"] != props[2]["color"]
+    assert props[0]["legend"] == "Silicon"
+
+
+def test_material_color_mode_keeps_first_palette_materials_distinct():
+    cells = [
+        SimpleNamespace(ID=index, name=f"cell_{index}", fill=SimpleNamespace(name=name))
+        for index, name in enumerate(
+            [
+                "Aluminum",
+                "Bakelite",
+                "Copper",
+                "Epoxy",
+                "FR4",
+                "Galactic",
+                "LithiumCobaltOxide",
+                "Silicon",
+                "Steel",
+                "Tantalum",
+            ]
+        )
+    ]
+    props = cell_display_properties(SimpleNamespace(cells=cells), color_by="material")
+
+    assert len({props[index]["color"] for index in range(len(cells))}) == len(cells)
+
+
+def test_cell_color_mode_keeps_cell_palette():
+    cells = [
+        SimpleNamespace(ID=0, name="a", fill=SimpleNamespace(name="Silicon")),
+        SimpleNamespace(ID=1, name="b", fill=SimpleNamespace(name="Silicon")),
+    ]
+    props = cell_display_properties(SimpleNamespace(cells=cells), color_by="cell")
+
+    assert props[0]["color"] != props[1]["color"]
+    assert props[0]["legend"] == "a"
+
+
+def test_time_view_only_binds_arrow_step_keys(monkeypatch):
+    plotter = FakePlotter()
+
+    class FakePyVistaWithPlotter(FakePyVista):
+        @staticmethod
+        def Plotter():
+            return plotter
+
+    monkeypatch.setattr(
+        "mcdc.viewer.time_view.import_backends",
+        lambda: (FakePyVistaWithPlotter, FakeTrimesh),
+    )
+    sim = SimpleNamespace(cells=[], sources=[], surfaces=[])
+
+    with pytest.warns(RuntimeWarning, match="No geometry rendered"):
+        geo_viewer_3d_time(
+            sim,
+            time_steps=[0.0],
+            opacity_slider=False,
+        )
+
+    assert "Right" in plotter.key_events
+    assert "Left" in plotter.key_events
+    assert "p" not in plotter.key_events
+    assert "n" not in plotter.key_events
+
+
+def test_global_opacity_slider_updates_cell_actor_opacity():
+    plotter = FakePlotter()
+    render_state = SimpleNamespace(opacity_scale=1.0)
+    render_frame_entry(plotter, single_cell_frame(), actor_names=[])
+    actor = plotter._mcdc_cell_actors[0][0]
+
+    add_global_opacity_slider(plotter, render_state)
+    plotter.slider_callback(0.5)
+
+    assert plotter.slider_args == ((0.02, 1.0),)
+    assert plotter.slider_kwargs["pointa"] == (0.68, 0.08)
+    assert plotter.slider_kwargs["pointb"] == (0.96, 0.08)
+    assert plotter.slider_kwargs["style"] == "modern"
+    assert plotter.slider_kwargs["fmt"] == "%.2f"
+    assert render_state.opacity_scale == 0.5
+    assert actor.property.opacity == pytest.approx(0.3)
+    assert plotter.render_count == 1
 
 
 def test_region_mesh_uses_current_region_tree():
