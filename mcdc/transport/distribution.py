@@ -31,9 +31,6 @@ from mcdc.transport.util import find_bin, linear_interpolation
 # General distribution samplers
 # ======================================================================================
 
-_MAX_REJECTION_SAMPLES = 100000
-
-
 @njit
 def sample_distribution(E, distribution, rng_state, simulation, data):
     return _sample_distribution(E, distribution, rng_state, simulation, data, False)
@@ -99,24 +96,16 @@ def _sample_correlated_distribution(
 
     if distribution_type == DISTRIBUTION_KALBACH_MANN:
         kalbach_mann = simulation["kalbach_mann_distributions"][ID]
-        E_out, mu = sample_kalbach_mann(E, rng_state, kalbach_mann, data)
-        assert math.isfinite(E_out) and E_out >= 0.0
-        assert math.isfinite(mu) and -1.0 <= mu <= 1.0
-        return E_out, mu
+        return sample_kalbach_mann(E, rng_state, kalbach_mann, data)
 
     elif distribution_type == DISTRIBUTION_TABULATED_ENERGY_ANGLE:
         table = simulation["tabulated_energy_angle_distributions"][ID]
-        E_out, mu = sample_tabulated_energy_angle(E, rng_state, table, data)
-        assert math.isfinite(E_out) and E_out >= 0.0
-        assert math.isfinite(mu) and -1.0 <= mu <= 1.0
-        return E_out, mu
+        return sample_tabulated_energy_angle(E, rng_state, table, data)
 
     elif distribution_type == DISTRIBUTION_N_BODY:
         nbody = simulation["nbody_distributions"][ID]
         E_out = sample_tabulated(nbody, rng_state, simulation, data)
         mu = sample_isotropic_cosine(rng_state)
-        assert math.isfinite(E_out) and E_out >= 0.0
-        assert math.isfinite(mu) and -1.0 <= mu <= 1.0
         return E_out, mu
 
     # TODO: Should not get here
@@ -394,32 +383,20 @@ def sample_maxwellian(E, rng_state, maxwellian, simulation, data):
     table = simulation["table_data"][maxwellian["nuclear_temperature_ID"]]
     nuclear_temperature = evaluate_table(E, table, data)
     restriction_energy = maxwellian["restriction_energy"]
-    assert math.isfinite(E) and E >= 0.0
-    assert math.isfinite(nuclear_temperature) and nuclear_temperature > 0.0
-    assert math.isfinite(restriction_energy)
-    assert E - restriction_energy >= 0.0
 
     # Rejection sampling
-    n_try = 0
     while True:
         xi1 = rng.lcg(rng_state)
         xi2 = rng.lcg(rng_state)
         xi3 = rng.lcg(rng_state)
-        assert 0.0 < xi1 < 1.0
-        assert 0.0 < xi2 < 1.0
-        assert 0.0 <= xi3 <= 1.0
         cos = math.cos(0.5 * PI * xi3)
         cos_square = cos * cos
         sample = -nuclear_temperature * (math.log(xi1) + math.log(xi2) * cos_square)
-        assert math.isfinite(sample)
 
         # Accept sample?
         if 0.0 <= sample and sample <= E - restriction_energy:
             break
-        n_try += 1
-        assert n_try < _MAX_REJECTION_SAMPLES
 
-    assert sample >= 0.0 and math.isfinite(sample)
     return sample
 
 
@@ -427,12 +404,7 @@ def sample_maxwellian(E, rng_state, maxwellian, simulation, data):
 def sample_level_scattering(E, level_scattering):
     C1 = level_scattering["C1"]
     C2 = level_scattering["C2"]
-    assert math.isfinite(E)
-    assert math.isfinite(C1)
-    assert math.isfinite(C2)
-    E_out = C2 * (E - C1)
-    assert math.isfinite(E_out) and E_out >= 0.0
-    return E_out
+    return C2 * (E - C1)
 
 
 @njit
@@ -441,33 +413,20 @@ def sample_evaporation(E, rng_state, evaporation, simulation, data):
     table = simulation["table_data"][evaporation["nuclear_temperature_ID"]]
     nuclear_temperature = evaluate_table(E, table, data)
     restriction_energy = evaporation["restriction_energy"]
-    assert math.isfinite(E) and E >= 0.0
-    assert math.isfinite(nuclear_temperature) and nuclear_temperature > 0.0
-    assert math.isfinite(restriction_energy)
-    assert E - restriction_energy >= 0.0
 
     w = (E - restriction_energy) / nuclear_temperature
     g = 1.0 - math.exp(-w)
-    assert math.isfinite(w)
-    assert math.isfinite(g)
 
     # Rejection sampling
-    n_try = 0
     while True:
         xi1 = rng.lcg(rng_state)
         xi2 = rng.lcg(rng_state)
-        assert 0.0 <= xi1 <= 1.0
-        assert 0.0 <= xi2 <= 1.0
         sample = -nuclear_temperature * math.log((1.0 - g * xi1) * (1.0 - g * xi2))
-        assert math.isfinite(sample)
 
         # Accept sample?
         if 0.0 <= sample and sample <= E - restriction_energy:
             break
-        n_try += 1
-        assert n_try < _MAX_REJECTION_SAMPLES
 
-    assert sample >= 0.0 and math.isfinite(sample)
     return sample
 
 
