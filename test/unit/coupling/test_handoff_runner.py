@@ -86,6 +86,43 @@ def test_run_handoff_distribution_runs_worker_and_reads_hdf5(monkeypatch, tmp_pa
     assert weights.shape == (2, 2, 2, 6, 2, 3)
 
 
+def test_run_handoff_distribution_allows_mpi_reduced_master_data(
+    monkeypatch, tmp_path
+):
+    simulation, data, _ = distribution_simulation_and_data(
+        mpi_size=4, mpi_master=True
+    )
+    output_path = tmp_path / "g4.h5"
+    geant4_config.configure(
+        **distribution_config(geant4_output_path=str(output_path)).__dict__
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        payload = geant4_worker.read_payload(cmd[-1])
+        _write_fake_distribution_output(payload)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    assert summary["status"] == "ok"
+    assert summary["regions"][0]["source_mode"] == "distribution"
+
+
+def test_run_handoff_rejects_bank_mode_mpi_before_worker(monkeypatch):
+    simulation, data, _ = distribution_simulation_and_data(mpi_size=2)
+    geant4_config.configure(**Geant4HandoffConfig(source_mode="bank").__dict__)
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("bank-mode MPI should fail before spawning a worker")
+
+    monkeypatch.setattr(subprocess, "run", fail_run)
+
+    with pytest.raises(RuntimeError, match="bank source_mode does not support MPI"):
+        geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+
 def test_run_handoff_zero_distribution_skips_worker(monkeypatch, tmp_path):
     simulation, data, _ = distribution_simulation_and_data(
         weights=np.zeros((2, 2, 2, 6, 2, 3))

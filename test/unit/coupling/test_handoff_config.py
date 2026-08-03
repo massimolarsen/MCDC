@@ -41,6 +41,21 @@ def test_run_handoff_rejects_multiple_bank_regions():
         geant4_handoff.run_handoff_from_simulation(simulation, data)
 
 
+def test_validate_mpi_compatibility_rejects_bank_mode_before_transport():
+    simulation, _, _ = distribution_simulation_and_data(mpi_size=8)
+    geant4_config.configure(**Geant4HandoffConfig(source_mode="bank").__dict__)
+
+    with pytest.raises(RuntimeError, match="bank source_mode does not support MPI"):
+        geant4_handoff.validate_mpi_compatibility(simulation)
+
+
+def test_validate_mpi_compatibility_allows_distribution_mode_mpi():
+    simulation, _, _ = distribution_simulation_and_data(mpi_size=8)
+    geant4_config.configure(**distribution_config().__dict__)
+
+    geant4_handoff.validate_mpi_compatibility(simulation)
+
+
 def test_normalized_device_components_synthesizes_legacy_detector():
     cfg = Geant4HandoffConfig(
         detector_size_mm=(1.0, 2.0, 3.0),

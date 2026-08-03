@@ -30,6 +30,8 @@ def distribution_simulation_and_data(
     filter_energy=True,
     weights=None,
     n_particle=1,
+    mpi_size=1,
+    mpi_master=True,
     surface_mesh=True,
     child_type=TALLY_SURFACE_CROSSING,
     time_bins=1,
@@ -101,7 +103,8 @@ def distribution_simulation_and_data(
     surface_crossing_tallies[0]["surface_mesh_z_max"] = 3.0
 
     simulation = {
-        "mpi_size": 1,
+        "mpi_size": mpi_size,
+        "mpi_master": mpi_master,
         "settings": {"N_particle": n_particle},
         "tallies": tallies,
         "surface_crossing_tallies": surface_crossing_tallies,

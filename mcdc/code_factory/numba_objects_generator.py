@@ -208,6 +208,7 @@ def generate_numba_objects(simulation):
     # Generate the accessor helper
     if MPI.COMM_WORLD.Get_rank() == 0:
         generate_mcdc_access(accessor_targets)
+    MPI.COMM_WORLD.Barrier()
 
     # Add ID for non-singleton
     for class_ in mcdc_classes:
@@ -385,7 +386,10 @@ def generate_numba_objects(simulation):
     # Set numba_types.py
     # ==================================================================================
 
+    MPI.COMM_WORLD.Barrier()
     import mcdc.numba_types as type_
+    importlib.invalidate_caches()
+    type_ = importlib.reload(type_)
 
     # Particle banks
     type_.set_bank_active({"particle_data": simulation.bank_active.size[0]})
@@ -1033,7 +1037,6 @@ def generate_mcdc_access(targets):
 
         file_getter.write(text_getter[:-2])
         file_setter.write(text_setter[:-2])
-
         file_getter.close()
         file_setter.close()
 

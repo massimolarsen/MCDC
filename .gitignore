@@ -26,6 +26,8 @@ __harmonize_cache__
 *output.h5
 output*.h5
 *output.h5
+examples/**/geant4_h5/
+examples/**/mcdc_h5/
 *.png
 *.mp4
 *.gif

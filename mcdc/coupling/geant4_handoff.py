@@ -27,14 +27,8 @@ def run_handoff_from_simulation(
     simulation: np.ndarray,
     data: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    # require serial mcdc state for geant4 handoff
-    if simulation["mpi_size"] != 1:
-        raise RuntimeError(
-            "Geant4 handoff coupling currently supports mpi_size == 1 only."
-        )
-
     configs = list(CONFIGS)
-    _validate_configs(configs)
+    validate_mpi_compatibility(simulation, configs)
 
     if configs[0].source_mode == "distribution" and data is None:
         raise RuntimeError("Distribution source mode requires tally data.")
@@ -56,6 +50,24 @@ def run_handoff_from_simulation(
     if failures:
         raise RuntimeError("Geant4 handoff worker failure:\n" + "\n".join(failures))
     return summary
+
+
+def validate_mpi_compatibility(
+    simulation: np.ndarray,
+    configs: list[Geant4HandoffConfig] | None = None,
+) -> None:
+    configs = list(CONFIGS) if configs is None else configs
+    _validate_configs(configs)
+
+    if int(simulation["mpi_size"]) <= 1:
+        return
+
+    if configs[0].source_mode == "bank":
+        raise RuntimeError(
+            "Geant4 bank source_mode does not support MPI MCDC runs; "
+            "MPI bank gather/streaming is future work. Use "
+            "source_mode='distribution' or run with one MPI process."
+        )
 
 
 def _validate_configs(configs: list[Geant4HandoffConfig]) -> None:

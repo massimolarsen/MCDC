@@ -64,50 +64,34 @@ def build_device_components():
             ),
         ],
         "eps": [
+            # EPS electronics package. This represents a power-management or
+            # controller IC inside the coarse MCDC EPS sensitive-volume region;
+            # it is structural/package material and is not scored directly.
             _device_component(
-                "EPS_LowerPouch", "G4_Al", [0.0, 0.0, -1.10], [25.0, 65.0, 0.10]
-            ),
-            _device_component(
-                "EPS_LowerInsulator",
-                "G4_POLYETHYLENE",
-                [0.0, 0.0, -1.00],
-                [25.0, 65.0, 0.10],
-            ),
-            _device_component(
-                "EPS_CuCollector", "G4_Cu", [0.0, 0.0, -0.90], [25.0, 65.0, 0.10]
-            ),
-            _device_component(
-                "EPS_GraphiteAnode",
-                "G4_GRAPHITE",
-                [0.0, 0.0, -0.475],
-                [25.0, 65.0, 0.75],
-                score=True,
-            ),
-            _device_component(
-                "EPS_Separator",
-                "G4_POLYETHYLENE",
+                "EPS_PMICPackage",
+                "G4_BAKELITE",
                 [0.0, 0.0, 0.0],
-                [25.0, 65.0, 0.20],
+                [12.0, 12.0, 2.0],
+            ),
+            # EPS silicon die. This is the device substrate inside the package;
+            # the active layer below is the SEE-sensitive scoring volume.
+            _device_component(
+                "EPS_PMICDie",
+                "G4_Si",
+                [0.0, 0.0, -0.45],
+                [8.0, 8.0, 0.50],
+                "EPS_PMICPackage",
+            ),
+            # EPS sensitive volume. This is the only scored EPS component and
+            # should be compared with the OBC/ADCS/Comms active silicon layers,
+            # not with bulk battery electrode or separator dose.
+            _device_component(
+                "EPS_PMICActive",
+                "G4_Si",
+                [0.0, 0.0, -0.235],
+                [6.0, 6.0, 0.05],
+                "EPS_PMICDie",
                 score=True,
-            ),
-            _device_component(
-                "EPS_LiCoO2Cathode",
-                "LiCoO2",
-                [0.0, 0.0, 0.475],
-                [25.0, 65.0, 0.75],
-                score=True,
-            ),
-            _device_component(
-                "EPS_AlCollector", "G4_Al", [0.0, 0.0, 0.90], [25.0, 65.0, 0.10]
-            ),
-            _device_component(
-                "EPS_UpperInsulator",
-                "G4_POLYETHYLENE",
-                [0.0, 0.0, 1.00],
-                [25.0, 65.0, 0.10],
-            ),
-            _device_component(
-                "EPS_UpperPouch", "G4_Al", [0.0, 0.0, 1.10], [25.0, 65.0, 0.10]
             ),
         ],
         "adcs": [

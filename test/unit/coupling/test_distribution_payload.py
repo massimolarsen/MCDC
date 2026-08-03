@@ -43,13 +43,22 @@ def test_build_source_distribution_payload_recenters_source_box_for_geant4():
 
 
 def test_build_source_distribution_payload_unnormalizes_by_n_particle():
-    # The tally mean is per-source-particle normalized; the payload must scale it
-    # back by N_particle so weights carry the absolute integrated current.
-    simulation, data, weights = distribution_simulation_and_data(n_particle=2000)
+    # The tally mean is normalized by the global source count, not the local MPI
+    # work size; the payload must scale it back by global N_particle.
+    simulation, data, weights = distribution_simulation_and_data(
+        n_particle=2000, mpi_size=4
+    )
     payload = build_source_distribution_payload(simulation, data, distribution_config())
 
     np.testing.assert_allclose(payload["weights"], 2000.0 * weights.ravel())
     assert payload["source_total_weight"] == 2000.0 * np.sum(weights)
+
+
+def test_build_source_distribution_payload_rejects_zero_global_n_particle():
+    simulation, data, _ = distribution_simulation_and_data(n_particle=0, mpi_size=4)
+
+    with pytest.raises(RuntimeError, match="global N_particle"):
+        build_source_distribution_payload(simulation, data, distribution_config())
 
 
 def test_build_source_distribution_payload_uses_structured_mcdc_tally():

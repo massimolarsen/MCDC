@@ -304,7 +304,7 @@ void_cell = mcdc.Cell(region=void_region, fill=m_void)
 # Monoenergetic CE source, isotropic across all six boundary-cube faces.
 # =============================================================================
 
-source_energy_ev = 1.0e6
+source_energy_ev = 14.0e6
 energy_bins_ev = np.logspace(3.0, np.log10(1.01 * source_energy_ev), 21)
 mu_bins = np.linspace(-1.0, 1.0, 9)
 azi_bins = np.linspace(-np.pi, np.pi, 9)
@@ -373,7 +373,7 @@ for name, cell, _ in sensitive_volumes:
 # =============================================================================
 
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
-n_geant4_particles = 10000000
+n_geant4_particles = 1000000
 geant4_random_seeds = {
     "obc": 10011,
     "eps": 10021,
