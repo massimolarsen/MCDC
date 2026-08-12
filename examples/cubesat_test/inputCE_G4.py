@@ -4,7 +4,7 @@ import os
 import numpy as np
 import mcdc
 
-from cubesat_G4_devices import build_device_components
+from cubesat_G4_devices import build_detector_sizes_mm, build_device_components
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 # keep MCDC output_name short while still running from any directory
@@ -279,6 +279,7 @@ sensitive_volumes = [
 ]
 
 device_components = build_device_components()
+detector_sizes_mm = build_detector_sizes_mm()
 
 # =============================================================================
 # VOID FILL
@@ -304,7 +305,7 @@ void_cell = mcdc.Cell(region=void_region, fill=m_void)
 # Monoenergetic CE source, isotropic across all six boundary-cube faces.
 # =============================================================================
 
-source_energy_ev = 14.0e6
+source_energy_ev = 1.0e6
 energy_bins_ev = np.logspace(3.0, np.log10(1.01 * source_energy_ev), 21)
 mu_bins = np.linspace(-1.0, 1.0, 9)
 azi_bins = np.linspace(-np.pi, np.pi, 9)
@@ -372,6 +373,10 @@ for name, cell, _ in sensitive_volumes:
 # SETTINGS AND RUN
 # =============================================================================
 
+# set parllel g4 workers
+mcdc.settings.geant4_max_workers = 4
+mcdc.settings.geant4_payload_dir = "geant4_payloads"
+
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
 n_geant4_particles = 1000000
 geant4_random_seeds = {
@@ -386,7 +391,7 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
         name=name,
         bridge_build_dir=str(BRIDGE_BUILD_DIR),
         world_size_mm=g4_size_mm(bounds, padding_scale=1.2),
-        detector_size_mm=g4_size_mm(bounds, padding_scale=1.0),
+        detector_size_mm=detector_sizes_mm[name],
         detector_material="G4_Galactic",
         envelope_material="G4_Galactic",
         device_components=device_components[name],
@@ -402,6 +407,6 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 100000
+mcdc.settings.N_particle = 1000000
 mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
 mcdc.run()

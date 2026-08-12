@@ -1,4 +1,6 @@
+import pathlib
 import subprocess
+import threading
 
 import numpy as np
 import pytest
@@ -30,6 +32,24 @@ def _write_fake_distribution_output(payload, total_edep_mev=0.0, dose_gy=0.0):
             "random_seed": int(payload["random_seed"]),
         },
         str(payload["geant4_output_path"]),
+    )
+
+
+def _summary(name, source_size=1):
+    return {
+        "name": name,
+        "source_mode": "distribution",
+        "source_size": source_size,
+        "loaded_primaries": source_size,
+        "events_run": source_size,
+        "status": "ok",
+    }
+
+
+def _configure_two_distribution_regions():
+    geant4_config.add_config(**distribution_config(name="first").__dict__)
+    geant4_config.add_config(
+        **distribution_config(name="second", source_tally_name="second_tally").__dict__
     )
 
 
@@ -84,6 +104,33 @@ def test_run_handoff_distribution_runs_worker_and_reads_hdf5(monkeypatch, tmp_pa
     np.testing.assert_allclose(region["edep_spectrum_edep_mev"], [0.25, 1.0])
     assert output_path.exists()
     assert weights.shape == (2, 2, 2, 6, 2, 3)
+
+
+def test_run_handoff_distribution_can_retain_region_payload(monkeypatch, tmp_path):
+    simulation, data, _ = distribution_simulation_and_data()
+    payload_dir = tmp_path / "payloads"
+    simulation["settings"]["geant4_payload_dir"] = str(payload_dir)
+    output_path = tmp_path / "g4.h5"
+    geant4_config.configure(
+        **distribution_config(geant4_output_path=str(output_path)).__dict__
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        payload_path = pathlib.Path(cmd[-1])
+        assert payload_path == payload_dir / "source_region_payload.h5"
+        payload = geant4_worker.read_payload(payload_path)
+        _write_fake_distribution_output(payload)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    retained = payload_dir / "source_region_payload.h5"
+    assert retained.exists()
+    payload = geant4_worker.read_payload(retained)
+    assert payload["name"] == "source_region"
+    assert payload["geant4_output_path"] == str(output_path)
 
 
 def test_run_handoff_distribution_allows_mpi_reduced_master_data(
@@ -286,3 +333,132 @@ def test_run_handoff_removes_temp_output_on_worker_failure(monkeypatch, tmp_path
 
     assert temp_outputs
     assert not temp_outputs[0].exists()
+
+
+def test_run_handoff_default_worker_count_runs_regions_serially(monkeypatch):
+    simulation, data, _ = distribution_simulation_and_data()
+    _configure_two_distribution_regions()
+    calls = []
+
+    def fake_run_one_region(simulation, data, cfg):
+        calls.append(cfg.name)
+        return _summary(cfg.name)
+
+    monkeypatch.setattr(geant4_handoff, "_run_one_region", fake_run_one_region)
+
+    summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    assert calls == ["first", "second"]
+    assert [region["name"] for region in summary["regions"]] == ["first", "second"]
+
+
+def test_run_handoff_rejects_invalid_geant4_max_workers():
+    simulation, data, _ = distribution_simulation_and_data()
+    simulation["settings"]["geant4_max_workers"] = 0
+    geant4_config.configure(**distribution_config().__dict__)
+
+    with pytest.raises(RuntimeError, match="geant4_max_workers"):
+        geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+
+def test_run_handoff_parallel_workers_overlap(monkeypatch):
+    simulation, data, _ = distribution_simulation_and_data()
+    simulation["settings"]["geant4_max_workers"] = 2
+    _configure_two_distribution_regions()
+    first_started = threading.Event()
+    second_started = threading.Event()
+    release_first = threading.Event()
+
+    def fake_run_one_region(simulation, data, cfg):
+        if cfg.name == "first":
+            first_started.set()
+            if not second_started.wait(timeout=2.0):
+                raise AssertionError("second worker did not start concurrently")
+            release_first.wait(timeout=2.0)
+        else:
+            if not first_started.wait(timeout=2.0):
+                raise AssertionError("first worker did not start")
+            second_started.set()
+            release_first.set()
+        return _summary(cfg.name)
+
+    monkeypatch.setattr(geant4_handoff, "_run_one_region", fake_run_one_region)
+
+    summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    assert [region["name"] for region in summary["regions"]] == ["first", "second"]
+
+
+def test_run_handoff_reports_clamped_worker_count(monkeypatch, capsys):
+    simulation, data, _ = distribution_simulation_and_data()
+    simulation["settings"]["geant4_max_workers"] = 8
+    _configure_two_distribution_regions()
+
+    def fake_run_one_region(simulation, data, cfg):
+        return _summary(cfg.name)
+
+    monkeypatch.setattr(geant4_handoff, "_run_one_region", fake_run_one_region)
+
+    geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    assert (
+        "Geant4 handoff: regions=2 workers=2 mode=distribution"
+        in capsys.readouterr().out
+    )
+
+
+def test_run_handoff_parallel_preserves_config_order(monkeypatch):
+    simulation, data, _ = distribution_simulation_and_data()
+    simulation["settings"]["geant4_max_workers"] = 2
+    _configure_two_distribution_regions()
+    first_started = threading.Event()
+    second_finished = threading.Event()
+    completion_order = []
+
+    def fake_run_one_region(simulation, data, cfg):
+        if cfg.name == "first":
+            first_started.set()
+            if not second_finished.wait(timeout=2.0):
+                raise AssertionError("second worker did not finish")
+        else:
+            if not first_started.wait(timeout=2.0):
+                raise AssertionError("first worker did not start")
+            completion_order.append(cfg.name)
+            second_finished.set()
+        if cfg.name == "first":
+            completion_order.append(cfg.name)
+        return _summary(cfg.name)
+
+    monkeypatch.setattr(geant4_handoff, "_run_one_region", fake_run_one_region)
+
+    summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    assert completion_order == ["second", "first"]
+    assert [region["name"] for region in summary["regions"]] == ["first", "second"]
+
+
+def test_run_handoff_parallel_failure_order_is_deterministic(monkeypatch):
+    simulation, data, _ = distribution_simulation_and_data()
+    simulation["settings"]["geant4_max_workers"] = 2
+    _configure_two_distribution_regions()
+    first_started = threading.Event()
+    second_failed = threading.Event()
+
+    def fake_run_one_region(simulation, data, cfg):
+        if cfg.name == "first":
+            first_started.set()
+            if not second_failed.wait(timeout=2.0):
+                raise AssertionError("second worker did not fail")
+            raise RuntimeError("first boom")
+        if not first_started.wait(timeout=2.0):
+            raise AssertionError("first worker did not start")
+        second_failed.set()
+        raise RuntimeError("second boom")
+
+    monkeypatch.setattr(geant4_handoff, "_run_one_region", fake_run_one_region)
+
+    with pytest.raises(RuntimeError) as exc:
+        geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+    message = str(exc.value)
+    assert message.index("first: first boom") < message.index("second: second boom")

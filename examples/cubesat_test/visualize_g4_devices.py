@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import numpy as np
 
-from cubesat_G4_devices import build_device_components
+from cubesat_G4_devices import build_detector_sizes_mm, build_device_components
 
 
 MATERIAL_COLORS = {
@@ -38,6 +38,11 @@ def _region_bounds(components):
     return np.min(lows, axis=0), np.max(highs, axis=0)
 
 
+def _detector_bounds(size_mm):
+    half_size = 0.5 * np.asarray(size_mm, dtype=float)
+    return -half_size, half_size
+
+
 def _volume_mm3(component):
     return float(np.prod(_as_array(component, "size_mm")))
 
@@ -57,14 +62,14 @@ def _selected_regions(devices, requested):
     return [requested]
 
 
-def _region_offsets(devices, regions, spacing_mm):
+def _region_offsets(detector_sizes, regions, spacing_mm):
     if len(regions) == 1:
         return {regions[0]: np.zeros(3)}
 
     offsets = {}
     x_cursor = 0.0
     for region in regions:
-        low, high = _region_bounds(devices[region])
+        low, high = _detector_bounds(detector_sizes[region])
         width = high[0] - low[0]
         center_x = 0.5 * (low[0] + high[0])
         offsets[region] = np.array([x_cursor - center_x, 0.0, 0.0])
@@ -72,11 +77,15 @@ def _region_offsets(devices, regions, spacing_mm):
     return offsets
 
 
-def _print_summary(devices, regions):
+def _print_summary(devices, detector_sizes, regions):
     for region in regions:
         components = devices[region]
         scored = [component for component in components if component.get("score", False)]
-        print(f"{region}: {len(components)} components, {len(scored)} scored volumes")
+        size = detector_sizes[region]
+        print(
+            f"{region}: detector_size_mm={size}, "
+            f"{len(components)} components, {len(scored)} scored volumes"
+        )
         for component in scored:
             size = component["size_mm"]
             print(
@@ -109,10 +118,10 @@ def _add_pyvista_box(plotter, pv, component, offset, opacity, show_labels):
     return None
 
 
-def _add_pyvista_envelope(plotter, pv, components, offset, padding_mm):
-    low, high = _region_bounds(components)
-    low = low - padding_mm + offset
-    high = high + padding_mm + offset
+def _add_pyvista_envelope(plotter, pv, size_mm, offset):
+    low, high = _detector_bounds(size_mm)
+    low = low + offset
+    high = high + offset
     center = 0.5 * (low + high)
     size = high - low
     envelope = pv.Cube(
@@ -139,8 +148,9 @@ def _visualize_pyvista(args):
         raise SystemExit(1) from exc
 
     devices = build_device_components()
+    detector_sizes = build_detector_sizes_mm()
     regions = _selected_regions(devices, args.region)
-    offsets = _region_offsets(devices, regions, args.spacing_mm)
+    offsets = _region_offsets(detector_sizes, regions, args.spacing_mm)
     plotter = pv.Plotter(off_screen=bool(args.screenshot))
     plotter.set_background("white")
     plotter.add_axes()
@@ -154,9 +164,8 @@ def _visualize_pyvista(args):
             _add_pyvista_envelope(
                 plotter,
                 pv,
-                components,
+                detector_sizes[region],
                 offsets[region],
-                args.envelope_padding_mm,
             )
 
         ordered = sorted(
@@ -246,10 +255,10 @@ def _add_matplotlib_box(ax, Poly3DCollection, component, offset, opacity, show_l
         ax.text(center[0], center[1], center[2], component["name"], fontsize=7)
 
 
-def _add_matplotlib_envelope(ax, Poly3DCollection, components, offset, padding_mm):
-    low, high = _region_bounds(components)
-    low = low - padding_mm + offset
-    high = high + padding_mm + offset
+def _add_matplotlib_envelope(ax, Poly3DCollection, size_mm, offset):
+    low, high = _detector_bounds(size_mm)
+    low = low + offset
+    high = high + offset
     collection = Poly3DCollection(
         _box_faces(low, high),
         facecolors="white",
@@ -281,8 +290,9 @@ def _visualize_matplotlib(args):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     devices = build_device_components()
+    detector_sizes = build_detector_sizes_mm()
     regions = _selected_regions(devices, args.region)
-    offsets = _region_offsets(devices, regions, args.spacing_mm)
+    offsets = _region_offsets(detector_sizes, regions, args.spacing_mm)
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection="3d")
 
@@ -295,9 +305,8 @@ def _visualize_matplotlib(args):
             _add_matplotlib_envelope(
                 ax,
                 Poly3DCollection,
-                components,
+                detector_sizes[region],
                 offsets[region],
-                args.envelope_padding_mm,
             )
 
         ordered = sorted(
@@ -320,9 +329,9 @@ def _visualize_matplotlib(args):
                 show_label,
             )
 
-        low, high = _region_bounds(components)
-        lows.append(low + offsets[region] - args.envelope_padding_mm)
-        highs.append(high + offsets[region] + args.envelope_padding_mm)
+        low, high = _detector_bounds(detector_sizes[region])
+        lows.append(low + offsets[region])
+        highs.append(high + offsets[region])
         if len(regions) > 1:
             label_position = np.array([0.5 * (low[0] + high[0]), high[1], high[2]])
             label_position = label_position + offsets[region] + np.array([0.0, 5.0, 5.0])
@@ -386,12 +395,6 @@ def parse_args():
         help="Spacing between regions when --region all is used.",
     )
     parser.add_argument(
-        "--envelope-padding-mm",
-        type=float,
-        default=1.0,
-        help="Padding around the component bounding envelope.",
-    )
-    parser.add_argument(
         "--no-envelope",
         dest="envelope",
         action="store_false",
@@ -425,9 +428,10 @@ def parse_args():
 def main():
     args = parse_args()
     devices = build_device_components()
+    detector_sizes = build_detector_sizes_mm()
     regions = _selected_regions(devices, args.region)
     if args.summary:
-        _print_summary(devices, regions)
+        _print_summary(devices, detector_sizes, regions)
         return
     visualize(args)
 

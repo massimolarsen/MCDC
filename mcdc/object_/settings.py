@@ -44,6 +44,8 @@ class Settings(ObjectSingleton):
     time_boundary: float = np.inf
     output_name: str = "output"
     use_progress_bar: bool = True
+    geant4_max_workers: int = 1
+    geant4_payload_dir: str = ""
 
     # Time census
     N_census: int = 1

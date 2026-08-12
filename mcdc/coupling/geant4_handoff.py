@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import pathlib
 import secrets
 import subprocess
@@ -33,18 +34,18 @@ def run_handoff_from_simulation(
     if configs[0].source_mode == "distribution" and data is None:
         raise RuntimeError("Distribution source mode requires tally data.")
 
-    region_results = []
-    failures = []
-    for cfg in configs:
-        try:
-            region_results.append(_run_one_region(simulation, data, cfg))
-        except Exception as exc:
-            message = str(exc)
-            failures.append(
-                message
-                if message.startswith(f"{cfg.name}:")
-                else f"{cfg.name}: {message}"
-            )
+    max_workers = _geant4_max_workers(simulation)
+    worker_count = 1 if max_workers == 1 else min(max_workers, len(configs))
+    _print_handoff_progress(
+        " Geant4 handoff: "
+        f"regions={len(configs)} workers={worker_count} mode={configs[0].source_mode}"
+    )
+    if max_workers == 1 or len(configs) == 1:
+        region_results, failures = _run_regions_serial(simulation, data, configs)
+    else:
+        region_results, failures = _run_regions_parallel(
+            simulation, data, configs, max_workers
+        )
 
     summary = _aggregate(region_results)
     if failures:
@@ -58,6 +59,10 @@ def validate_mpi_compatibility(
 ) -> None:
     configs = list(CONFIGS) if configs is None else configs
     _validate_configs(configs)
+
+    max_workers = _geant4_max_workers(simulation)
+    if max_workers < 1:
+        raise RuntimeError("Geant4 geant4_max_workers must be at least 1.")
 
     if int(simulation["mpi_size"]) <= 1:
         return
@@ -96,31 +101,109 @@ def _validate_configs(configs: list[Geant4HandoffConfig]) -> None:
             raise RuntimeError("Geant4 source_tally_name values must be unique.")
 
 
+def _run_regions_serial(
+    simulation: np.ndarray,
+    data: np.ndarray | None,
+    configs: list[Geant4HandoffConfig],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    region_results = []
+    failures = []
+    for cfg in configs:
+        try:
+            region_results.append(_run_one_region(simulation, data, cfg))
+        except Exception as exc:
+            failures.append(_format_region_failure(cfg, exc))
+    return region_results, failures
+
+
+def _run_regions_parallel(
+    simulation: np.ndarray,
+    data: np.ndarray | None,
+    configs: list[Geant4HandoffConfig],
+    max_workers: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    worker_count = min(max_workers, len(configs))
+    region_results: list[dict[str, Any] | None] = [None] * len(configs)
+    failures: list[str | None] = [None] * len(configs)
+
+    # Keep MPI on the main rank-0 thread. These worker threads only run
+    # subprocesses and HDF5 payload/summary I/O; h5py serializes HDF5 access
+    # internally, so scaling comes from the Geant4 subprocess runtime.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(_run_one_region, simulation, data, cfg): (idx, cfg)
+            for idx, cfg in enumerate(configs)
+        }
+        for future in concurrent.futures.as_completed(futures):
+            idx, cfg = futures[future]
+            try:
+                region_results[idx] = future.result()
+            except Exception as exc:
+                failures[idx] = _format_region_failure(cfg, exc)
+
+    return (
+        [result for result in region_results if result is not None],
+        [failure for failure in failures if failure is not None],
+    )
+
+
+def _format_region_failure(cfg: Geant4HandoffConfig, exc: Exception) -> str:
+    message = str(exc)
+    return message if message.startswith(f"{cfg.name}:") else f"{cfg.name}: {message}"
+
+
+def _geant4_max_workers(simulation: np.ndarray) -> int:
+    settings = simulation["settings"]
+    try:
+        return int(settings["geant4_max_workers"])
+    except (KeyError, TypeError, ValueError):
+        return 1
+
+
+def _print_handoff_progress(message: str) -> None:
+    print(message)
+    sys.stdout.flush()
+
+
 def _run_one_region(
     simulation: np.ndarray,
     data: np.ndarray | None,
     cfg: Geant4HandoffConfig,
 ) -> dict[str, Any]:
+    _print_handoff_progress(f" Geant4 region '{cfg.name}': preparing source")
     payload = _build_region_payload(simulation, data, cfg)
     if payload is None:
         summary = empty_handoff_summary("bank")
         summary["handoff_bank_size"] = 0
         summary["name"] = cfg.name
+        _print_handoff_progress(f" Geant4 region '{cfg.name}': skipped empty bank")
         return summary
     if payload.get("status") == "skipped_empty_handoff":
         if cfg.geant4_output_path:
             geant4_worker.write_summary_hdf5(payload, cfg.geant4_output_path)
+        _print_handoff_progress(
+            f" Geant4 region '{cfg.name}': skipped empty distribution"
+        )
         return payload
 
-    payload_path = _temporary_path(f"mcdc_g4_{cfg.name}_", ".h5")
+    payload_path = _payload_path(simulation, cfg)
+    retain_payload = _geant4_payload_dir(simulation) != ""
     user_output = bool(cfg.geant4_output_path)
     output_path = pathlib.Path(
         cfg.geant4_output_path or _temporary_path(f"mcdc_g4_{cfg.name}_out_", ".h5")
     )
     payload["geant4_output_path"] = str(output_path)
     geant4_worker.write_payload(payload_path, payload)
+    if retain_payload:
+        _print_handoff_progress(
+            f" Geant4 region '{cfg.name}': payload saved {payload_path}"
+        )
 
     worker_path = pathlib.Path(geant4_worker.__file__).resolve()
+    _print_handoff_progress(
+        f" Geant4 region '{cfg.name}': worker started "
+        f"source_size={payload['source_size']} output={output_path}"
+    )
     result = subprocess.run(
         [sys.executable, str(worker_path), str(payload_path)],
         capture_output=True,
@@ -131,6 +214,10 @@ def _run_one_region(
     if result.returncode != 0:
         if not user_output:
             output_path.unlink(missing_ok=True)
+        _print_handoff_progress(
+            f" Geant4 region '{cfg.name}': worker failed "
+            f"return_code={result.returncode}"
+        )
         raise RuntimeError(_worker_failure(cfg.name, result, payload_path, output_path))
     if not output_path.exists():
         raise RuntimeError(
@@ -146,9 +233,14 @@ def _run_one_region(
             f"payload retained at {payload_path}"
         ) from exc
 
-    pathlib.Path(payload_path).unlink(missing_ok=True)
+    if not retain_payload:
+        pathlib.Path(payload_path).unlink(missing_ok=True)
     if not user_output:
         output_path.unlink(missing_ok=True)
+    _print_handoff_progress(
+        f" Geant4 region '{cfg.name}': worker finished "
+        f"events_run={summary['events_run']} status={summary['status']}"
+    )
     return summary
 
 
@@ -218,6 +310,24 @@ def _random_seed(cfg: Geant4HandoffConfig) -> int:
     if seed <= 0:
         raise RuntimeError("Geant4 random_seed must be a positive integer.")
     return seed
+
+
+def _payload_path(simulation: np.ndarray, cfg: Geant4HandoffConfig) -> pathlib.Path:
+    payload_dir = _geant4_payload_dir(simulation)
+    if not payload_dir:
+        return _temporary_path(f"mcdc_g4_{cfg.name}_", ".h5")
+
+    directory = pathlib.Path(payload_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"{cfg.name}_payload.h5"
+
+
+def _geant4_payload_dir(simulation: np.ndarray) -> str:
+    settings = simulation["settings"]
+    try:
+        return str(settings["geant4_payload_dir"])
+    except (KeyError, TypeError, ValueError):
+        return ""
 
 
 def _temporary_path(prefix: str, suffix: str) -> pathlib.Path:
