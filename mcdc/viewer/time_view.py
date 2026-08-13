@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from mcdc.viewer.backends import import_backends
+from mcdc.viewer.controls import (
+    add_camera_key_events,
+    add_controls_overlay,
+    add_source_toggle_key_event,
+    apply_initial_view,
+    apply_interaction_style,
+)
 from mcdc.viewer.export import export_frame_cache_animation
 from mcdc.viewer.meshing import (
     BOOLEAN_ENGINE,
@@ -32,6 +39,10 @@ def geo_viewer_3d_time(
     labels=False,
     color_by="material",
     opacity_slider=True,
+    initial_view="isometric",
+    interaction_style="terrain",
+    show_sources=True,
+    source_labels=True,
 ):
     """Render a time-stepped 3D geometry view."""
 
@@ -40,6 +51,7 @@ def geo_viewer_3d_time(
     # backend setup
     print(f"[geometry] Using boolean engine: {BOOLEAN_ENGINE}")
     plotter = pv.Plotter()
+    apply_interaction_style(plotter, interaction_style)
     plotter.add_axes()
     plotter.show_grid()
 
@@ -102,24 +114,36 @@ def geo_viewer_3d_time(
             save_animation_path=save_animation_path,
             animation_fps=animation_fps,
             labels=labels,
+            initial_view=initial_view,
+            show_sources=show_sources,
+            source_labels=source_labels,
         )
 
-    render_state = RenderState()
+    render_state = RenderState(show_sources=show_sources)
 
     # interactive controls
     def step_next():
-        step_frame(plotter, frame_cache, render_state, delta=1, labels=labels)
+        step_frame(
+            plotter,
+            frame_cache,
+            render_state,
+            delta=1,
+            labels=labels,
+            source_labels=source_labels,
+        )
 
     def step_prev():
-        step_frame(plotter, frame_cache, render_state, delta=-1, labels=labels)
+        step_frame(
+            plotter,
+            frame_cache,
+            render_state,
+            delta=-1,
+            labels=labels,
+            source_labels=source_labels,
+        )
 
     plotter.add_key_event("Right", step_next)
     plotter.add_key_event("Left", step_prev)
-    plotter.add_text(
-        "Left/Right to step time (precomputed)",
-        position="lower_left",
-        name="mcdc_controls",
-    )
     if auto_time_steps:
         plotter.add_text(
             "Auto timeline from Surface/Source.move(...) grids",
@@ -128,7 +152,29 @@ def geo_viewer_3d_time(
         )
 
     # initial render
-    show_frame(plotter, frame_cache, render_state, frame_index=0, labels=labels)
+    show_frame(
+        plotter,
+        frame_cache,
+        render_state,
+        frame_index=0,
+        labels=labels,
+        source_labels=source_labels,
+    )
+    apply_initial_view(plotter, initial_view)
+    add_camera_key_events(plotter, initial_view)
+    add_source_toggle_key_event(
+        plotter,
+        render_state,
+        lambda: show_frame(
+            plotter,
+            frame_cache,
+            render_state,
+            frame_index=render_state.current_frame_index,
+            labels=labels,
+            source_labels=source_labels,
+        ),
+    )
+    add_controls_overlay(plotter, time_controls=True)
     if opacity_slider:
         add_global_opacity_slider(plotter, render_state)
     plotter.show(auto_close=False)

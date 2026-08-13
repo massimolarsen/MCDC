@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from mcdc.viewer.backends import import_backends
+from mcdc.viewer.controls import (
+    add_camera_key_events,
+    add_controls_overlay,
+    add_source_toggle_key_event,
+    apply_initial_view,
+    apply_interaction_style,
+)
 from mcdc.viewer.meshing import (
     BOOLEAN_ENGINE,
     DEFAULT_PRIMITIVE_RESOLUTION,
@@ -12,7 +19,7 @@ from mcdc.viewer.motion import zero_shift_state
 from mcdc.viewer.render import (
     add_global_opacity_slider,
     build_frame_entry,
-    render_frame_entry,
+    show_frame,
 )
 from mcdc.viewer.types import RenderState
 from mcdc.viewer.export import (
@@ -30,6 +37,10 @@ def geo_viewer_3d_static(
     labels=False,
     color_by="material",
     opacity_slider=True,
+    initial_view="isometric",
+    interaction_style="terrain",
+    show_sources=True,
+    source_labels=True,
 ):
     """Render a single-frame 3D geometry view."""
 
@@ -38,6 +49,7 @@ def geo_viewer_3d_static(
     # backend setup
     print(f"[geometry] Using boolean engine: {BOOLEAN_ENGINE}")
     plotter = pv.Plotter()
+    apply_interaction_style(plotter, interaction_style)
     plotter.add_axes()
     plotter.show_grid()
 
@@ -54,16 +66,33 @@ def geo_viewer_3d_static(
         time_label=None,
         color_by=color_by,
     )
-    rendered, _ = render_frame_entry(
+    render_state = RenderState(show_sources=show_sources)
+    frame_cache = [frame_entry]
+    show_frame(
         plotter,
-        frame_entry,
-        actor_names=[],
+        frame_cache,
+        render_state,
+        frame_index=0,
         labels=labels,
+        source_labels=source_labels,
     )
-    if not rendered:
+    if not frame_entry.has_geometry:
         return
-
-    render_state = RenderState()
+    apply_initial_view(plotter, initial_view)
+    add_camera_key_events(plotter, initial_view)
+    add_source_toggle_key_event(
+        plotter,
+        render_state,
+        lambda: show_frame(
+            plotter,
+            frame_cache,
+            render_state,
+            frame_index=render_state.current_frame_index,
+            labels=labels,
+            source_labels=source_labels,
+        ),
+    )
+    add_controls_overlay(plotter)
     if opacity_slider:
         add_global_opacity_slider(plotter, render_state)
 
@@ -76,6 +105,9 @@ def geo_viewer_3d_static(
                 frame_entry=frame_entry,
                 save_image_path=save_animation_path,
                 labels=labels,
+                initial_view=initial_view,
+                show_sources=show_sources,
+                source_labels=source_labels,
             )
         else:
             print(f"[geometry] Saving single-frame animation to {save_animation_path}")
@@ -85,6 +117,9 @@ def geo_viewer_3d_static(
                 save_animation_path=save_animation_path,
                 animation_fps=animation_fps,
                 labels=labels,
+                initial_view=initial_view,
+                show_sources=show_sources,
+                source_labels=source_labels,
             )
 
     # interactive view

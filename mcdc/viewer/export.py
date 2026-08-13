@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mcdc.viewer.controls import apply_initial_view
 from mcdc.viewer.render import render_frame_entry
 
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp"}
@@ -13,7 +14,15 @@ def output_extension(output_path):
     return output_path.lower().rsplit(".", 1)[-1] if "." in output_path else ""
 
 
-def export_frame_cache_image(pv, frame_entry, save_image_path, labels=False):
+def export_frame_cache_image(
+    pv,
+    frame_entry,
+    save_image_path,
+    labels=False,
+    initial_view="isometric",
+    show_sources=True,
+    source_labels=True,
+):
     """Write a single cached frame to a still image."""
 
     export_plotter = pv.Plotter(off_screen=True, window_size=(1800, 1400))
@@ -24,8 +33,11 @@ def export_frame_cache_image(pv, frame_entry, save_image_path, labels=False):
         frame_entry,
         actor_names=[],
         labels=labels,
+        show_sources=show_sources,
+        source_labels=source_labels,
     )
     if rendered:
+        apply_initial_view(export_plotter, initial_view)
         export_plotter.show(auto_close=False)
         export_plotter.screenshot(save_image_path, return_img=False)
     export_plotter.close()
@@ -37,6 +49,9 @@ def export_frame_cache_animation(
     save_animation_path,
     animation_fps,
     labels=False,
+    initial_view="isometric",
+    show_sources=True,
+    source_labels=True,
 ):
     """Write a cached frame sequence to GIF or movie output."""
 
@@ -59,7 +74,10 @@ def export_frame_cache_animation(
             frame_entry,
             actor_names,
             labels=labels,
+            show_sources=show_sources,
+            source_labels=source_labels,
         )
         if rendered:
+            apply_initial_view(export_plotter, initial_view)
             export_plotter.write_frame()
     export_plotter.close()

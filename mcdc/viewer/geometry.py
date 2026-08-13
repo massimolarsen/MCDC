@@ -19,6 +19,10 @@ def geo_viewer_3d(
     labels=False,
     color_by="material",
     opacity_slider=True,
+    initial_view="isometric",
+    interaction_style="terrain",
+    show_sources=True,
+    source_labels=True,
 ):
     # mode selection
     has_motion = any(getattr(s, "moving", False) for s in simulation.surfaces) or any(
@@ -40,6 +44,10 @@ def geo_viewer_3d(
             labels=labels,
             color_by=color_by,
             opacity_slider=opacity_slider,
+            initial_view=initial_view,
+            interaction_style=interaction_style,
+            show_sources=show_sources,
+            source_labels=source_labels,
         )
 
     # static view
@@ -50,4 +58,8 @@ def geo_viewer_3d(
         labels=labels,
         color_by=color_by,
         opacity_slider=opacity_slider,
+        initial_view=initial_view,
+        interaction_style=interaction_style,
+        show_sources=show_sources,
+        source_labels=source_labels,
     )

@@ -11,6 +11,8 @@ from mcdc.viewer.types import CellVisual, FrameEntry, RenderState, SourceVisual
 
 DEFAULT_ALPHA = 0.6
 CELL_LABEL_ACTOR = "mcdc_cell_labels"
+SOURCE_LABEL_ACTOR = "mcdc_source_labels"
+SOURCE_COLOR = (1.0, 0.9, 0.2)
 MATERIAL_PALETTE = [
     (0.12, 0.47, 0.71),
     (1.00, 0.50, 0.05),
@@ -148,9 +150,15 @@ def build_frame_entry(
         source_name = getattr(source, "name", f"source_{index}")
         if getattr(source, "point_source", False):
             center = np.asarray(source.point, dtype=float) + shift
-            source_mesh = pv.Sphere(radius=0.015 * world_scale, center=center.tolist())
+            source_mesh = pv.Sphere(radius=0.025 * world_scale, center=center.tolist())
             source_visuals.append(
-                SourceVisual(actor_name=actor_name, mesh=source_mesh, kind="solid")
+                SourceVisual(
+                    actor_name=actor_name,
+                    mesh=source_mesh,
+                    kind="solid",
+                    label=source_name,
+                    center=center,
+                )
             )
         else:
             x = np.asarray(source.x, dtype=float) + shift[0]
@@ -169,9 +177,15 @@ def build_frame_entry(
                 z_length=extents[2],
             )
             source_visuals.append(
-                SourceVisual(actor_name=actor_name, mesh=source_mesh, kind="wire")
+                SourceVisual(
+                    actor_name=actor_name,
+                    mesh=source_mesh,
+                    kind="wire",
+                    label=source_name,
+                    center=np.asarray(center, dtype=float),
+                )
             )
-        legend_entries.append((source_name, (1.0, 0.9, 0.2)))
+        legend_entries.append((source_name, SOURCE_COLOR))
 
     # legend
     seen_labels = set()
@@ -231,6 +245,29 @@ def _add_cell_labels(plotter, cell_visuals):
     return CELL_LABEL_ACTOR
 
 
+def _add_source_labels(plotter, source_visuals):
+    points = []
+    labels = []
+    for source_visual in source_visuals:
+        points.append(source_visual.center)
+        labels.append(source_visual.label)
+
+    if not labels:
+        return None
+
+    plotter.add_point_labels(
+        np.asarray(points),
+        labels,
+        font_size=11,
+        point_size=0,
+        text_color=SOURCE_COLOR,
+        shape_opacity=0.25,
+        always_visible=False,
+        name=SOURCE_LABEL_ACTOR,
+    )
+    return SOURCE_LABEL_ACTOR
+
+
 def _actor_property(actor):
     if hasattr(actor, "GetProperty"):
         return actor.GetProperty()
@@ -282,6 +319,8 @@ def render_frame_entry(
     actor_names,
     labels=False,
     opacity_scale=1.0,
+    show_sources=True,
+    source_labels=True,
 ):
     """Render a prepared frame entry and return the active actor names."""
 
@@ -308,36 +347,47 @@ def render_frame_entry(
     plotter._mcdc_cell_actors = cell_actor_records
 
     # source actors
-    for source_visual in frame_entry.sources:
-        if source_visual.kind == "wire":
-            plotter.add_mesh(
-                source_visual.mesh,
-                style="wireframe",
-                line_width=2.0,
-                color=(1.0, 0.9, 0.2),
-                opacity=0.9,
-                name=source_visual.actor_name,
-                reset_camera=False,
-            )
-        else:
-            plotter.add_mesh(
-                source_visual.mesh,
-                color=(1.0, 0.9, 0.2),
-                opacity=0.95,
-                smooth_shading=False,
-                name=source_visual.actor_name,
-                reset_camera=False,
-            )
-        new_actor_names.append(source_visual.actor_name)
+    if show_sources:
+        for source_visual in frame_entry.sources:
+            if source_visual.kind == "wire":
+                plotter.add_mesh(
+                    source_visual.mesh,
+                    style="wireframe",
+                    line_width=3.0,
+                    color=SOURCE_COLOR,
+                    opacity=1.0,
+                    name=source_visual.actor_name,
+                    reset_camera=False,
+                )
+            else:
+                plotter.add_mesh(
+                    source_visual.mesh,
+                    color=SOURCE_COLOR,
+                    opacity=0.98,
+                    smooth_shading=False,
+                    name=source_visual.actor_name,
+                    reset_camera=False,
+                )
+            new_actor_names.append(source_visual.actor_name)
 
     # cell labels
     if labels:
         label_actor = _add_cell_labels(plotter, frame_entry.cells)
         if label_actor is not None:
             new_actor_names.append(label_actor)
+    if show_sources and source_labels:
+        label_actor = _add_source_labels(plotter, frame_entry.sources)
+        if label_actor is not None:
+            new_actor_names.append(label_actor)
 
     # overlays
-    plotter.add_legend(frame_entry.legend, bcolor=None, name="mcdc_legend")
+    legend = frame_entry.legend
+    if not show_sources:
+        source_legend = {
+            (source_visual.label, SOURCE_COLOR) for source_visual in frame_entry.sources
+        }
+        legend = [entry for entry in frame_entry.legend if entry not in source_legend]
+    plotter.add_legend(legend, bcolor=None, name="mcdc_legend")
     if frame_entry.label is not None:
         plotter.add_text(
             frame_entry.label,
@@ -349,7 +399,14 @@ def render_frame_entry(
     return frame_entry.has_geometry, new_actor_names
 
 
-def show_frame(plotter, frame_cache, render_state, frame_index, labels=False):
+def show_frame(
+    plotter,
+    frame_cache,
+    render_state,
+    frame_index,
+    labels=False,
+    source_labels=True,
+):
     """Render one frame from the cache into the active plotter."""
 
     # re-entrant guard
@@ -365,6 +422,8 @@ def show_frame(plotter, frame_cache, render_state, frame_index, labels=False):
             actor_names=render_state.actor_names,
             labels=labels,
             opacity_scale=render_state.opacity_scale,
+            show_sources=render_state.show_sources,
+            source_labels=source_labels,
         )
         if rendered:
             render_state.actor_names = actor_names
@@ -374,7 +433,9 @@ def show_frame(plotter, frame_cache, render_state, frame_index, labels=False):
         render_state.updating = False
 
 
-def step_frame(plotter, frame_cache, render_state, delta, labels=False):
+def step_frame(
+    plotter, frame_cache, render_state, delta, labels=False, source_labels=True
+):
     """Advance the current render state by a signed frame delta."""
 
     # frame stepping
@@ -384,4 +445,5 @@ def step_frame(plotter, frame_cache, render_state, delta, labels=False):
         render_state=render_state,
         frame_index=render_state.current_frame_index + delta,
         labels=labels,
+        source_labels=source_labels,
     )

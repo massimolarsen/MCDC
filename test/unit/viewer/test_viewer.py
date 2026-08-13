@@ -20,9 +20,18 @@ from mcdc.viewer.render import (
     build_frame_entry,
     cell_display_properties,
     render_frame_entry,
+    show_frame,
+    step_frame,
 )
+from mcdc.viewer.static_view import geo_viewer_3d_static
 from mcdc.viewer.time_view import geo_viewer_3d_time
-from mcdc.viewer.types import CellVisual, FrameEntry, ShiftState
+from mcdc.viewer.types import (
+    CellVisual,
+    FrameEntry,
+    RenderState,
+    ShiftState,
+    SourceVisual,
+)
 
 
 class FakeMesh:
@@ -88,7 +97,9 @@ class FakeTrimesh:
 
 class FakePolyData:
     n_points = 3
-    center = (0.5, 0.5, 0.5)
+
+    def __init__(self, center=(0.5, 0.5, 0.5)):
+        self.center = center
 
 
 class FakePyVista:
@@ -98,11 +109,13 @@ class FakePyVista:
 
     @staticmethod
     def Sphere(radius, center):
-        return FakePolyData()
+        mesh = FakePolyData(center)
+        mesh.radius = radius
+        return mesh
 
     @staticmethod
     def Cube(center, x_length, y_length, z_length):
-        return FakePolyData()
+        return FakePolyData(center)
 
 
 def test_viewer_imports_without_runtime_dependencies():
@@ -195,12 +208,88 @@ def test_geo_viewer_dispatches_static_and_time(monkeypatch):
 
     assert [name for name, _ in calls] == ["static", "time", "time"]
     assert all(call[1]["labels"] is True for call in calls)
+    assert all(call[1]["initial_view"] == "isometric" for call in calls)
+    assert all(call[1]["interaction_style"] == "terrain" for call in calls)
+    assert all(call[1]["show_sources"] is True for call in calls)
+    assert all(call[1]["source_labels"] is True for call in calls)
+
+
+def test_static_view_applies_camera_defaults_and_controls(monkeypatch):
+    plotter = FakePlotter()
+
+    class FakePyVistaWithPlotter(FakePyVista):
+        @staticmethod
+        def Plotter():
+            return plotter
+
+    monkeypatch.setattr(
+        "mcdc.viewer.static_view.import_backends",
+        lambda: (FakePyVistaWithPlotter, FakeTrimesh),
+    )
+    monkeypatch.setattr(
+        "mcdc.viewer.static_view.bounds_from_planes_with_shift",
+        lambda simulation, shifts: Bounds3D(
+            x=(-1.0, 1.0), y=(-1.0, 1.0), z=(-1.0, 1.0)
+        ),
+    )
+    monkeypatch.setattr(
+        "mcdc.viewer.static_view.build_frame_entry",
+        lambda **kwargs: single_cell_frame(),
+    )
+
+    geo_viewer_3d_static(
+        SimpleNamespace(surfaces=[], cells=[], sources=[]),
+        opacity_slider=False,
+    )
+
+    assert plotter.interaction_style == "terrain"
+    assert plotter.view_calls == ["isometric"]
+    assert plotter.reset_camera_count == 1
+    assert {"r", "z", "x", "y", "s"}.issubset(plotter.key_events)
+    assert "i" not in plotter.key_events
+    assert any("Controls" in args[0] for args, _ in plotter.text)
+    assert any("z: top (XY)" in args[0] for args, _ in plotter.text)
+
+
+def test_static_view_accepts_trackball_and_named_initial_view(monkeypatch):
+    plotter = FakePlotter()
+
+    class FakePyVistaWithPlotter(FakePyVista):
+        @staticmethod
+        def Plotter():
+            return plotter
+
+    monkeypatch.setattr(
+        "mcdc.viewer.static_view.import_backends",
+        lambda: (FakePyVistaWithPlotter, FakeTrimesh),
+    )
+    monkeypatch.setattr(
+        "mcdc.viewer.static_view.bounds_from_planes_with_shift",
+        lambda simulation, shifts: Bounds3D(
+            x=(-1.0, 1.0), y=(-1.0, 1.0), z=(-1.0, 1.0)
+        ),
+    )
+    monkeypatch.setattr(
+        "mcdc.viewer.static_view.build_frame_entry",
+        lambda **kwargs: single_cell_frame(),
+    )
+
+    geo_viewer_3d_static(
+        SimpleNamespace(surfaces=[], cells=[], sources=[]),
+        opacity_slider=False,
+        initial_view="xy",
+        interaction_style="trackball",
+    )
+
+    assert plotter.interaction_style == "trackball"
+    assert plotter.view_calls == ["xy"]
 
 
 class FakePlotter:
     def __init__(self):
         self.labels = []
         self.meshes = []
+        self.active_mesh_names = []
         self.removed = []
         self.legend = None
         self.text = []
@@ -209,9 +298,15 @@ class FakePlotter:
         self.slider_args = None
         self.slider_kwargs = None
         self.render_count = 0
+        self.interaction_style = None
+        self.view_calls = []
+        self.reset_camera_count = 0
+        self.camera_position = None
 
     def remove_actor(self, actor_name, reset_camera=False):
         self.removed.append(actor_name)
+        if actor_name in self.active_mesh_names:
+            self.active_mesh_names.remove(actor_name)
 
     def add_axes(self):
         return None
@@ -222,6 +317,8 @@ class FakePlotter:
     def add_mesh(self, mesh, **kwargs):
         actor = FakeActor()
         self.meshes.append((mesh, kwargs))
+        if "name" in kwargs:
+            self.active_mesh_names.append(kwargs["name"])
         return actor
 
     def add_point_labels(self, points, labels, **kwargs):
@@ -247,6 +344,27 @@ class FakePlotter:
 
     def show(self, **kwargs):
         return None
+
+    def enable_terrain_style(self):
+        self.interaction_style = "terrain"
+
+    def enable_trackball_style(self):
+        self.interaction_style = "trackball"
+
+    def view_isometric(self):
+        self.view_calls.append("isometric")
+
+    def view_xy(self):
+        self.view_calls.append("xy")
+
+    def view_xz(self):
+        self.view_calls.append("xz")
+
+    def view_yz(self):
+        self.view_calls.append("yz")
+
+    def reset_camera(self):
+        self.reset_camera_count += 1
 
 
 class FakeProperty:
@@ -280,6 +398,27 @@ def single_cell_frame():
         cells=[cell_visual()],
         sources=[],
         legend=[("fuel", (0.1, 0.2, 0.3))],
+        label=None,
+        has_geometry=True,
+    )
+
+
+def source_visual(actor_name="source_0"):
+    return SourceVisual(
+        actor_name=actor_name,
+        mesh=SimpleNamespace(center=(2.0, 2.0, 2.0)),
+        kind="solid",
+        label="source marker",
+        center=np.array([2.0, 2.0, 2.0]),
+    )
+
+
+def cell_and_source_frame(actor_name="source_0"):
+    frame = single_cell_frame()
+    return FrameEntry(
+        cells=frame.cells,
+        sources=[source_visual(actor_name)],
+        legend=frame.legend + [("source marker", (1.0, 0.9, 0.2))],
         label=None,
         has_geometry=True,
     )
@@ -359,7 +498,7 @@ def test_cell_color_mode_keeps_cell_palette():
     assert props[0]["legend"] == "a"
 
 
-def test_time_view_only_binds_arrow_step_keys(monkeypatch):
+def test_time_view_binds_frame_and_camera_control_keys(monkeypatch):
     plotter = FakePlotter()
 
     class FakePyVistaWithPlotter(FakePyVista):
@@ -382,8 +521,11 @@ def test_time_view_only_binds_arrow_step_keys(monkeypatch):
 
     assert "Right" in plotter.key_events
     assert "Left" in plotter.key_events
+    assert {"r", "z", "x", "y", "s"}.issubset(plotter.key_events)
+    assert "i" not in plotter.key_events
     assert "p" not in plotter.key_events
     assert "n" not in plotter.key_events
+    assert any("Left/Right: step time" in args[0] for args, _ in plotter.text)
 
 
 def test_global_opacity_slider_updates_cell_actor_opacity():
@@ -403,6 +545,57 @@ def test_global_opacity_slider_updates_cell_actor_opacity():
     assert render_state.opacity_scale == 0.5
     assert actor.property.opacity == pytest.approx(0.3)
     assert plotter.render_count == 1
+
+
+def test_render_frame_entry_adds_source_labels_by_default():
+    plotter = FakePlotter()
+    frame = cell_and_source_frame()
+
+    _, actor_names = render_frame_entry(plotter, frame, actor_names=[])
+
+    assert "source_0" in actor_names
+    assert "mcdc_source_labels" in actor_names
+    assert plotter.labels[0][1] == ["source marker"]
+
+
+def test_render_frame_entry_hides_sources_when_disabled():
+    plotter = FakePlotter()
+    frame = cell_and_source_frame()
+
+    _, actor_names = render_frame_entry(
+        plotter,
+        frame,
+        actor_names=[],
+        show_sources=False,
+    )
+
+    assert "source_0" not in actor_names
+    assert "mcdc_source_labels" not in actor_names
+    assert "source_0" not in plotter.active_mesh_names
+    assert plotter.labels == []
+    assert ("source marker", (1.0, 0.9, 0.2)) not in plotter.legend
+
+
+def test_source_toggle_persists_across_time_frame_step():
+    plotter = FakePlotter()
+    render_state = RenderState()
+    frame_cache = [
+        cell_and_source_frame("source_0"),
+        cell_and_source_frame("source_1"),
+    ]
+
+    show_frame(plotter, frame_cache, render_state, frame_index=0)
+    render_state.show_sources = False
+    show_frame(
+        plotter,
+        frame_cache,
+        render_state,
+        frame_index=render_state.current_frame_index,
+    )
+    step_frame(plotter, frame_cache, render_state, delta=1)
+
+    assert render_state.current_frame_index == 1
+    assert all(not name.startswith("source_") for name in plotter.active_mesh_names)
 
 
 def test_region_mesh_uses_current_region_tree():
@@ -475,6 +668,8 @@ def test_source_entries_are_included_in_legend():
         )
 
     assert ("source marker", (1.0, 0.9, 0.2)) in frame.legend
+    assert frame.sources[0].label == "source marker"
+    assert frame.sources[0].mesh.radius == pytest.approx(0.05)
 
 
 def test_unknown_future_surface_type_warns():
