@@ -1,363 +1,536 @@
-"""CSG-to-mesh conversion helpers for geometry visualization."""
+"""Sampled-field geometry helpers for 3D visualization."""
 
 from __future__ import annotations
 
-import warnings
+from dataclasses import dataclass
+from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import numpy as np
 
 from mcdc.constant import (
+    BOOL_AND,
+    BOOL_NOT,
+    BOOL_OR,
     SURFACE_CYLINDER_X,
     SURFACE_CYLINDER_Y,
     SURFACE_CYLINDER_Z,
-    SURFACE_PLANE,
     SURFACE_PLANE_X,
     SURFACE_PLANE_Y,
     SURFACE_PLANE_Z,
     SURFACE_SPHERE,
+    SURFACE_TORUS,
+    SURFACE_TORUS_X,
+    SURFACE_TORUS_Y,
+    SURFACE_TORUS_Z,
 )
 from mcdc.viewer.types import Bounds3D
 
-BOOLEAN_ENGINE = "manifold"
-DEFAULT_PRIMITIVE_RESOLUTION = 48
+SAMPLE_BACKEND = "sampled-field"
+DEFAULT_SAMPLE_RESOLUTION = 96
 
 
-def warn_unsupported_surface(surface):
-    """Warn that a surface has no mesh implementation yet."""
+@dataclass(frozen=True)
+class SampleGrid:
+    """Regular point grid used to sample implicit geometry."""
 
-    warnings.warn(
-        "Geometry viewer does not support surface "
-        f"{getattr(surface, 'ID', '<unknown>')} with type {surface.type}; "
-        "skipping that region.",
-        RuntimeWarning,
-        stacklevel=3,
-    )
+    bounds: Bounds3D
+    resolution: tuple[int, int, int]
+    x: np.ndarray
+    y: np.ndarray
+    z: np.ndarray
+    X: np.ndarray
+    Y: np.ndarray
+    Z: np.ndarray
+
+    @property
+    def dimensions(self):
+        return self.resolution
+
+    @property
+    def origin(self):
+        return (self.bounds.x[0], self.bounds.y[0], self.bounds.z[0])
+
+    @property
+    def spacing(self):
+        nx, ny, nz = self.resolution
+        return (
+            (self.bounds.x[1] - self.bounds.x[0]) / max(nx - 1, 1),
+            (self.bounds.y[1] - self.bounds.y[0]) / max(ny - 1, 1),
+            (self.bounds.z[1] - self.bounds.z[0]) / max(nz - 1, 1),
+        )
+
+
+def normalize_sample_resolution(sample_resolution, minimum=3):
+    """Return a three-axis sample resolution tuple."""
+
+    if isinstance(sample_resolution, int):
+        resolution = (sample_resolution, sample_resolution, sample_resolution)
+    else:
+        resolution = tuple(int(value) for value in sample_resolution)
+        if len(resolution) != 3:
+            raise ValueError("sample_resolution must be an int or a 3-item sequence.")
+    if any(value < minimum for value in resolution):
+        raise ValueError(f"sample_resolution values must be >= {minimum}.")
+    return resolution
+
+
+def make_grid(bounds, sample_resolution):
+    """Create point coordinates and meshgrid arrays over bounds."""
+
+    resolution = normalize_sample_resolution(sample_resolution)
+    x = np.linspace(bounds.x[0], bounds.x[1], resolution[0])
+    y = np.linspace(bounds.y[0], bounds.y[1], resolution[1])
+    z = np.linspace(bounds.z[0], bounds.z[1], resolution[2])
+    X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+    return SampleGrid(bounds, resolution, x, y, z, X, Y, Z)
+
+
+def _padded_axis(lo, hi, fraction=0.08):
+    lo, hi = float(lo), float(hi)
+    if np.isclose(lo, hi):
+        lo, hi = lo - 1.0, hi + 1.0
+    pad = fraction * (hi - lo)
+    return lo - pad, hi + pad
+
+
+def _torus_axis(surface):
+    if surface.type == SURFACE_TORUS_X:
+        return np.array([1.0, 0.0, 0.0])
+    if surface.type == SURFACE_TORUS_Y:
+        return np.array([0.0, 1.0, 0.0])
+    if surface.type == SURFACE_TORUS_Z:
+        return np.array([0.0, 0.0, 1.0])
+    return np.array([surface.nx, surface.ny, surface.nz], dtype=float)
+
+
+def _surface_extent_candidates(surface, shift):
+    values = {"x": [], "y": [], "z": []}
+    shift = np.asarray(shift, dtype=float)
+
+    if surface.type == SURFACE_PLANE_X:
+        values["x"].append(-surface.J + shift[0])
+    elif surface.type == SURFACE_PLANE_Y:
+        values["y"].append(-surface.J + shift[1])
+    elif surface.type == SURFACE_PLANE_Z:
+        values["z"].append(-surface.J + shift[2])
+
+    if surface.type == SURFACE_CYLINDER_X:
+        cy0, cz0 = -0.5 * surface.H, -0.5 * surface.I
+        radius_sq = cy0 * cy0 + cz0 * cz0 - surface.J
+        if radius_sq > 0.0:
+            cy, cz = cy0 + shift[1], cz0 + shift[2]
+            radius = np.sqrt(radius_sq)
+            values["y"].extend([cy - radius, cy + radius])
+            values["z"].extend([cz - radius, cz + radius])
+    elif surface.type == SURFACE_CYLINDER_Y:
+        cx0, cz0 = -0.5 * surface.G, -0.5 * surface.I
+        radius_sq = cx0 * cx0 + cz0 * cz0 - surface.J
+        if radius_sq > 0.0:
+            cx, cz = cx0 + shift[0], cz0 + shift[2]
+            radius = np.sqrt(radius_sq)
+            values["x"].extend([cx - radius, cx + radius])
+            values["z"].extend([cz - radius, cz + radius])
+    elif surface.type == SURFACE_CYLINDER_Z:
+        cx0, cy0 = -0.5 * surface.G, -0.5 * surface.H
+        radius_sq = cx0 * cx0 + cy0 * cy0 - surface.J
+        if radius_sq > 0.0:
+            cx, cy = cx0 + shift[0], cy0 + shift[1]
+            radius = np.sqrt(radius_sq)
+            values["x"].extend([cx - radius, cx + radius])
+            values["y"].extend([cy - radius, cy + radius])
+    elif surface.type == SURFACE_SPHERE:
+        cx0 = -0.5 * surface.G
+        cy0 = -0.5 * surface.H
+        cz0 = -0.5 * surface.I
+        radius_sq = cx0 * cx0 + cy0 * cy0 + cz0 * cz0 - surface.J
+        if radius_sq > 0.0:
+            cx, cy, cz = cx0 + shift[0], cy0 + shift[1], cz0 + shift[2]
+            radius = np.sqrt(radius_sq)
+            values["x"].extend([cx - radius, cx + radius])
+            values["y"].extend([cy - radius, cy + radius])
+            values["z"].extend([cz - radius, cz + radius])
+    elif surface.type in (
+        SURFACE_TORUS_X,
+        SURFACE_TORUS_Y,
+        SURFACE_TORUS_Z,
+        SURFACE_TORUS,
+    ):
+        cx, cy, cz = surface.A + shift[0], surface.B + shift[1], surface.C + shift[2]
+        radius = surface.R + surface.r
+        values["x"].extend([cx - radius, cx + radius])
+        values["y"].extend([cy - radius, cy + radius])
+        values["z"].extend([cz - radius, cz + radius])
+
+    return values
 
 
 def bounds_from_planes_with_shift(simulation, surface_shift_map):
-    """Infer padded world bounds from axis-aligned planes."""
+    """Infer padded world bounds from planes and finite surface extents."""
 
-    # collect axis-aligned plane positions
-    xs, ys, zs = [], [], []
+    values = {"x": [], "y": [], "z": []}
+    fallback = 1.0
     for surface in simulation.surfaces:
         shift = surface_shift_map.get(surface.ID, np.zeros(3, dtype=float))
-        if surface.type == SURFACE_PLANE_X:
-            xs.append(-surface.J + shift[0])
-        elif surface.type == SURFACE_PLANE_Y:
-            ys.append(-surface.J + shift[1])
-        elif surface.type == SURFACE_PLANE_Z:
-            zs.append(-surface.J + shift[2])
+        candidates = _surface_extent_candidates(surface, shift)
+        for axis in values:
+            values[axis].extend(candidates[axis])
+        fallback = max(
+            fallback,
+            abs(getattr(surface, "A", 0.0)),
+            abs(getattr(surface, "B", 0.0)),
+            abs(getattr(surface, "C", 0.0)),
+            abs(getattr(surface, "J", 0.0)),
+            abs(getattr(surface, "R", 0.0) + getattr(surface, "r", 0.0)),
+        )
 
-    fallback = max(
-        [1.0] + [abs(getattr(surface, "J", 0.0)) for surface in simulation.surfaces]
+    def axis(axis_values):
+        if len(axis_values) >= 2:
+            return _padded_axis(np.min(axis_values), np.max(axis_values))
+        if len(axis_values) == 1:
+            delta = max(1.0, abs(axis_values[0]))
+            return _padded_axis(-delta, delta)
+        return _padded_axis(-fallback, fallback)
+
+    return Bounds3D(x=axis(values["x"]), y=axis(values["y"]), z=axis(values["z"]))
+
+
+def cell_bounds(cell, global_bounds, surface_shift_map):
+    """Infer local sampling bounds for one cell, clipped to global bounds."""
+
+    values = {"x": [], "y": [], "z": []}
+    for surface in getattr(cell, "surfaces", []):
+        shift = surface_shift_map.get(surface.ID, np.zeros(3, dtype=float))
+        candidates = _surface_extent_candidates(surface, shift)
+        for axis in values:
+            values[axis].extend(candidates[axis])
+
+    out = []
+    for axis_name, global_axis in zip(
+        ("x", "y", "z"), (global_bounds.x, global_bounds.y, global_bounds.z)
+    ):
+        axis_values = values[axis_name]
+        if len(axis_values) >= 2:
+            lo, hi = _padded_axis(
+                np.min(axis_values), np.max(axis_values), fraction=0.04
+            )
+            lo = max(lo, global_axis[0])
+            hi = min(hi, global_axis[1])
+            if lo < hi:
+                out.append((lo, hi))
+                continue
+        out.append(global_axis)
+    return Bounds3D(x=out[0], y=out[1], z=out[2])
+
+
+def quadric_field(surface, grid, shift):
+    """Evaluate a linear or quadric MC/DC surface on a sampled grid."""
+
+    x = grid.X - shift[0]
+    y = grid.Y - shift[1]
+    z = grid.Z - shift[2]
+    return (
+        surface.A * x * x
+        + surface.B * y * y
+        + surface.C * z * z
+        + surface.D * x * y
+        + surface.E * x * z
+        + surface.F * y * z
+        + surface.G * x
+        + surface.H * y
+        + surface.I * z
+        + surface.J
     )
 
-    def axis(values):
-        if len(values) >= 2:
-            lo, hi = float(np.min(values)), float(np.max(values))
-        elif len(values) == 1:
-            delta = max(1.0, abs(values[0]))
-            lo, hi = -delta, delta
+
+def torus_field(surface, grid, shift):
+    """Evaluate an axis-aligned or arbitrary-axis torus on a sampled grid."""
+
+    center = np.array([surface.A, surface.B, surface.C], dtype=float) + shift
+    axis = _torus_axis(surface)
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm == 0.0:
+        raise ValueError("Torus axis must be nonzero.")
+    axis /= axis_norm
+    x = grid.X - center[0]
+    y = grid.Y - center[1]
+    z = grid.Z - center[2]
+    p_dot_p = x * x + y * y + z * z
+    p_dot_d = x * axis[0] + y * axis[1] + z * axis[2]
+    radial_sq = p_dot_p - p_dot_d * p_dot_d
+    q = p_dot_p + surface.R * surface.R - surface.r * surface.r
+    return q * q - 4.0 * surface.R * surface.R * radial_sq
+
+
+def surface_field(surface, grid, shift):
+    """Evaluate one MC/DC surface field on a sampled grid."""
+
+    if surface.type in (
+        SURFACE_TORUS_X,
+        SURFACE_TORUS_Y,
+        SURFACE_TORUS_Z,
+        SURFACE_TORUS,
+    ):
+        return torus_field(surface, grid, shift)
+    return quadric_field(surface, grid, shift)
+
+
+def region_mask_from_rpn(region_RPN_tokens, surface_fields, shape):
+    """Evaluate compiled region RPN tokens into a boolean mask."""
+
+    tokens = list(region_RPN_tokens)
+    if len(tokens) == 0:
+        return np.ones(shape, dtype=bool)
+    stack = []
+    for token in tokens:
+        token = int(token)
+        if token >= 0:
+            stack.append(surface_fields[token] >= 0.0)
+        elif token == BOOL_NOT:
+            stack.append(~stack.pop())
+        elif token == BOOL_AND:
+            rhs = stack.pop()
+            lhs = stack.pop()
+            stack.append(lhs & rhs)
+        elif token == BOOL_OR:
+            rhs = stack.pop()
+            lhs = stack.pop()
+            stack.append(lhs | rhs)
         else:
-            lo, hi = -fallback, fallback
-        if np.isclose(lo, hi):
-            lo, hi = lo - 1.0, hi + 1.0
-        pad = 0.08 * (hi - lo)
-        return lo - pad, hi + pad
-
-    return Bounds3D(x=axis(xs), y=axis(ys), z=axis(zs))
+            raise ValueError(f"Unsupported region RPN token {token}.")
+    if len(stack) != 1:
+        raise ValueError("Invalid region RPN expression.")
+    return stack[0]
 
 
-def world_box(bounds, tm):
-    """Create the finite world box used for clipping and complements."""
-
-    # box transform
-    extents = np.array(
-        [
-            bounds.x[1] - bounds.x[0],
-            bounds.y[1] - bounds.y[0],
-            bounds.z[1] - bounds.z[0],
-        ],
-        dtype=float,
-    )
-    center = np.array(
-        [
-            (bounds.x[0] + bounds.x[1]) * 0.5,
-            (bounds.y[0] + bounds.y[1]) * 0.5,
-            (bounds.z[0] + bounds.z[1]) * 0.5,
-        ],
-        dtype=float,
-    )
-    transform = np.eye(4)
-    transform[:3, 3] = center
-    return tm.creation.box(extents=extents, transform=transform)
-
-
-def clean_mesh(mesh):
-    """Normalize boolean results and discard empty geometry."""
-
-    # mesh normalization
-    if mesh is None:
-        return None
-    if hasattr(mesh, "geometry"):
-        geometries = list(mesh.geometry.values())
-        if not geometries:
-            return None
-        mesh = geometries[0]
-        for geometry in geometries[1:]:
-            mesh = mesh + geometry
-    if mesh.faces.shape[0] == 0 or mesh.vertices.shape[0] == 0:
-        return None
-    return mesh.process(validate=True)
-
-
-def boolean_mesh(op, mesh_a, mesh_b, tm):
-    """Run a boolean operation and clean the result."""
-
-    # boolean inputs
-    mesh_a = clean_mesh(mesh_a)
-    mesh_b = clean_mesh(mesh_b)
-    if mesh_a is None or mesh_b is None:
-        return None
-    if op == "intersection":
-        return clean_mesh(
-            tm.boolean.intersection([mesh_a, mesh_b], engine=BOOLEAN_ENGINE)
-        )
-    if op == "union":
-        return clean_mesh(tm.boolean.union([mesh_a, mesh_b], engine=BOOLEAN_ENGINE))
-    if op == "difference":
-        return clean_mesh(
-            tm.boolean.difference([mesh_a, mesh_b], engine=BOOLEAN_ENGINE)
-        )
-    return None
-
-
-def axis_plane_halfspace(surface, sense, bounds, tm, shift):
-    """Construct a clipped half-space for an axis-aligned plane."""
-
-    # axis bounds update
-    x0, x1 = bounds.x
-    y0, y1 = bounds.y
-    z0, z1 = bounds.z
-    if surface.type == SURFACE_PLANE_X:
-        value = -surface.J + shift[0]
-        x0, x1 = (max(x0, value), x1) if sense > 0 else (x0, min(x1, value))
-    elif surface.type == SURFACE_PLANE_Y:
-        value = -surface.J + shift[1]
-        y0, y1 = (max(y0, value), y1) if sense > 0 else (y0, min(y1, value))
-    elif surface.type == SURFACE_PLANE_Z:
-        value = -surface.J + shift[2]
-        z0, z1 = (max(z0, value), z1) if sense > 0 else (z0, min(z1, value))
-    else:
-        return None
-    if x0 >= x1 or y0 >= y1 or z0 >= z1:
-        return None
-    return world_box(Bounds3D(x=(x0, x1), y=(y0, y1), z=(z0, z1)), tm)
-
-
-def general_plane_halfspace(surface, sense, bounds, tm, shift):
-    """Construct a clipped half-space for a general plane."""
-
-    # plane clipping
-    normal = np.array([surface.G, surface.H, surface.I], dtype=float)
-    normal_norm = np.linalg.norm(normal)
-    if normal_norm <= 0.0:
-        return None
-    normal /= normal_norm
-    origin = (-surface.J / normal_norm) * normal + np.asarray(shift, dtype=float)
-    keep_normal = normal if sense > 0 else -normal
-    clipped = world_box(bounds, tm).slice_plane(
-        plane_origin=origin,
-        plane_normal=keep_normal,
-        cap=True,
-    )
-    return clean_mesh(clipped)
-
-
-def sphere_mesh(center, radius, tm, resolution):
-    """Create a sphere primitive for meshing."""
-
-    subdivisions = max(1, int(np.log2(max(8, int(resolution)))) - 1)
-    sphere = tm.creation.icosphere(subdivisions=subdivisions, radius=float(radius))
-    sphere.apply_translation(center)
-    return sphere
-
-
-def cylinder_mesh(center, direction, radius, height, sections, tm):
-    """Create a cylinder primitive aligned to the requested axis."""
-
-    cylinder = tm.creation.cylinder(
-        radius=float(radius),
-        height=float(height),
-        sections=max(16, int(sections)),
-    )
-    direction = np.asarray(direction, dtype=float)
-    direction /= np.linalg.norm(direction)
-    z_axis = np.array([0.0, 0.0, 1.0])
-    if not np.allclose(direction, z_axis):
-        axis = np.cross(z_axis, direction)
-        axis_norm = np.linalg.norm(axis)
-        if axis_norm > 0.0:
-            axis /= axis_norm
-            angle = np.arccos(np.clip(np.dot(z_axis, direction), -1.0, 1.0))
-            cylinder.apply_transform(tm.transformations.rotation_matrix(angle, axis))
-    cylinder.apply_translation(center)
-    return cylinder
-
-
-def quadric_primitive(surface, bounds, tm, resolution, shift):
-    """Create the primitive mesh for a supported quadric surface."""
-
-    # primitive sizing
-    dx, dy, dz = bounds.axis_lengths()
-    pad = 0.2 * max(dx, dy, dz)
-
-    if surface.type == SURFACE_SPHERE:
-        cx, cy, cz = -0.5 * surface.G, -0.5 * surface.H, -0.5 * surface.I
-        radius_squared = cx * cx + cy * cy + cz * cz - surface.J
-        if radius_squared <= 0.0:
-            return None
-        cx += shift[0]
-        cy += shift[1]
-        cz += shift[2]
-        return sphere_mesh([cx, cy, cz], np.sqrt(radius_squared), tm, resolution)
-
-    if surface.type == SURFACE_CYLINDER_X:
-        cy, cz = -0.5 * surface.H, -0.5 * surface.I
-        radius_squared = cy * cy + cz * cz - surface.J
-        if radius_squared <= 0.0:
-            return None
-        cy += shift[1]
-        cz += shift[2]
-        return cylinder_mesh(
-            center=[(bounds.x[0] + bounds.x[1]) * 0.5 + shift[0], cy, cz],
-            direction=[1.0, 0.0, 0.0],
-            radius=np.sqrt(radius_squared),
-            height=dx + 2.0 * pad,
-            sections=resolution,
-            tm=tm,
-        )
-
-    if surface.type == SURFACE_CYLINDER_Y:
-        cx, cz = -0.5 * surface.G, -0.5 * surface.I
-        radius_squared = cx * cx + cz * cz - surface.J
-        if radius_squared <= 0.0:
-            return None
-        cx += shift[0]
-        cz += shift[2]
-        return cylinder_mesh(
-            center=[cx, (bounds.y[0] + bounds.y[1]) * 0.5 + shift[1], cz],
-            direction=[0.0, 1.0, 0.0],
-            radius=np.sqrt(radius_squared),
-            height=dy + 2.0 * pad,
-            sections=resolution,
-            tm=tm,
-        )
-
-    if surface.type == SURFACE_CYLINDER_Z:
-        cx, cy = -0.5 * surface.G, -0.5 * surface.H
-        radius_squared = cx * cx + cy * cy - surface.J
-        if radius_squared <= 0.0:
-            return None
-        cx += shift[0]
-        cy += shift[1]
-        return cylinder_mesh(
-            center=[cx, cy, (bounds.z[0] + bounds.z[1]) * 0.5 + shift[2]],
-            direction=[0.0, 0.0, 1.0],
-            radius=np.sqrt(radius_squared),
-            height=dz + 2.0 * pad,
-            sections=resolution,
-            tm=tm,
-        )
-
-    warn_unsupported_surface(surface)
-    return None
-
-
-def halfspace_mesh(region, bounds, tm, primitive_resolution, surface_shift_map):
-    """Convert a half-space region node into a bounded mesh."""
-
-    # half-space dispatch
-    surface = region.A
-    sense = region.B
-    world = world_box(bounds, tm)
-    shift = surface_shift_map.get(surface.ID, np.zeros(3, dtype=float))
-    if surface.type in (SURFACE_PLANE_X, SURFACE_PLANE_Y, SURFACE_PLANE_Z):
-        return axis_plane_halfspace(surface, sense, bounds, tm, shift)
-    if surface.type == SURFACE_PLANE:
-        return general_plane_halfspace(surface, sense, bounds, tm, shift)
-
-    primitive = quadric_primitive(surface, bounds, tm, primitive_resolution, shift)
-    if primitive is None:
-        return None
-    if sense < 0:
-        return boolean_mesh("intersection", world, primitive, tm)
-    return boolean_mesh("difference", world, primitive, tm)
-
-
-def region_mesh(region, bounds, tm, primitive_resolution, surface_shift_map):
-    """Recursively convert an MCDC region tree into a trimesh mesh."""
-
-    # region dispatch
-    if region.type == "all":
-        return world_box(bounds, tm)
+def _collect_region_surfaces(region, out):
     if region.type == "halfspace":
-        return halfspace_mesh(
-            region,
-            bounds,
-            tm,
-            primitive_resolution,
-            surface_shift_map,
+        out[region.A.ID] = region.A
+    elif region.type in {"intersection", "union"}:
+        _collect_region_surfaces(region.A, out)
+        _collect_region_surfaces(region.B, out)
+    elif region.type == "complement":
+        _collect_region_surfaces(region.A, out)
+
+
+def _region_mask(region, surface_fields, shape):
+    if region.type == "all":
+        return np.ones(shape, dtype=bool)
+    if region.type == "halfspace":
+        return (
+            surface_fields[region.A.ID] >= 0.0
+            if region.B > 0
+            else surface_fields[region.A.ID] < 0.0
         )
     if region.type == "intersection":
-        mesh_a = region_mesh(
-            region.A, bounds, tm, primitive_resolution, surface_shift_map
+        return _region_mask(region.A, surface_fields, shape) & _region_mask(
+            region.B, surface_fields, shape
         )
-        mesh_b = region_mesh(
-            region.B, bounds, tm, primitive_resolution, surface_shift_map
-        )
-        if mesh_a is None or mesh_b is None:
-            return None
-        return boolean_mesh("intersection", mesh_a, mesh_b, tm)
     if region.type == "union":
-        mesh_a = region_mesh(
-            region.A, bounds, tm, primitive_resolution, surface_shift_map
+        return _region_mask(region.A, surface_fields, shape) | _region_mask(
+            region.B, surface_fields, shape
         )
-        mesh_b = region_mesh(
-            region.B, bounds, tm, primitive_resolution, surface_shift_map
-        )
-        if mesh_a is None:
-            return mesh_b
-        if mesh_b is None:
-            return mesh_a
-        return boolean_mesh("union", mesh_a, mesh_b, tm)
     if region.type == "complement":
-        # complement meshing
-        mesh = region_mesh(
-            region.A, bounds, tm, primitive_resolution, surface_shift_map
-        )
-        if mesh is None:
-            return world_box(bounds, tm)
-        return boolean_mesh("difference", world_box(bounds, tm), mesh, tm)
-    warnings.warn(
-        f"Geometry viewer does not support region type {region.type!r}; skipping it.",
-        RuntimeWarning,
-        stacklevel=2,
+        return ~_region_mask(region.A, surface_fields, shape)
+    raise ValueError(f"Unsupported region type {region.type!r}.")
+
+
+def _image_data_from_points(pv, grid, values, name):
+    image = pv.ImageData(
+        dimensions=grid.dimensions, spacing=grid.spacing, origin=grid.origin
     )
-    return None
+    image.point_data[name] = np.asarray(values).ravel(order="F")
+    return image
 
 
-def trimesh_to_pyvista(mesh_tm, pv):
-    """Convert a trimesh mesh into a pyvista PolyData mesh."""
-
-    # pyvista conversion
-    mesh_tm = clean_mesh(mesh_tm)
-    if mesh_tm is None or mesh_tm.faces.shape[0] == 0:
+def _mask_to_polydata(mask, pv, grid):
+    if not np.any(mask):
         return None
-    faces = np.hstack(
-        [
-            np.full((mesh_tm.faces.shape[0], 1), 3, dtype=np.int64),
-            mesh_tm.faces.astype(np.int64),
-        ]
-    ).ravel()
-    return pv.PolyData(mesh_tm.vertices, faces)
+    if np.all(mask):
+        return pv.Cube(
+            center=[
+                0.5 * (grid.bounds.x[0] + grid.bounds.x[1]),
+                0.5 * (grid.bounds.y[0] + grid.bounds.y[1]),
+                0.5 * (grid.bounds.z[0] + grid.bounds.z[1]),
+            ],
+            x_length=grid.bounds.x[1] - grid.bounds.x[0],
+            y_length=grid.bounds.y[1] - grid.bounds.y[0],
+            z_length=grid.bounds.z[1] - grid.bounds.z[0],
+        )
+    image = _image_data_from_points(pv, grid, mask.astype(np.float32), "inside")
+    mesh = image.contour(isosurfaces=[0.5], scalars="inside")
+    return mesh if getattr(mesh, "n_points", 0) > 0 else None
+
+
+def _surface_fields_for_surfaces(surfaces, grid, surface_shift_map):
+    return {
+        surface.ID: surface_field(
+            surface,
+            grid,
+            surface_shift_map.get(surface.ID, np.zeros(3, dtype=float)),
+        )
+        for surface in surfaces
+    }
+
+
+def cell_mesh(cell, global_bounds, pv, sample_resolution, surface_shift_map):
+    """Sample and contour one cell on a local grid."""
+
+    local_bounds = cell_bounds(cell, global_bounds, surface_shift_map)
+    grid = make_grid(local_bounds, sample_resolution)
+    surface_fields = _surface_fields_for_surfaces(
+        getattr(cell, "surfaces", []), grid, surface_shift_map
+    )
+    mask = region_mask_from_rpn(cell.region_RPN_tokens, surface_fields, grid.dimensions)
+    return _mask_to_polydata(mask, pv, grid)
+
+
+def region_mesh(region, bounds, pv, sample_resolution, surface_shift_map):
+    """Sample and contour a region expression on a grid."""
+
+    grid = make_grid(bounds, sample_resolution)
+    surfaces = {}
+    _collect_region_surfaces(region, surfaces)
+    surface_fields = _surface_fields_for_surfaces(
+        surfaces.values(), grid, surface_shift_map
+    )
+    mask = _region_mask(region, surface_fields, grid.dimensions)
+    return _mask_to_polydata(mask, pv, grid)
+
+
+def _normalize_vtk_bounds(vtk_bounds, default_bounds):
+    if vtk_bounds is None:
+        return default_bounds
+    if isinstance(vtk_bounds, Bounds3D):
+        return vtk_bounds
+    if isinstance(vtk_bounds, dict):
+        return Bounds3D(
+            x=tuple(vtk_bounds["x"]),
+            y=tuple(vtk_bounds["y"]),
+            z=tuple(vtk_bounds["z"]),
+        )
+    if len(vtk_bounds) != 3:
+        raise ValueError("vtk_bounds must be Bounds3D, a dict, or three axis ranges.")
+    return Bounds3D(
+        x=tuple(vtk_bounds[0]), y=tuple(vtk_bounds[1]), z=tuple(vtk_bounds[2])
+    )
+
+
+def _cell_center_grid(bounds, sample_resolution):
+    nx, ny, nz = normalize_sample_resolution(sample_resolution, minimum=1)
+    x_edges = np.linspace(bounds.x[0], bounds.x[1], nx + 1)
+    y_edges = np.linspace(bounds.y[0], bounds.y[1], ny + 1)
+    z_edges = np.linspace(bounds.z[0], bounds.z[1], nz + 1)
+    x = 0.5 * (x_edges[:-1] + x_edges[1:])
+    y = 0.5 * (y_edges[:-1] + y_edges[1:])
+    z = 0.5 * (z_edges[:-1] + z_edges[1:])
+    X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+    return SampleGrid(bounds, (nx, ny, nz), x, y, z, X, Y, Z)
+
+
+def sampled_cell_arrays(simulation, bounds, shifts, sample_resolution):
+    """Sample global cell/material IDs on voxel centers."""
+
+    grid = _cell_center_grid(bounds, sample_resolution)
+    shape = grid.dimensions
+    cell_id = np.full(shape, -1, dtype=np.int32)
+    material_id = np.full(shape, -1, dtype=np.int32)
+    surface_fields = _surface_fields_for_surfaces(
+        simulation.surfaces, grid, shifts.surface
+    )
+    for cell in simulation.cells:
+        mask = region_mask_from_rpn(cell.region_RPN_tokens, surface_fields, shape)
+        unassigned = mask & (cell_id < 0)
+        cell_id[unassigned] = int(cell.ID)
+        material_id[unassigned] = int(getattr(getattr(cell, "fill", None), "ID", -1))
+    return grid, cell_id, material_id
+
+
+def sampled_image_data(
+    pv, simulation, bounds, shifts, sample_resolution, vtk_bounds=None
+):
+    """Build a PyVista ImageData object with cell and material IDs."""
+
+    bounds = _normalize_vtk_bounds(vtk_bounds, bounds)
+    grid, cell_id, material_id = sampled_cell_arrays(
+        simulation, bounds, shifts, sample_resolution
+    )
+    nx, ny, nz = grid.resolution
+    image = pv.ImageData(
+        dimensions=(nx + 1, ny + 1, nz + 1),
+        spacing=(
+            (bounds.x[1] - bounds.x[0]) / nx,
+            (bounds.y[1] - bounds.y[0]) / ny,
+            (bounds.z[1] - bounds.z[0]) / nz,
+        ),
+        origin=(bounds.x[0], bounds.y[0], bounds.z[0]),
+    )
+    image.cell_data["cell_id"] = cell_id.ravel(order="F")
+    image.cell_data["material_id"] = material_id.ravel(order="F")
+    return image
+
+
+def save_vti(
+    pv, simulation, bounds, shifts, sample_resolution, save_vtk_path, vtk_bounds=None
+):
+    """Write a sampled static geometry grid to VTI."""
+
+    image = sampled_image_data(
+        pv, simulation, bounds, shifts, sample_resolution, vtk_bounds=vtk_bounds
+    )
+    image.save(str(save_vtk_path))
+
+
+def save_pvd_collection(save_vtk_path, frame_paths, times):
+    """Write a ParaView collection file for a time series."""
+
+    collection = ET.Element(
+        "VTKFile", type="Collection", version="0.1", byte_order="LittleEndian"
+    )
+    datasets = ET.SubElement(collection, "Collection")
+    base_dir = Path(save_vtk_path).parent
+    for path, time_value in zip(frame_paths, times):
+        ET.SubElement(
+            datasets,
+            "DataSet",
+            timestep=str(float(time_value)),
+            group="",
+            part="0",
+            file=str(Path(path).relative_to(base_dir)),
+        )
+    tree = ET.ElementTree(collection)
+    ET.indent(tree, space="  ")
+    tree.write(save_vtk_path, encoding="utf-8", xml_declaration=True)
+
+
+def save_vtk_time_series(
+    pv,
+    simulation,
+    times,
+    bounds_for_time,
+    shifts_for_time,
+    sample_resolution,
+    save_vtk_path,
+    vtk_bounds=None,
+):
+    """Write a VTI/PVD time series for sampled geometry."""
+
+    save_path = Path(save_vtk_path)
+    frame_dir = save_path.with_suffix("")
+    frame_dir.mkdir(parents=True, exist_ok=True)
+    frame_paths = []
+    for index, (time_value, bounds, shifts) in enumerate(
+        zip(times, bounds_for_time, shifts_for_time)
+    ):
+        frame_path = frame_dir / f"{save_path.stem}_{index:04d}.vti"
+        save_vti(
+            pv,
+            simulation,
+            bounds,
+            shifts,
+            sample_resolution,
+            frame_path,
+            vtk_bounds=vtk_bounds,
+        )
+        frame_paths.append(frame_path)
+    save_pvd_collection(save_path, frame_paths, times)

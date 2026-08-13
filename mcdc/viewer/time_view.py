@@ -12,9 +12,10 @@ from mcdc.viewer.controls import (
 )
 from mcdc.viewer.export import export_frame_cache_animation
 from mcdc.viewer.meshing import (
-    BOOLEAN_ENGINE,
-    DEFAULT_PRIMITIVE_RESOLUTION,
+    DEFAULT_SAMPLE_RESOLUTION,
+    SAMPLE_BACKEND,
     bounds_from_planes_with_shift,
+    save_vtk_time_series,
 )
 from mcdc.viewer.motion import (
     format_frame_label,
@@ -43,13 +44,16 @@ def geo_viewer_3d_time(
     interaction_style="terrain",
     show_sources=True,
     source_labels=True,
+    sample_resolution=DEFAULT_SAMPLE_RESOLUTION,
+    save_vtk_path=None,
+    vtk_bounds=None,
 ):
     """Render a time-stepped 3D geometry view."""
 
-    pv, tm = import_backends()
+    pv = import_backends()
 
     # backend setup
-    print(f"[geometry] Using boolean engine: {BOOLEAN_ENGINE}")
+    print(f"[geometry] Using backend: {SAMPLE_BACKEND}")
     plotter = pv.Plotter()
     apply_interaction_style(plotter, interaction_style)
     plotter.add_axes()
@@ -83,6 +87,8 @@ def geo_viewer_3d_time(
 
     # frame cache
     frame_cache = []
+    bounds_cache = []
+    shifts_cache = []
     print(f"[geometry] Precomputing {len(times)} frames...")
     for index, time_value in enumerate(times):
         print(f"[geometry]   frame {index + 1}/{len(times)} (t={time_value})")
@@ -92,13 +98,14 @@ def geo_viewer_3d_time(
             if dynamic_bounds
             else static_bounds
         )
+        bounds_cache.append(bounds)
+        shifts_cache.append(shifts)
         frame_cache.append(
             build_frame_entry(
                 simulation=simulation,
                 bounds=bounds,
-                tm=tm,
                 pv=pv,
-                primitive_resolution=DEFAULT_PRIMITIVE_RESOLUTION,
+                sample_resolution=sample_resolution,
                 shifts=shifts,
                 time_label=format_frame_label(index, len(times), time_value),
                 color_by=color_by,
@@ -117,6 +124,19 @@ def geo_viewer_3d_time(
             initial_view=initial_view,
             show_sources=show_sources,
             source_labels=source_labels,
+        )
+
+    if save_vtk_path:
+        print(f"[geometry] Saving sampled VTK time series to {save_vtk_path}")
+        save_vtk_time_series(
+            pv,
+            simulation,
+            times,
+            bounds_cache,
+            shifts_cache,
+            sample_resolution,
+            save_vtk_path,
+            vtk_bounds=vtk_bounds,
         )
 
     render_state = RenderState(show_sources=show_sources)

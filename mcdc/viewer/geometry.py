@@ -23,6 +23,9 @@ def geo_viewer_3d(
     interaction_style="terrain",
     show_sources=True,
     source_labels=True,
+    sample_resolution=96,
+    save_vtk_path=None,
+    vtk_bounds=None,
 ):
     # mode selection
     has_motion = any(getattr(s, "moving", False) for s in simulation.surfaces) or any(
@@ -48,6 +51,9 @@ def geo_viewer_3d(
             interaction_style=interaction_style,
             show_sources=show_sources,
             source_labels=source_labels,
+            sample_resolution=sample_resolution,
+            save_vtk_path=save_vtk_path,
+            vtk_bounds=vtk_bounds,
         )
 
     # static view
@@ -62,4 +68,7 @@ def geo_viewer_3d(
         interaction_style=interaction_style,
         show_sources=show_sources,
         source_labels=source_labels,
+        sample_resolution=sample_resolution,
+        save_vtk_path=save_vtk_path,
+        vtk_bounds=vtk_bounds,
     )

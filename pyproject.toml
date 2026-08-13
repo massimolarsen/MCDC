@@ -73,9 +73,7 @@ dev = [
 ]
 
 viewer = [
-  "manifold3d",
   "pyvista",
-  "trimesh",
 ]
 
 [project.urls]

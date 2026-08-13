@@ -8,7 +8,6 @@ def import_backends():
 
     try:
         import pyvista as pv
-        import trimesh as tm
     except Exception as exc:
-        raise RuntimeError("Geometry viewer requires `trimesh` and `pyvista`.") from exc
-    return pv, tm
+        raise RuntimeError("Geometry viewer requires `pyvista`.") from exc
+    return pv

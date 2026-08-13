@@ -6,7 +6,7 @@ import warnings
 
 import numpy as np
 
-from mcdc.viewer.meshing import region_mesh, trimesh_to_pyvista
+from mcdc.viewer.meshing import cell_mesh
 from mcdc.viewer.types import CellVisual, FrameEntry, RenderState, SourceVisual
 
 DEFAULT_ALPHA = 0.6
@@ -88,9 +88,8 @@ def cell_display_properties(simulation, color_by="material"):
 def build_frame_entry(
     simulation,
     bounds,
-    tm,
     pv,
-    primitive_resolution,
+    sample_resolution,
     shifts,
     time_label=None,
     color_by="material",
@@ -107,17 +106,16 @@ def build_frame_entry(
         if props is None:
             continue
         try:
-            mesh_tm = region_mesh(
-                cell.region,
+            mesh_pv = cell_mesh(
+                cell,
                 bounds,
-                tm,
-                primitive_resolution,
+                pv,
+                sample_resolution,
                 shifts.surface,
             )
-            mesh_pv = trimesh_to_pyvista(mesh_tm, pv)
         except Exception as exc:
             warnings.warn(
-                f"Geometry meshing failed for cell {cell.ID}: {exc}",
+                f"Geometry sampling failed for cell {cell.ID}: {exc}",
                 RuntimeWarning,
                 stacklevel=2,
             )

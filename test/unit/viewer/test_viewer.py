@@ -10,9 +10,19 @@ import numpy as np
 import pytest
 
 import mcdc
-from mcdc.constant import SURFACE_PLANE_X
+from mcdc.constant import BOOL_AND, BOOL_NOT, SURFACE_PLANE_X
+from mcdc.transport.geometry.surface import quadric as transport_quadric
+from mcdc.transport.geometry.surface import torus_z as transport_torus_z
 from mcdc.viewer.geometry import geo_viewer_3d
-from mcdc.viewer.meshing import Bounds3D, bounds_from_planes_with_shift, region_mesh
+from mcdc.viewer.meshing import (
+    Bounds3D,
+    bounds_from_planes_with_shift,
+    make_grid,
+    region_mask_from_rpn,
+    region_mesh,
+    sampled_image_data,
+    surface_field,
+)
 from mcdc.viewer.motion import infer_time_steps, translation_at_time
 from mcdc.viewer.render import (
     add_global_opacity_slider,
@@ -33,67 +43,6 @@ from mcdc.viewer.types import (
 )
 
 
-class FakeMesh:
-    def __init__(self):
-        self.faces = np.array([[0, 1, 2]], dtype=np.int64)
-        self.vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-
-    def __add__(self, other):
-        return FakeMesh()
-
-    def process(self, validate=True):
-        return self
-
-    def slice_plane(self, plane_origin, plane_normal, cap=True):
-        return FakeMesh()
-
-    def apply_translation(self, center):
-        return None
-
-    def apply_transform(self, transform):
-        return None
-
-
-class FakeCreation:
-    @staticmethod
-    def box(extents, transform):
-        return FakeMesh()
-
-    @staticmethod
-    def icosphere(subdivisions, radius):
-        return FakeMesh()
-
-    @staticmethod
-    def cylinder(radius, height, sections):
-        return FakeMesh()
-
-
-class FakeBoolean:
-    @staticmethod
-    def intersection(meshes, engine):
-        return FakeMesh()
-
-    @staticmethod
-    def union(meshes, engine):
-        return FakeMesh()
-
-    @staticmethod
-    def difference(meshes, engine):
-        return FakeMesh()
-
-
-class FakeTransformations:
-    @staticmethod
-    def rotation_matrix(angle, axis):
-        return np.eye(4)
-
-
-class FakeTrimesh:
-    creation = FakeCreation()
-    boolean = FakeBoolean()
-    transformations = FakeTransformations()
-
-
 class FakePolyData:
     n_points = 3
 
@@ -101,10 +50,29 @@ class FakePolyData:
         self.center = center
 
 
+class FakeCellData(dict):
+    pass
+
+
+class FakeImageData:
+    def __init__(self, dimensions, spacing, origin):
+        self.dimensions = dimensions
+        self.spacing = spacing
+        self.origin = origin
+        self.point_data = {}
+        self.cell_data = FakeCellData()
+
+    def contour(self, isosurfaces, scalars):
+        return FakePolyData()
+
+    def save(self, path):
+        Path(path).write_text("fake vti")
+
+
 class FakePyVista:
     @staticmethod
-    def PolyData(vertices, faces):
-        return FakePolyData()
+    def ImageData(dimensions, spacing, origin):
+        return FakeImageData(dimensions, spacing, origin)
 
     @staticmethod
     def Sphere(radius, center):
@@ -124,7 +92,7 @@ import builtins
 real_import = builtins.__import__
 
 def guarded_import(name, *args, **kwargs):
-    if name.split('.')[0] in {'pyvista', 'trimesh', 'manifold3d'}:
+    if name.split('.')[0] in {'pyvista'}:
         raise AssertionError(f'unexpected import: {name}')
     return real_import(name, *args, **kwargs)
 
@@ -223,7 +191,7 @@ def test_static_view_applies_camera_defaults_and_controls(monkeypatch):
 
     monkeypatch.setattr(
         "mcdc.viewer.static_view.import_backends",
-        lambda: (FakePyVistaWithPlotter, FakeTrimesh),
+        lambda: FakePyVistaWithPlotter,
     )
     monkeypatch.setattr(
         "mcdc.viewer.static_view.bounds_from_planes_with_shift",
@@ -260,7 +228,7 @@ def test_static_view_accepts_trackball_and_named_initial_view(monkeypatch):
 
     monkeypatch.setattr(
         "mcdc.viewer.static_view.import_backends",
-        lambda: (FakePyVistaWithPlotter, FakeTrimesh),
+        lambda: FakePyVistaWithPlotter,
     )
     monkeypatch.setattr(
         "mcdc.viewer.static_view.bounds_from_planes_with_shift",
@@ -514,7 +482,7 @@ def test_time_view_binds_frame_and_camera_control_keys(monkeypatch):
 
     monkeypatch.setattr(
         "mcdc.viewer.time_view.import_backends",
-        lambda: (FakePyVistaWithPlotter, FakeTrimesh),
+        lambda: FakePyVistaWithPlotter,
     )
     sim = SimpleNamespace(cells=[], sources=[], surfaces=[])
 
@@ -615,15 +583,15 @@ def test_region_mesh_uses_current_region_tree():
     mesh = region_mesh(
         region,
         Bounds3D(x=(-2.0, 2.0), y=(-2.0, 2.0), z=(-2.0, 2.0)),
-        FakeTrimesh,
-        primitive_resolution=16,
+        FakePyVista,
+        sample_resolution=8,
         surface_shift_map={surface.ID: np.zeros(3) for surface in simulation.surfaces},
     )
 
     assert mesh is not None
 
 
-def test_torus_region_warns_and_supported_cells_still_render():
+def test_torus_region_and_supported_cells_render():
     material = mcdc.Material.multigroup(name="mat", capture=np.array([1.0]))
     x0 = mcdc.Surface.PlaneX(x=-2.0)
     x1 = mcdc.Surface.PlaneX(x=2.0)
@@ -642,18 +610,16 @@ def test_torus_region_warns_and_supported_cells_still_render():
         surface={surface.ID: np.zeros(3) for surface in simulation.surfaces},
         source={},
     )
-    with pytest.warns(RuntimeWarning, match="does not support surface"):
-        frame = build_frame_entry(
-            simulation=simulation,
-            bounds=Bounds3D(x=(-3.0, 3.0), y=(-3.0, 3.0), z=(-3.0, 3.0)),
-            tm=FakeTrimesh,
-            pv=FakePyVista,
-            primitive_resolution=16,
-            shifts=shifts,
-        )
+    frame = build_frame_entry(
+        simulation=simulation,
+        bounds=Bounds3D(x=(-3.0, 3.0), y=(-3.0, 3.0), z=(-3.0, 3.0)),
+        pv=FakePyVista,
+        sample_resolution=8,
+        shifts=shifts,
+    )
 
     assert frame.has_geometry
-    assert [cell.label for cell in frame.cells] == ["box"]
+    assert [cell.label for cell in frame.cells] == ["box", "unsupported_torus"]
 
 
 def test_source_entries_are_included_in_legend():
@@ -670,9 +636,8 @@ def test_source_entries_are_included_in_legend():
         frame = build_frame_entry(
             simulation=sim,
             bounds=Bounds3D(x=(-1.0, 1.0), y=(-1.0, 1.0), z=(-1.0, 1.0)),
-            tm=FakeTrimesh,
             pv=FakePyVista,
-            primitive_resolution=16,
+            sample_resolution=8,
             shifts=shifts,
         )
 
@@ -681,17 +646,85 @@ def test_source_entries_are_included_in_legend():
     assert frame.sources[0].mesh.radius == pytest.approx(0.05)
 
 
-def test_unknown_future_surface_type_warns():
-    unknown_surface = SimpleNamespace(ID=123, type=999)
-    region = SimpleNamespace(type="halfspace", A=unknown_surface, B=-1)
+def surface_dict(surface):
+    return {
+        "A": surface.A,
+        "B": surface.B,
+        "C": surface.C,
+        "D": surface.D,
+        "E": surface.E,
+        "F": surface.F,
+        "G": surface.G,
+        "H": surface.H,
+        "I": surface.I,
+        "J": surface.J,
+        "R": surface.R,
+        "r": surface.r,
+    }
 
-    with pytest.warns(RuntimeWarning, match="does not support surface"):
-        mesh = region_mesh(
-            region,
-            Bounds3D(x=(-1.0, 1.0), y=(-1.0, 1.0), z=(-1.0, 1.0)),
-            FakeTrimesh,
-            primitive_resolution=16,
-            surface_shift_map={},
-        )
 
-    assert mesh is None
+def test_sampler_quadric_field_matches_transport_sign():
+    surface = mcdc.Surface.ConeZ(apex=[0.0, 0.0, 0.0], t_sq=0.25)
+    grid = make_grid(Bounds3D(x=(0.0, 0.0), y=(0.0, 0.0), z=(2.0, 2.0)), (3, 3, 3))
+
+    field = surface_field(surface, grid, np.zeros(3))
+    particle = [{"x": 0.0, "y": 0.0, "z": 2.0}]
+    reference = transport_quadric.evaluate(particle, surface_dict(surface))
+
+    assert np.sign(field[0, 0, 0]) == np.sign(reference)
+
+
+def test_sampler_torus_field_matches_transport_sign():
+    surface = mcdc.Surface.TorusZ(R=1.0, r=0.25)
+    grid = make_grid(Bounds3D(x=(1.0, 1.0), y=(0.0, 0.0), z=(0.0, 0.0)), (3, 3, 3))
+
+    field = surface_field(surface, grid, np.zeros(3))
+    particle = [{"x": 1.0, "y": 0.0, "z": 0.0}]
+    reference = transport_torus_z.evaluate(particle, surface_dict(surface))
+
+    assert np.sign(field[0, 0, 0]) == np.sign(reference)
+
+
+def test_region_mask_from_rpn_handles_boolean_tokens_and_all_region():
+    positive = np.array([True, False, True])
+    other = np.array([True, True, False])
+    surface_fields = {
+        0: np.where(positive, 1.0, -1.0),
+        1: np.where(other, 1.0, -1.0),
+    }
+
+    mask = region_mask_from_rpn(
+        [0, BOOL_NOT, 1, BOOL_AND],
+        surface_fields,
+        positive.shape,
+    )
+
+    np.testing.assert_array_equal(mask, ~positive & other)
+    np.testing.assert_array_equal(
+        region_mask_from_rpn([], surface_fields, positive.shape),
+        np.ones(positive.shape, dtype=bool),
+    )
+
+
+def test_sampled_image_data_contains_cell_and_material_ids():
+    material = mcdc.Material.multigroup(name="mat", capture=np.array([1.0]))
+    x0 = mcdc.Surface.PlaneX(x=-1.0)
+    x1 = mcdc.Surface.PlaneX(x=1.0)
+    cell = mcdc.Cell(region=+x0 & -x1, fill=material)
+    simulation = compiled_simulation([cell])
+    shifts = ShiftState(
+        surface={surface.ID: np.zeros(3) for surface in simulation.surfaces},
+        source={},
+    )
+
+    image = sampled_image_data(
+        FakePyVista,
+        simulation,
+        Bounds3D(x=(-1.5, 1.5), y=(-1.0, 1.0), z=(-1.0, 1.0)),
+        shifts,
+        sample_resolution=(4, 3, 3),
+    )
+
+    assert "cell_id" in image.cell_data
+    assert "material_id" in image.cell_data
+    assert 0 in image.cell_data["cell_id"]

@@ -11,9 +11,10 @@ from mcdc.viewer.controls import (
     apply_interaction_style,
 )
 from mcdc.viewer.meshing import (
-    BOOLEAN_ENGINE,
-    DEFAULT_PRIMITIVE_RESOLUTION,
+    DEFAULT_SAMPLE_RESOLUTION,
+    SAMPLE_BACKEND,
     bounds_from_planes_with_shift,
+    save_vti,
 )
 from mcdc.viewer.motion import zero_shift_state
 from mcdc.viewer.render import (
@@ -41,13 +42,16 @@ def geo_viewer_3d_static(
     interaction_style="terrain",
     show_sources=True,
     source_labels=True,
+    sample_resolution=DEFAULT_SAMPLE_RESOLUTION,
+    save_vtk_path=None,
+    vtk_bounds=None,
 ):
     """Render a single-frame 3D geometry view."""
 
-    pv, tm = import_backends()
+    pv = import_backends()
 
     # backend setup
-    print(f"[geometry] Using boolean engine: {BOOLEAN_ENGINE}")
+    print(f"[geometry] Using backend: {SAMPLE_BACKEND}")
     plotter = pv.Plotter()
     apply_interaction_style(plotter, interaction_style)
     plotter.add_axes()
@@ -59,9 +63,8 @@ def geo_viewer_3d_static(
     frame_entry = build_frame_entry(
         simulation=simulation,
         bounds=bounds,
-        tm=tm,
         pv=pv,
-        primitive_resolution=DEFAULT_PRIMITIVE_RESOLUTION,
+        sample_resolution=sample_resolution,
         shifts=shifts,
         time_label=None,
         color_by=color_by,
@@ -121,6 +124,18 @@ def geo_viewer_3d_static(
                 show_sources=show_sources,
                 source_labels=source_labels,
             )
+
+    if save_vtk_path:
+        print(f"[geometry] Saving sampled VTK grid to {save_vtk_path}")
+        save_vti(
+            pv,
+            simulation,
+            bounds,
+            shifts,
+            sample_resolution,
+            save_vtk_path,
+            vtk_bounds=vtk_bounds,
+        )
 
     # interactive view
     plotter.show(auto_close=False)
