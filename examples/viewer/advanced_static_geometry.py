@@ -19,7 +19,7 @@ parser.add_argument("--labels", type=bool_arg, default=True)
 parser.add_argument("--color-by", choices=["material", "cell"], default="material")
 parser.add_argument("--opacity-slider", type=bool_arg, default=True)
 parser.add_argument("--show-sources", type=bool_arg, default=True)
-parser.add_argument("--sample-resolution", type=int, default=72)
+parser.add_argument("--sample-resolution", type=int, default=200)
 args = parser.parse_args()
 
 simulation = mcdc.Simulation("Static sampler stress beamline")
