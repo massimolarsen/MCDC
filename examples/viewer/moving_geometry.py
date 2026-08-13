@@ -3,8 +3,10 @@ import numpy as np
 import mcdc
 from mcdc.viewer import geo_viewer_3d
 
-mat_block = mcdc.MaterialMG(name="moving_block", capture=np.array([1.0]))
-mat_void = mcdc.MaterialMG(name="void", capture=np.array([1.0]))
+simulation = mcdc.Simulation("Moving viewer geometry")
+
+mat_block = mcdc.Material.multigroup(name="moving_block", capture=np.array([1.0]))
+mat_void = mcdc.Material.multigroup(name="void", capture=np.array([1.0]))
 
 x0 = mcdc.Surface.PlaneX(x=-4.0, boundary_condition="vacuum")
 x1 = mcdc.Surface.PlaneX(x=4.0, boundary_condition="vacuum")
@@ -28,11 +30,13 @@ for surface in (bx0, bx1, by0, by1, bz0, bz1):
 
 block = +bx0 & -bx1 & +by0 & -by1 & +bz0 & -bz1
 
-mcdc.Cell(name="moving_block", region=block, fill=mat_block)
-mcdc.Cell(name="background", region=world & ~block, fill=mat_void)
+block_cell = mcdc.Cell(name="moving_block", region=block, fill=mat_block)
+background_cell = mcdc.Cell(name="background", region=world & ~block, fill=mat_void)
+simulation.set_model([block_cell, background_cell])
+simulation.compile()
 
 geo_viewer_3d(
-    mcdc.object_.simulation.simulation,
+    simulation,
     time_steps=np.linspace(0.0, 4.0, 17),
     dynamic_bounds=True,
 )

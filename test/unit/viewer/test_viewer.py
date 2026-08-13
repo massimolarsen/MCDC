@@ -11,7 +11,6 @@ import pytest
 
 import mcdc
 from mcdc.constant import SURFACE_PLANE_X
-from mcdc.object_.simulation import simulation
 from mcdc.viewer.geometry import geo_viewer_3d
 from mcdc.viewer.meshing import Bounds3D, bounds_from_planes_with_shift, region_mesh
 from mcdc.viewer.motion import infer_time_steps, translation_at_time
@@ -413,6 +412,13 @@ def source_visual(actor_name="source_0"):
     )
 
 
+def compiled_simulation(cells):
+    simulation = mcdc.Simulation()
+    simulation.set_model(cells)
+    simulation.compile()
+    return simulation
+
+
 def cell_and_source_frame(actor_name="source_0"):
     frame = single_cell_frame()
     return FrameEntry(
@@ -599,10 +605,12 @@ def test_source_toggle_persists_across_time_frame_step():
 
 
 def test_region_mesh_uses_current_region_tree():
+    material = mcdc.Material.multigroup(name="mat", capture=np.array([1.0]))
     x0 = mcdc.Surface.PlaneX(x=-1.0)
     x1 = mcdc.Surface.PlaneX(x=1.0)
     sphere = mcdc.Surface.Sphere(center=[0.0, 0.0, 0.0], radius=0.5)
     region = (+x0 & -x1) | ~(-sphere)
+    simulation = compiled_simulation([mcdc.Cell(region=region, fill=material)])
 
     mesh = region_mesh(
         region,
@@ -616,7 +624,7 @@ def test_region_mesh_uses_current_region_tree():
 
 
 def test_torus_region_warns_and_supported_cells_still_render():
-    material = mcdc.MaterialMG(name="mat", capture=np.array([1.0]))
+    material = mcdc.Material.multigroup(name="mat", capture=np.array([1.0]))
     x0 = mcdc.Surface.PlaneX(x=-2.0)
     x1 = mcdc.Surface.PlaneX(x=2.0)
     y0 = mcdc.Surface.PlaneY(y=-2.0)
@@ -626,8 +634,9 @@ def test_torus_region_warns_and_supported_cells_still_render():
     torus = mcdc.Surface.TorusZ(R=1.0, r=0.25)
 
     supported = +x0 & -x1 & +y0 & -y1 & +z0 & -z1
-    mcdc.Cell(name="box", region=supported, fill=material)
-    mcdc.Cell(name="unsupported_torus", region=-torus, fill=material)
+    box_cell = mcdc.Cell(name="box", region=supported, fill=material)
+    torus_cell = mcdc.Cell(name="unsupported_torus", region=-torus, fill=material)
+    simulation = compiled_simulation([box_cell, torus_cell])
 
     shifts = ShiftState(
         surface={surface.ID: np.zeros(3) for surface in simulation.surfaces},

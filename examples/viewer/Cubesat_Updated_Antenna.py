@@ -18,6 +18,7 @@ parser.add_argument("--labels", type=bool_arg, default=True)
 parser.add_argument("--color-by", choices=["material", "cell"], default="material")
 parser.add_argument("--opacity-slider", type=bool_arg, default=True)
 args = parser.parse_args()
+simulation = mcdc.Simulation("CubeSat viewer geometry")
 
 # =============================================================================
 # CARRE project — 1U CubeSat simplified geometry
@@ -35,25 +36,25 @@ args = parser.parse_args()
 # MATERIALS
 # =============================================================================
 
-m_al7075 = mcdc.MaterialMG(
+m_al7075 = mcdc.Material.multigroup(
     name="Al7075", capture=np.array([0.02815]), scatter=np.array([[0.01408]])
 )
-m_al6061 = mcdc.MaterialMG(
+m_al6061 = mcdc.Material.multigroup(
     name="Al6061", capture=np.array([0.02700]), scatter=np.array([[0.01350]])
 )
-m_epoxy = mcdc.MaterialMG(
+m_epoxy = mcdc.Material.multigroup(
     name="Epoxy", capture=np.array([0.01200]), scatter=np.array([[0.00600]])
 )
-m_silicon = mcdc.MaterialMG(
+m_silicon = mcdc.Material.multigroup(
     name="Silicon", capture=np.array([0.02330]), scatter=np.array([[0.01165]])
 )
-m_licoo2 = mcdc.MaterialMG(
+m_licoo2 = mcdc.Material.multigroup(
     name="LiCoO2", capture=np.array([0.05030]), scatter=np.array([[0.02515]])
 )
-m_copper = mcdc.MaterialMG(
+m_copper = mcdc.Material.multigroup(
     name="Copper", capture=np.array([0.08960]), scatter=np.array([[0.04480]])
 )
-m_void = mcdc.MaterialMG(
+m_void = mcdc.Material.multigroup(
     name="Vacuum", capture=np.array([0.00000]), scatter=np.array([[0.00000]])
 )
 
@@ -260,6 +261,8 @@ for c in all_component_cells:
     void_region = void_region & ~c.region
 
 void_cell = mcdc.Cell(name="vacuum", region=void_region, fill=m_void)
+simulation.set_model(all_component_cells + [void_cell])
+simulation.compile()
 
 # =============================================================================
 # SOURCE
@@ -320,26 +323,33 @@ boundary_sources = [
     ),
 ]
 
-for source_bounds in boundary_sources:
-    mcdc.Source(**source_bounds, isotropic=True, probability=1.0 / 6.0)
+sources = [
+    mcdc.Source(**source_bounds, isotropic=True, energy=0, probability=1.0 / 6.0)
+    for source_bounds in boundary_sources
+]
 
 # =============================================================================
 # TALLIES
 # =============================================================================
 
-mcdc.Tally(name="OBC SV current-in", cell=obc_sv, scores=["current-in"])
-mcdc.Tally(name="EPS SV current-in", cell=eps_sv, scores=["current-in"])
-mcdc.Tally(name="ADCS SV current-in", cell=adcs_sv, scores=["current-in"])
-mcdc.Tally(name="Comms SV current-in", cell=comms_sv, scores=["current-in"])
+tallies = [
+    mcdc.Tally(name="OBC SV current-in", cell=obc_sv, scores=["current-in"]),
+    mcdc.Tally(name="EPS SV current-in", cell=eps_sv, scores=["current-in"]),
+    mcdc.Tally(name="ADCS SV current-in", cell=adcs_sv, scores=["current-in"]),
+    mcdc.Tally(name="Comms SV current-in", cell=comms_sv, scores=["current-in"]),
+]
 
 
 # =============================================================================
 # SETTINGS AND VIEWER
 # =============================================================================
 
-mcdc.settings.N_particle = 100
+simulation.set_sources(sources)
+simulation.set_tallies(tallies)
+simulation.settings.N_particle = 100
+simulation.compile()
 geo_viewer_3d(
-    mcdc.object_.simulation.simulation,
+    simulation,
     labels=args.labels,
     color_by=args.color_by,
     opacity_slider=args.opacity_slider,
