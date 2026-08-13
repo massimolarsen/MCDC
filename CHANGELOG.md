@@ -8,15 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 
 ### Added
 
-- Tally spatial filter and scoring upgrades from [@massimolarsen] and [@ilhamv]
-  - Add partial current scores
-  - Add cell-filtered (and surface-cell-combo) support for current scores
-  - Improved checks and error messages in tally-building user interface
-
 ### Changed
 
-- Unit test upgrade from [@massimolarsen]
-  - Combined `object_` and `transport` unit test for more efficient fixture reuse
+- Show previously published documentation versions in the documentation version switcher, from [@ilhamv]
 
 ### Deprecated
 
@@ -25,6 +19,71 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 ### Fixed
 
 ### Security
+
+## [0.15.1] - 2026-08-12
+
+### Added
+
+- Add a dedicated CARRE project page, from [@ilhamv]
+- Add the release policy and checklist, from [@ilhamv]
+- Add the one-sentence-per-line convention for documentation source, from [@ilhamv]
+
+### Changed
+
+- Hide flyout in Read the Docs, from [@ilhamv]
+
+### Fixed
+
+- Prevent unbounded dependency resolution from selecting incompatible releases that break MC/DC by adding explicit upper bounds for all build, runtime, documentation, and development dependencies, from [@ilhamv]
+
+## [0.15.0] - 2026-08-11
+
+### Added
+
+- Add `NeutronMultigroupData` and hybrid neutron multigroup transport with material-local physical energy grids and energy-representation policies, together with the `Material.multigroup()` convenience interface, from [@ilhamv]
+- Add manually triggered unit and serial regression compatibility testing for Python 3.11, 3.12, and 3.14 while retaining Python 3.13 for automatic testing, from [@ilhamv]
+- Add PEP 561-compatible inline type information and strict Pyright checks for the public Python API, from [@ilhamv]
+
+### Changed
+
+- **Breaking:** Unify native and neutron multigroup materials under one non-polymorphic `Material` and runtime layout, replacing `MaterialMG` and the separate native and multigroup material structures, from [@ilhamv]
+- Group transport techniques under `simulation.technique`, from [@ilhamv]
+- **Breaking:** Encapsulate MC/DC model building and execution within an explicit `mcdc.Simulation` instance, replacing the global simulation state and interface from [@ilhamv]
+- Modernize and reorganize the documentation around distinct user, API reference, theory, project, and developer paths; adopt the PyData Sphinx Theme; and expand the architecture and extension guidance from [@ilhamv]
+- Move model-specific finalization into simulation compilation and reserve runtime preparation for framework-level packing and execution setup from [@ilhamv]
+- Move regression tests from the custom `run.py` harness to pytest-based collection and reporting from [@massimolarsen]
+- **Breaking:** Require Python 3.11 or newer and designate Python 3.13 as the primary automatic test version, from [@ilhamv]
+- Run Black and Pyright with Python 3.14 while keeping Black output compatible with every supported Python version, from [@ilhamv]
+- Adopt a three-month seasonal cycle for minor releases while continuing to publish patch releases as needed, from [@ilhamv]
+
+### Removed
+
+- Remove the legacy `install.sh` installation helper, from [@ilhamv]
+
+## [0.14.2] - 2026-07-15
+
+### Added
+
+- Add layered documentation philosophy
+- Tally spatial filter and scoring upgrades from [@massimolarsen] and [@ilhamv]
+  - Add partial current scores
+  - Add cell-filtered (and surface-cell-combo) support for current scores
+  - Improved checks and error messages in tally-building user interface
+
+### Changed
+
+- Unit test upgrades
+  - Combined `object_` and `transport` unit test for more efficient fixture reuse from [@massimolarsen]
+  - Replace bare assert np.isclose with proper np.testing.assert_allclose from [@steps-re]
+
+### Fixed
+
+- Fix 2D-vector setter writes nothing (- instead of =) from [@steps-re]
+- Fix delayed neutrons are never sampled (transport/physics/neutron/native.py, fission()) from [@steps-re]
+- Fix delayed emission time uses β instead of λ (transport/physics/neutron/native.py, fission())from [@steps-re]
+- Fix swapped transverse-basis branches (transport/distribution.py, sample_direction()) from [@steps-re]
+- Fix divide-by-zero for a -z reference (transport/distribution.py, sample_white_direction()) from [@steps-re]
+- Fix tally polar_reference corrupted (object_/tally.py) from [@steps-re]
 
 ## [0.14.1] - 2026-07-04
 
@@ -111,6 +170,9 @@ The pre-refactor implementation remains available in the `cement` branch as a re
 - Multi-table distribution table selection sampling from [@melekderman]
 
 [Unreleased]: https://github.com/mcdc-project/mcdc/tree/dev
+[0.15.1]: https://github.com/mcdc-project/mcdc/releases/tag/v0.15.1
+[0.15.0]: https://github.com/mcdc-project/mcdc/releases/tag/v0.15.0
+[0.14.2]: https://github.com/mcdc-project/mcdc/releases/tag/v0.14.2
 [0.14.1]: https://github.com/mcdc-project/mcdc/releases/tag/v0.14.1
 [0.14.0]: https://github.com/mcdc-project/mcdc/releases/tag/v0.14.0
 [0.13.0]: https://github.com/mcdc-project/mcdc/releases/tag/v0.13.0
@@ -120,3 +182,4 @@ The pre-refactor implementation remains available in the `cement` branch as a re
 [@nglaser3]: https://github.com/nglaser3
 [@gunnarrl]: https://github.com/gunnarrl
 [@Talen-Ayers]: https://github.com/Talen-Ayers
+[@steps-re]: https://github.com/steps-re
