@@ -19,6 +19,7 @@ def main() -> int:
     parser.add_argument("--payload-dir", default=str(DEFAULT_PAYLOAD_DIR))
     parser.add_argument("--pattern", default="*_payload.h5")
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--n-events", type=int, default=None)
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--bridge-build-dir", default=None)
@@ -31,6 +32,8 @@ def main() -> int:
         )
     if args.workers < 1:
         raise ValueError("--workers must be at least 1")
+    if args.threads is not None and args.threads < 1:
+        raise ValueError("--threads must be at least 1")
     if args.n_events is not None and args.n_events <= 0:
         raise ValueError("--n-events must be positive")
 
@@ -38,7 +41,8 @@ def main() -> int:
     worker_count = min(args.workers, len(payload_paths))
     print(
         " Geant4 payload replay: "
-        f"payloads={len(payload_paths)} workers={worker_count}"
+        f"payloads={len(payload_paths)} workers={worker_count} "
+        f"threads_per_worker={args.threads if args.threads is not None else 'payload'}"
     )
     sys.stdout.flush()
 
@@ -110,6 +114,8 @@ def _run_one_payload(
             )
         if args.bridge_build_dir is not None:
             payload["bridge_build_dir"] = str(pathlib.Path(args.bridge_build_dir))
+        if args.threads is not None:
+            payload["n_geant4_threads"] = int(args.threads)
 
         handle = tempfile.NamedTemporaryFile(
             prefix=f"mcdc_g4_replay_{name}_", suffix=".h5", delete=False
@@ -123,7 +129,8 @@ def _run_one_payload(
     worker_path = pathlib.Path(geant4_worker.__file__).resolve()
     print(
         f" Geant4 payload '{name}': worker started "
-        f"source_size={payload['source_size']} output={output_path}"
+        f"source_size={payload['source_size']} "
+        f"threads={payload.get('n_geant4_threads', 1)} output={output_path}"
     )
     sys.stdout.flush()
     result = subprocess.run(
@@ -154,6 +161,7 @@ def _needs_payload_rewrite(args) -> bool:
         args.n_events is not None
         or args.output_dir is not None
         or args.bridge_build_dir is not None
+        or args.threads is not None
     )
 
 

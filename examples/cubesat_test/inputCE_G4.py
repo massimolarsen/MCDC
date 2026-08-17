@@ -375,6 +375,7 @@ for name, cell, _ in sensitive_volumes:
 
 # set parllel g4 workers
 mcdc.settings.geant4_max_workers = 4
+mcdc.settings.geant4_n_threads = 2
 mcdc.settings.geant4_payload_dir = "geant4_payloads"
 
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
@@ -407,6 +408,6 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 1000000
+mcdc.settings.N_particle = 10000
 mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
 mcdc.run()

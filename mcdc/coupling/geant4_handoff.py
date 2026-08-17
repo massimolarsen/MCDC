@@ -35,10 +35,12 @@ def run_handoff_from_simulation(
         raise RuntimeError("Distribution source mode requires tally data.")
 
     max_workers = _geant4_max_workers(simulation)
+    n_threads = _geant4_n_threads(simulation)
     worker_count = 1 if max_workers == 1 else min(max_workers, len(configs))
     _print_handoff_progress(
         " Geant4 handoff: "
-        f"regions={len(configs)} workers={worker_count} mode={configs[0].source_mode}"
+        f"regions={len(configs)} workers={worker_count} "
+        f"threads_per_worker={n_threads} mode={configs[0].source_mode}"
     )
     if max_workers == 1 or len(configs) == 1:
         region_results, failures = _run_regions_serial(simulation, data, configs)
@@ -63,6 +65,9 @@ def validate_mpi_compatibility(
     max_workers = _geant4_max_workers(simulation)
     if max_workers < 1:
         raise RuntimeError("Geant4 geant4_max_workers must be at least 1.")
+    n_threads = _geant4_n_threads(simulation)
+    if n_threads < 1:
+        raise RuntimeError("Geant4 geant4_n_threads must be at least 1.")
 
     if int(simulation["mpi_size"]) <= 1:
         return
@@ -156,6 +161,14 @@ def _geant4_max_workers(simulation: np.ndarray) -> int:
     settings = simulation["settings"]
     try:
         return int(settings["geant4_max_workers"])
+    except (KeyError, TypeError, ValueError):
+        return 1
+
+
+def _geant4_n_threads(simulation: np.ndarray) -> int:
+    settings = simulation["settings"]
+    try:
+        return int(settings["geant4_n_threads"])
     except (KeyError, TypeError, ValueError):
         return 1
 
@@ -278,6 +291,7 @@ def _build_region_payload(
         "envelope_material": cfg.envelope_material,
         "physics_list": cfg.physics_list,
         "random_seed": _random_seed(cfg),
+        "n_geant4_threads": _geant4_n_threads(simulation),
     }
     components = normalized_device_components(cfg)
     payload["component_names"] = np.asarray(

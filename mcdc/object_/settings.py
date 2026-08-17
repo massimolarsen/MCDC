@@ -45,6 +45,7 @@ class Settings(ObjectSingleton):
     output_name: str = "output"
     use_progress_bar: bool = True
     geant4_max_workers: int = 1
+    geant4_n_threads: int = 1
     geant4_payload_dir: str = ""
 
     # Time census

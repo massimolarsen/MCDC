@@ -1,6 +1,7 @@
 import h5py
 import importlib.metadata
 import numpy as np
+import pathlib
 
 ####
 
@@ -31,7 +32,8 @@ def generate_output(mcdc, data):
     print_module.print_msg(" Generating output HDF5 files...")
 
     # Create the file
-    file = h5py.File(settings["output_name"] + ".h5", "w")
+    output_path = _output_path(settings["output_name"] + ".h5")
+    file = h5py.File(output_path, "w")
 
     # Version
     file["version"] = importlib.metadata.version("mcdc")
@@ -125,12 +127,12 @@ def create_runtime_datasets(mcdc):
 
     base_name = mcdc["settings"]["output_name"]
 
-    main_output = h5py.File(f"{base_name}.h5", "a")
+    main_output = h5py.File(_output_path(f"{base_name}.h5"), "a")
     create_runtime_dataset(main_output, mcdc)
     main_output.close()
 
     if config.args.runtime_output:
-        runtime_output = h5py.File(f"{base_name}.h5", "w")
+        runtime_output = h5py.File(_output_path(f"{base_name}.h5"), "w")
         create_runtime_dataset(runtime_output, mcdc)
         runtime_output.close()
 
@@ -301,7 +303,7 @@ def generate_census_based_tally(mcdc, data):
     base_name = mcdc["settings"]["output_name"]
 
     # Create or get the file
-    file_name = f"{base_name}-batch_{idx_batch}-census_{idx_census}.h5"
+    file_name = _output_path(f"{base_name}-batch_{idx_batch}-census_{idx_census}.h5")
     file = h5py.File(file_name, "w")
     create_tally_dataset(file, mcdc, data)
     file.close()
@@ -337,8 +339,10 @@ def recombine_tallies():
     Nt = frequency * (N_census - 1)
 
     # Append the tally dataset structure to the main output
-    main_file = h5py.File(f"{base_name}.h5", "a")
-    reference_file = h5py.File(f"{base_name}-batch_0-census_0.h5", "r")
+    main_file = h5py.File(_output_path(f"{base_name}.h5"), "a")
+    reference_file = h5py.File(
+        _output_path(f"{base_name}-batch_0-census_0.h5"), "r"
+    )
     tally_group = main_file.create_group("tallies")
     for tally in simulation.tallies:
         name = f"tallies/{tally.name}"
@@ -377,7 +381,9 @@ def recombine_tallies():
             for i_census in range(N_census - 1):
                 # Accumulate sum and sum of square
                 for i_batch in range(N_batch):
-                    file_name = f"{base_name}-batch_{i_batch}-census_{i_census}.h5"
+                    file_name = _output_path(
+                        f"{base_name}-batch_{i_batch}-census_{i_census}.h5"
+                    )
                     file = h5py.File(file_name, "r")
                     offset = i_census * frequency
 
@@ -399,3 +405,9 @@ def recombine_tallies():
             replace_dataset(main_file, f"{score_name}/sdev", sdev)
 
     main_file.close()
+
+
+def _output_path(file_name):
+    path = pathlib.Path(file_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path

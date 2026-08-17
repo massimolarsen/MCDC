@@ -87,6 +87,7 @@ def load_bridge(build_dir: str):
 
 
 def write_summary_hdf5(summary: dict[str, Any], output_path: str) -> None:
+    pathlib.Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output_path, "w") as file:
         string_dtype = h5py.string_dtype(encoding="utf-8")
         for key, value in summary.items():
@@ -122,6 +123,7 @@ def result_summary(results, payload: dict[str, Any]) -> dict[str, Any]:
         "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
         "status": str(results.status),
         "random_seed": int(payload["random_seed"]),
+        "n_geant4_threads": int(payload.get("n_geant4_threads", 1)),
         "component_names": np.asarray(
             getattr(results, "component_names", []), dtype=str
         ),
@@ -154,6 +156,13 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     session_cfg.envelope_material = str(payload["envelope_material"])
     session_cfg.physics_list = str(payload["physics_list"])
     session_cfg.random_seed = int(payload["random_seed"])
+    n_threads = int(payload.get("n_geant4_threads", 1))
+    if hasattr(session_cfg, "n_threads"):
+        session_cfg.n_threads = n_threads
+    elif n_threads != 1:
+        raise RuntimeError(
+            "Geant4 bridge does not support n_geant4_threads; rebuild the bridge."
+        )
     session_cfg.device_components = _bridge_components(bridge, payload)
 
     session = bridge.Session(session_cfg)

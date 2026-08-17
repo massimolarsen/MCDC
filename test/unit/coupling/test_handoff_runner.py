@@ -83,6 +83,7 @@ def test_run_handoff_distribution_runs_worker_and_reads_hdf5(monkeypatch, tmp_pa
         np.testing.assert_allclose(payload["component_sizes_mm"], [[10.0, 10.0, 10.0]])
         np.testing.assert_array_equal(payload["component_score"], [True])
         assert payload["envelope_material"] == "G4_Galactic"
+        assert payload["n_geant4_threads"] == 1
         _write_fake_distribution_output(payload, total_edep_mev=1.25, dose_gy=2.5e-9)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -131,6 +132,26 @@ def test_run_handoff_distribution_can_retain_region_payload(monkeypatch, tmp_pat
     payload = geant4_worker.read_payload(retained)
     assert payload["name"] == "source_region"
     assert payload["geant4_output_path"] == str(output_path)
+    assert payload["n_geant4_threads"] == 1
+
+
+def test_run_handoff_payload_carries_configured_geant4_threads(monkeypatch, tmp_path):
+    simulation, data, _ = distribution_simulation_and_data()
+    simulation["settings"]["geant4_n_threads"] = 4
+    output_path = tmp_path / "g4.h5"
+    geant4_config.configure(
+        **distribution_config(geant4_output_path=str(output_path)).__dict__
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        payload = geant4_worker.read_payload(cmd[-1])
+        assert payload["n_geant4_threads"] == 4
+        _write_fake_distribution_output(payload)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    geant4_handoff.run_handoff_from_simulation(simulation, data)
 
 
 def test_run_handoff_distribution_allows_mpi_reduced_master_data(
@@ -361,6 +382,15 @@ def test_run_handoff_rejects_invalid_geant4_max_workers():
         geant4_handoff.run_handoff_from_simulation(simulation, data)
 
 
+def test_run_handoff_rejects_invalid_geant4_n_threads():
+    simulation, data, _ = distribution_simulation_and_data()
+    simulation["settings"]["geant4_n_threads"] = 0
+    geant4_config.configure(**distribution_config().__dict__)
+
+    with pytest.raises(RuntimeError, match="geant4_n_threads"):
+        geant4_handoff.run_handoff_from_simulation(simulation, data)
+
+
 def test_run_handoff_parallel_workers_overlap(monkeypatch):
     simulation, data, _ = distribution_simulation_and_data()
     simulation["settings"]["geant4_max_workers"] = 2
@@ -402,7 +432,7 @@ def test_run_handoff_reports_clamped_worker_count(monkeypatch, capsys):
     geant4_handoff.run_handoff_from_simulation(simulation, data)
 
     assert (
-        "Geant4 handoff: regions=2 workers=2 mode=distribution"
+        "Geant4 handoff: regions=2 workers=2 threads_per_worker=1 mode=distribution"
         in capsys.readouterr().out
     )
 

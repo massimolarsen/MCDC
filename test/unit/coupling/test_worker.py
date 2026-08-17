@@ -25,6 +25,7 @@ def test_payload_round_trip_distribution(tmp_path):
         "component_score": np.asarray([True]),
         "physics_list": "QGSP_BIC",
         "random_seed": 777,
+        "n_geant4_threads": 3,
         "source_size": 4,
         "source_tally_name": "cpu_src",
         "source_total_weight": 2.5,
@@ -45,6 +46,7 @@ def test_payload_round_trip_distribution(tmp_path):
     assert result["name"] == "cpu"
     assert result["source_mode"] == "distribution"
     assert int(result["random_seed"]) == 777
+    assert int(result["n_geant4_threads"]) == 3
     np.testing.assert_allclose(result["box_bounds_mm"], payload["box_bounds_mm"])
     np.testing.assert_allclose(result["weights"], payload["weights"])
     np.testing.assert_array_equal(result["component_names"], ["die"])
@@ -71,6 +73,7 @@ class SessionConfig:
         self.device_components = []
         self.physics_list = ""
         self.random_seed = 0
+        self.n_threads = 1
 
 class Results:
     loaded_primaries = 3
@@ -94,6 +97,8 @@ class Session:
             raise RuntimeError("random seed was not passed to bridge")
         if config.envelope_material != "G4_Galactic":
             raise RuntimeError("envelope material was not passed to bridge")
+        if config.n_threads != 2:
+            raise RuntimeError("thread count was not passed to bridge")
         if config.device_components[0]["name"] != "detector":
             raise RuntimeError("device components were not passed to bridge")
         if config.device_components[0]["parent"] != "":
@@ -134,6 +139,7 @@ class Session:
             "component_score": np.asarray([True]),
             "physics_list": "QGSP_BIC",
             "random_seed": 13579,
+            "n_geant4_threads": 2,
             "source_size": 3,
             "bank": np.ones((3, 10)),
         },
@@ -150,6 +156,7 @@ class Session:
     with h5py.File(output_path, "r") as file:
         assert file["source_mode"][()].decode("utf-8") == "bank"
         assert int(file["random_seed"][()]) == 13579
+        assert int(file["n_geant4_threads"][()]) == 2
         assert int(file["events_run"][()]) == 3
         assert float(file["total_edep_mev"][()]) == 1.5
         assert file["component_names"][0].decode("utf-8") == "detector"
