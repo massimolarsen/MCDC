@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 
 
 EXAMPLE_DIR = pathlib.Path(__file__).resolve().parent
@@ -74,6 +75,7 @@ def main() -> int:
 
     total_events = sum(int(summary["events_run"]) for summary in summaries)
     print(f" Geant4 payload replay complete: events_run={total_events}")
+    _print_timing_summary(summaries)
     return 0
 
 
@@ -133,12 +135,14 @@ def _run_one_payload(
         f"threads={payload.get('n_geant4_threads', 1)} output={output_path}"
     )
     sys.stdout.flush()
+    worker_wall_start = time.perf_counter()
     result = subprocess.run(
         [sys.executable, str(worker_path), str(run_payload_path)],
         capture_output=True,
         text=True,
         check=False,
     )
+    worker_wall_s = time.perf_counter() - worker_wall_start
     if temp_payload_path is not None:
         temp_payload_path.unlink(missing_ok=True)
     if result.returncode != 0:
@@ -148,9 +152,15 @@ def _run_one_payload(
         )
 
     summary = read_summary_hdf5(str(output_path))
+    summary["worker_wall_s"] = worker_wall_s
+    geant4_worker.write_summary_hdf5(summary, str(output_path))
     print(
         f" Geant4 payload '{name}': worker finished "
-        f"events_run={summary['events_run']} status={summary['status']}"
+        f"events_run={summary['events_run']} "
+        f"worker_wall={worker_wall_s:.2f}s "
+        f"beam_wall={float(summary.get('geant4_beam_wall_s', 0.0)):.2f}s "
+        f"beam_cpu/wall={float(summary.get('geant4_beam_cpu_per_wall', 0.0)):.2f} "
+        f"status={summary['status']}"
     )
     sys.stdout.flush()
     return summary
@@ -162,6 +172,38 @@ def _needs_payload_rewrite(args) -> bool:
         or args.output_dir is not None
         or args.bridge_build_dir is not None
         or args.threads is not None
+    )
+
+
+def _print_timing_summary(summaries: list[dict]) -> None:
+    if not summaries:
+        return
+
+    worker_wall_sum = sum(float(s.get("worker_wall_s", 0.0)) for s in summaries)
+    beam_wall_sum = sum(float(s.get("geant4_beam_wall_s", 0.0)) for s in summaries)
+    beam_cpu_sum = sum(float(s.get("geant4_beam_cpu_s", 0.0)) for s in summaries)
+
+    print(" Geant4 timing:")
+    print(
+        "   region        events   worker_wall    init_wall    load_wall"
+        "    beam_wall     beam_cpu  cpu/wall"
+    )
+    for summary in summaries:
+        print(
+            f"   {str(summary['name']):<8} "
+            f"{int(summary['events_run']):>9} "
+            f"{float(summary.get('worker_wall_s', 0.0)):>11.2f}s "
+            f"{float(summary.get('geant4_init_wall_s', 0.0)):>10.2f}s "
+            f"{float(summary.get('geant4_source_load_wall_s', 0.0)):>10.2f}s "
+            f"{float(summary.get('geant4_beam_wall_s', 0.0)):>10.2f}s "
+            f"{float(summary.get('geant4_beam_cpu_s', 0.0)):>10.2f}s "
+            f"{float(summary.get('geant4_beam_cpu_per_wall', 0.0)):>8.2f}"
+        )
+    print(
+        " Geant4 timing totals: "
+        f"sum_worker_wall={worker_wall_sum:.2f}s "
+        f"sum_beam_wall={beam_wall_sum:.2f}s "
+        f"sum_beam_cpu={beam_cpu_sum:.2f}s"
     )
 
 

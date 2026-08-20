@@ -307,6 +307,6 @@ mcdc.Tally(name="Comms SV current-in", cell=comms_sv, scores=["current-in"])
 # SETTINGS AND RUN
 # =============================================================================
 
-mcdc.settings.N_particle = 100
+mcdc.settings.N_particle = 100000
 mcdc.settings.output_name = "mcdc_h5/cubesat_CE"
 mcdc.run()

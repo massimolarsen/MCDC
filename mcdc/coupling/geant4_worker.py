@@ -5,6 +5,7 @@ import importlib.machinery
 import importlib.util
 import pathlib
 import sys
+import time
 from typing import Any
 
 import h5py
@@ -99,7 +100,11 @@ def write_summary_hdf5(summary: dict[str, Any], output_path: str) -> None:
                 file.create_dataset(key, data=value)
 
 
-def result_summary(results, payload: dict[str, Any]) -> dict[str, Any]:
+def result_summary(
+    results,
+    payload: dict[str, Any],
+    timings: dict[str, float] | None = None,
+) -> dict[str, Any]:
     source_mode = str(payload["source_mode"])
     source_size = int(payload["source_size"])
     summary = {
@@ -137,6 +142,8 @@ def result_summary(results, payload: dict[str, Any]) -> dict[str, Any]:
             getattr(results, "component_dose_gy", []), dtype=np.float64
         ),
     }
+    if timings is not None:
+        summary.update(timings)
     if source_mode == "bank":
         summary["handoff_bank_size"] = source_size
     else:
@@ -165,8 +172,17 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
         )
     session_cfg.device_components = _bridge_components(bridge, payload)
 
+    timings: dict[str, float] = {}
+
+    init_wall_start = time.perf_counter()
+    init_cpu_start = time.process_time()
     session = bridge.Session(session_cfg)
     session.initialize()
+    timings["geant4_init_wall_s"] = time.perf_counter() - init_wall_start
+    timings["geant4_init_cpu_s"] = time.process_time() - init_cpu_start
+
+    load_wall_start = time.perf_counter()
+    load_cpu_start = time.process_time()
     if str(payload["source_mode"]) == "bank":
         session.load_primaries(np.ascontiguousarray(payload["bank"], dtype=np.float64))
     else:
@@ -180,9 +196,22 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
             int(payload["Nv"]),
             int(payload["n_events"]),
         )
+    timings["geant4_source_load_wall_s"] = time.perf_counter() - load_wall_start
+    timings["geant4_source_load_cpu_s"] = time.process_time() - load_cpu_start
 
+    beam_wall_start = time.perf_counter()
+    beam_cpu_start = time.process_time()
     session.beam_on()
-    summary = result_summary(session.get_results(), payload)
+    timings["geant4_beam_wall_s"] = time.perf_counter() - beam_wall_start
+    timings["geant4_beam_cpu_s"] = time.process_time() - beam_cpu_start
+    if timings["geant4_beam_wall_s"] > 0.0:
+        timings["geant4_beam_cpu_per_wall"] = (
+            timings["geant4_beam_cpu_s"] / timings["geant4_beam_wall_s"]
+        )
+    else:
+        timings["geant4_beam_cpu_per_wall"] = 0.0
+
+    summary = result_summary(session.get_results(), payload, timings)
     if summary["loaded_primaries"] != summary["source_size"]:
         raise RuntimeError(
             "Geant4 loaded_primaries does not match source_size: "

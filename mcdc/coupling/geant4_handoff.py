@@ -6,6 +6,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 
 import numpy as np
@@ -52,6 +53,7 @@ def run_handoff_from_simulation(
     summary = _aggregate(region_results)
     if failures:
         raise RuntimeError("Geant4 handoff worker failure:\n" + "\n".join(failures))
+    _print_timing_summary(summary)
     return summary
 
 
@@ -217,12 +219,14 @@ def _run_one_region(
         f" Geant4 region '{cfg.name}': worker started "
         f"source_size={payload['source_size']} output={output_path}"
     )
+    worker_wall_start = time.perf_counter()
     result = subprocess.run(
         [sys.executable, str(worker_path), str(payload_path)],
         capture_output=True,
         text=True,
         check=False,
     )
+    worker_wall_s = time.perf_counter() - worker_wall_start
 
     if result.returncode != 0:
         if not user_output:
@@ -246,13 +250,21 @@ def _run_one_region(
             f"payload retained at {payload_path}"
         ) from exc
 
+    summary["worker_wall_s"] = worker_wall_s
+    if user_output:
+        geant4_worker.write_summary_hdf5(summary, str(output_path))
+
     if not retain_payload:
         pathlib.Path(payload_path).unlink(missing_ok=True)
     if not user_output:
         output_path.unlink(missing_ok=True)
     _print_handoff_progress(
         f" Geant4 region '{cfg.name}': worker finished "
-        f"events_run={summary['events_run']} status={summary['status']}"
+        f"events_run={summary['events_run']} "
+        f"worker_wall={worker_wall_s:.2f}s "
+        f"beam_wall={float(summary.get('geant4_beam_wall_s', 0.0)):.2f}s "
+        f"beam_cpu/wall={float(summary.get('geant4_beam_cpu_per_wall', 0.0)):.2f} "
+        f"status={summary['status']}"
     )
     return summary
 
@@ -372,7 +384,7 @@ def _aggregate(regions: list[dict[str, Any]]) -> dict[str, Any]:
         )
         else "error"
     )
-    return {
+    summary = {
         "status": status,
         "n_regions": len(regions),
         "source_size": sum(int(region["source_size"]) for region in regions),
@@ -380,3 +392,42 @@ def _aggregate(regions: list[dict[str, Any]]) -> dict[str, Any]:
         "events_run": sum(int(region["events_run"]) for region in regions),
         "regions": regions,
     }
+    summary["worker_wall_s_sum"] = sum(
+        float(region.get("worker_wall_s", 0.0)) for region in regions
+    )
+    summary["geant4_beam_wall_s_sum"] = sum(
+        float(region.get("geant4_beam_wall_s", 0.0)) for region in regions
+    )
+    summary["geant4_beam_cpu_s_sum"] = sum(
+        float(region.get("geant4_beam_cpu_s", 0.0)) for region in regions
+    )
+    return summary
+
+
+def _print_timing_summary(summary: dict[str, Any]) -> None:
+    regions = summary.get("regions", [])
+    if not regions:
+        return
+
+    _print_handoff_progress(" Geant4 timing:")
+    _print_handoff_progress(
+        "   region        events   worker_wall    init_wall    load_wall"
+        "    beam_wall     beam_cpu  cpu/wall"
+    )
+    for region in regions:
+        _print_handoff_progress(
+            f"   {str(region['name']):<8} "
+            f"{int(region['events_run']):>9} "
+            f"{float(region.get('worker_wall_s', 0.0)):>11.2f}s "
+            f"{float(region.get('geant4_init_wall_s', 0.0)):>10.2f}s "
+            f"{float(region.get('geant4_source_load_wall_s', 0.0)):>10.2f}s "
+            f"{float(region.get('geant4_beam_wall_s', 0.0)):>10.2f}s "
+            f"{float(region.get('geant4_beam_cpu_s', 0.0)):>10.2f}s "
+            f"{float(region.get('geant4_beam_cpu_per_wall', 0.0)):>8.2f}"
+        )
+    _print_handoff_progress(
+        " Geant4 timing totals: "
+        f"sum_worker_wall={float(summary.get('worker_wall_s_sum', 0.0)):.2f}s "
+        f"sum_beam_wall={float(summary.get('geant4_beam_wall_s_sum', 0.0)):.2f}s "
+        f"sum_beam_cpu={float(summary.get('geant4_beam_cpu_s_sum', 0.0)):.2f}s"
+    )
