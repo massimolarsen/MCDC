@@ -16,6 +16,12 @@ DIAG_DIR = Path(__file__).resolve().parent
 EXAMPLE_DIR = DIAG_DIR.parent
 REGIONS = ("obc", "eps", "adcs", "comms")
 LINESTYLES = ("-", "--", "-.", ":")
+REGION_COLORS = {
+    "obc": "tab:red",
+    "eps": "gold",
+    "adcs": "tab:green",
+    "comms": "tab:blue",
+}
 
 
 def latest_h5(directory):
@@ -49,10 +55,16 @@ def spatial_current(file, region):
     tally_path = f"tallies/{region}_g4_source"
     mean = file[f"{tally_path}/current-in/mean"][()]
     face_labels = [
-        label.decode("utf-8") if isinstance(label, bytes) else str(label)
+        clean_face_label(
+            label.decode("utf-8") if isinstance(label, bytes) else str(label)
+        )
         for label in file[f"{tally_path}/grid/face"][()]
     ]
     return face_labels, mean.sum(axis=(0, 1, 2, 3))
+
+
+def clean_face_label(label):
+    return label.replace(">", "")
 
 
 def read_region_name(file):
@@ -86,12 +98,18 @@ def plot_source_current(mcdc_path, output_path):
     with h5py.File(mcdc_path, "r") as file:
         for region, linestyle in zip(REGIONS, LINESTYLES):
             energy_edges, energy_totals = source_energy_distribution(file, region)
-            ax.stairs(energy_totals, energy_edges, label=region, linestyle=linestyle)
+            ax.stairs(
+                energy_totals,
+                energy_edges,
+                label=region,
+                linestyle=linestyle,
+                color=REGION_COLORS[region],
+            )
 
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Source energy [eV]")
-    ax.set_ylabel("MCDC current-in")
+    ax.set_ylabel("MCDC current-in [crossings/source]")
     ax.set_title("CubeSat Geant4 Handoff Source Current")
     ax.legend(frameon=False)
     fig.tight_layout()
@@ -108,7 +126,13 @@ def plot_geant4_edep(geant4_dir, pattern, output_path):
         energy_edges, edep_mev = spectra[region]
         if len(energy_edges) == 0:
             continue
-        ax.stairs(edep_mev, positive_log_edges(energy_edges), label=region, linestyle=linestyle)
+        ax.stairs(
+            edep_mev,
+            positive_log_edges(energy_edges),
+            label=region,
+            linestyle=linestyle,
+            color=REGION_COLORS[region],
+        )
 
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -151,13 +175,17 @@ def plot_spatial_current(mcdc_path, output_path):
                 ax.set_title(face)
             if col == 0:
                 ax.set_ylabel(region)
+                ax.yaxis.label.set_color(REGION_COLORS[region])
             ax.set_xticks(range(all_spatial[region].shape[1]))
             ax.set_yticks(range(all_spatial[region].shape[2]))
-            ax.set_xlabel("u")
-            ax.set_ylabel(f"{region}\nv" if col == 0 else "v")
 
     fig.suptitle("CubeSat MCDC Spatial Current by Handoff Face")
-    fig.colorbar(image, ax=axes, shrink=0.85, label="MCDC current-in")
+    fig.colorbar(
+        image,
+        ax=axes,
+        shrink=0.85,
+        label="MCDC current-in [crossings/source]",
+    )
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
 

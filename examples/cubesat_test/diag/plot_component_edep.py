@@ -15,6 +15,12 @@ import matplotlib.pyplot as plt
 DIAG_DIR = Path(__file__).resolve().parent
 EXAMPLE_DIR = DIAG_DIR.parent
 REGIONS = ("obc", "eps", "adcs", "comms")
+REGION_COLORS = {
+    "obc": "tab:red",
+    "eps": "gold",
+    "adcs": "tab:green",
+    "comms": "tab:blue",
+}
 
 
 def read_region_name(file):
@@ -59,12 +65,6 @@ def plot_component_edep(scores, output_path):
     labels = []
     edep_values = []
     colors = []
-    region_colors = {
-        "obc": "tab:blue",
-        "eps": "tab:orange",
-        "adcs": "tab:green",
-        "comms": "tab:red",
-    }
 
     for region in REGIONS:
         if region not in scores:
@@ -74,7 +74,7 @@ def plot_component_edep(scores, output_path):
         for name, edep in zip(names, edep_mev):
             labels.append(f"{region}: {name}")
             edep_values.append(float(edep))
-            colors.append(region_colors[region])
+            colors.append(REGION_COLORS[region])
 
     if not labels:
         raise RuntimeError("No component_edep_mev datasets found in Geant4 outputs.")
