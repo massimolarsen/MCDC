@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import mcdc
 
@@ -299,11 +301,27 @@ mcdc.Cell(region=void_region, fill=m_void)
 
 # =============================================================================
 # SOURCE
-# Monoenergetic CE source, biased inward across all six boundary-cube faces.
+# Continuous-energy source sampled from the ECSS spectrum, biased inward across
+# all six boundary-cube faces.
 # =============================================================================
 
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
-source_energy_ev = 14.0e6
+
+# import ECSS neutron source spectrum from figure I-7:
+# European Cooperation for Space Standardization (ECSS). 
+# Space Engineering: Space Environment. ECSS-E-ST-10-04C
+# https://ecss.nl/wp-content/uploads/standards/ecss-e/ECSS-E-ST-10-04C15November2008.pdf?
+
+# Max 20MeV with current XS's
+source_spectrum_path = Path(__file__).with_name(
+    "ecss_20MeV.csv"
+)
+source_energy_ev, source_energy_pdf = np.loadtxt(
+    source_spectrum_path, delimiter=",", skiprows=1, unpack=True
+)
+
+if source_energy_ev.size < 2: raise ValueError(f"Invalid source spectrum: {source_spectrum_path}")
+
 
 boundary_sources = [
     dict(
@@ -349,7 +367,7 @@ for source_bounds in boundary_sources:
         **source_bounds,
         polar_cosine=[0.0, 1.0],
         azimuthal=[0.0, 2.0 * np.pi],
-        energy=source_energy_ev,
+        energy=[source_energy_ev, source_energy_pdf],
         probability=1.0 / 6.0,
     )
 
@@ -357,7 +375,7 @@ for source_bounds in boundary_sources:
 # TALLIES
 # =============================================================================
 
-ENERGY_BINS_EV = np.logspace(np.log10(1.0e4), np.log10(14.0e6), 25)
+ENERGY_BINS_EV = np.geomspace(source_energy_ev[0], source_energy_ev[-1], 25)
 
 mcdc.Tally(
     name="OBC SV energy deposition",
@@ -394,6 +412,6 @@ mcdc.Tally(name="Comms SV current-in", cell=comms_sv, scores=["current-in"])
 # SETTINGS AND RUN
 # =============================================================================
 
-mcdc.settings.N_particle = 1000000
+mcdc.settings.N_particle = 100000
 mcdc.settings.output_name = "cubesat_CE"
 mcdc.run()
