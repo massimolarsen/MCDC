@@ -82,6 +82,7 @@ def plot_component_edep(scores, output_path):
     y = np.arange(len(labels))
     fig, ax = plt.subplots(figsize=(9, max(4.5, 0.38 * len(labels))))
     ax.barh(y, edep_values, color=colors)
+    ax.set_xscale("log")
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
     ax.invert_yaxis()

@@ -302,15 +302,19 @@ void_cell = mcdc.Cell(region=void_region, fill=m_void)
 
 # =============================================================================
 # SOURCE
-# Monoenergetic CE source, isotropic across all six boundary-cube faces.
+# Tabulated CE source, isotropic across all six boundary-cube faces.
 # =============================================================================
 
-source_energy_ev = 1.0e6
-energy_bins_ev = np.logspace(3.0, np.log10(1.01 * source_energy_ev), 21)
 mu_bins = np.linspace(-1.0, 1.0, 9)
 azi_bins = np.linspace(-np.pi, np.pi, 9)
 surface_mesh = (2, 2)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
+source_spectrum_path = EXAMPLE_DIR / "ecss_20MeV.csv"
+source_energy_ev, source_energy_pdf = np.loadtxt(
+    source_spectrum_path, delimiter=",", skiprows=1, unpack=True
+)
+if source_energy_ev.size < 2: raise ValueError(f"Invalid source spectrum: {source_spectrum_path}")
+energy_bins_ev = np.geomspace(source_energy_ev[0], source_energy_ev[-1], 21)
 
 boundary_sources = [
     dict(
@@ -349,7 +353,7 @@ for source_bounds in boundary_sources:
     mcdc.Source(
         **source_bounds,
         isotropic=True,
-        energy=source_energy_ev,
+        energy=[source_energy_ev, source_energy_pdf],
         probability=1.0 / 6.0,
     )
 
