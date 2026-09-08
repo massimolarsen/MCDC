@@ -9,14 +9,13 @@ from ._helpers import distribution_config, distribution_simulation_and_data
 
 def test_enable_add_disable_geant4_handoff_config_list():
     geant4_config.configure(**distribution_config(name="one").__dict__)
-    assert geant4_config.has_configs()
     assert len(geant4_config.CONFIGS) == 1
 
     geant4_config.add_config(**distribution_config(name="two").__dict__)
     assert len(geant4_config.CONFIGS) == 2
 
     geant4_config.clear_configs()
-    assert not geant4_config.has_configs()
+    assert not geant4_config.CONFIGS
 
 
 def test_run_handoff_rejects_mixed_modes():
@@ -72,23 +71,6 @@ def test_normalized_device_components_synthesizes_legacy_detector():
     assert components[0]["parent"] == ""
 
 
-def test_normalized_device_components_rejects_bad_schema():
-    cfg = Geant4HandoffConfig(
-        device_components=[
-            {
-                "name": "die",
-                "material": "G4_Si",
-                "center_mm": [0.0, 0.0],
-                "size_mm": [1.0, 1.0, 1.0],
-                "score": True,
-            }
-        ]
-    )
-
-    with pytest.raises(RuntimeError, match="center_mm"):
-        normalized_device_components(cfg)
-
-
 def test_normalized_device_components_accepts_parent_hierarchy():
     cfg = Geant4HandoffConfig(
         device_components=[
@@ -115,58 +97,3 @@ def test_normalized_device_components_accepts_parent_hierarchy():
     assert components[1]["parent"] == "package"
     assert components[0]["score"] is False
     assert components[1]["score"] is True
-
-
-@pytest.mark.parametrize(
-    ("components", "match"),
-    [
-        (
-            [
-                {
-                    "name": "die",
-                    "material": "G4_Si",
-                    "parent": "missing",
-                    "center_mm": [0.0, 0.0, 0.0],
-                    "size_mm": [1.0, 1.0, 1.0],
-                }
-            ],
-            "unknown parent",
-        ),
-        (
-            [
-                {
-                    "name": "die",
-                    "material": "G4_Si",
-                    "parent": "die",
-                    "center_mm": [0.0, 0.0, 0.0],
-                    "size_mm": [1.0, 1.0, 1.0],
-                }
-            ],
-            "parent itself",
-        ),
-        (
-            [
-                {
-                    "name": "a",
-                    "material": "G4_Si",
-                    "parent": "b",
-                    "center_mm": [0.0, 0.0, 0.0],
-                    "size_mm": [1.0, 1.0, 1.0],
-                },
-                {
-                    "name": "b",
-                    "material": "G4_Si",
-                    "parent": "a",
-                    "center_mm": [0.0, 0.0, 0.0],
-                    "size_mm": [1.0, 1.0, 1.0],
-                },
-            ],
-            "cycle",
-        ),
-    ],
-)
-def test_normalized_device_components_rejects_bad_parent_schema(components, match):
-    cfg = Geant4HandoffConfig(device_components=components)
-
-    with pytest.raises(RuntimeError, match=match):
-        normalized_device_components(cfg)

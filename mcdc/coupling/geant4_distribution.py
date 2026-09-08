@@ -13,7 +13,7 @@ def build_source_distribution_payload(
     simulation: np.ndarray,
     data: np.ndarray,
     cfg: Geant4HandoffConfig,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     # validate distribution source settings
     if cfg.n_geant4_particles <= 0:
         raise RuntimeError("Distribution source mode requires n_geant4_particles > 0.")
@@ -113,10 +113,8 @@ def build_source_distribution_payload(
         raise RuntimeError("Distribution source mode requires global N_particle > 0.")
     weights = weights * N_particle
     total = float(np.sum(weights))
-    if not total > 0.0:
-        raise RuntimeError(
-            "Distribution source tally has zero total current-in weight."
-        )
+    if total <= 0.0:
+        return None
 
     # convert the global mcdc source box to the local geant4 detector frame
     box_bounds_cm = np.asarray(

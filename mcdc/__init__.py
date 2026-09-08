@@ -36,16 +36,6 @@ from mcdc.visualize import visualize
 
 import mcdc.config
 from mcdc.output import recombine_tallies
-from mcdc.coupling import geant4_config as _geant4_config
-
-
-def enable_geant4_handoff(**kwargs):
-    _geant4_config.configure(**kwargs)
-
-
-def add_geant4_handoff(**kwargs):
-    _geant4_config.add_config(**kwargs)
-
-
-def disable_geant4_handoff():
-    _geant4_config.clear_configs()
+from mcdc.coupling.geant4_config import add_config as add_geant4_handoff
+from mcdc.coupling.geant4_config import clear_configs as disable_geant4_handoff
+from mcdc.coupling.geant4_config import configure as enable_geant4_handoff

@@ -50,7 +50,7 @@ def run():
     import mcdc.coupling.geant4_config as geant4_config
     import mcdc.coupling.geant4_handoff as geant4_handoff
 
-    if geant4_config.has_configs():
+    if geant4_config.CONFIGS:
         geant4_handoff.validate_mpi_compatibility(simulation)
 
     # Print headers
@@ -93,7 +93,7 @@ def run():
     # Optional Geant4 handoff coupling. This is intentionally outside the Numba
     # transport kernels and runs only at a coarse simulation boundary. Under MPI,
     # only rank 0 launches Geant4; other ranks wait at output/final synchronization.
-    if simulation["mpi_master"] and geant4_config.has_configs():
+    if simulation["mpi_master"] and geant4_config.CONFIGS:
         coupling_summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
         print_module.print_msg(
             " Geant4 handoff summary: "

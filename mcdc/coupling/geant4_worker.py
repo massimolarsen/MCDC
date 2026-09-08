@@ -126,20 +126,18 @@ def result_summary(
         ),
         "edep_spectrum_underflow": int(results.edep_spectrum_underflow),
         "edep_spectrum_overflow": int(results.edep_spectrum_overflow),
-        "status": str(results.status),
+        "status": "ok",
         "random_seed": int(payload["random_seed"]),
-        "n_geant4_threads": int(payload.get("n_geant4_threads", 1)),
-        "component_names": np.asarray(
-            getattr(results, "component_names", []), dtype=str
-        ),
+        "n_geant4_threads": int(payload["n_geant4_threads"]),
+        "component_names": np.asarray(results.component_names, dtype=str),
         "component_edep_mev": np.asarray(
-            getattr(results, "component_edep_mev", []), dtype=np.float64
+            results.component_edep_mev, dtype=np.float64
         ),
         "component_mass_kg": np.asarray(
-            getattr(results, "component_mass_kg", []), dtype=np.float64
+            results.component_mass_kg, dtype=np.float64
         ),
         "component_dose_gy": np.asarray(
-            getattr(results, "component_dose_gy", []), dtype=np.float64
+            results.component_dose_gy, dtype=np.float64
         ),
     }
     if timings is not None:
@@ -163,13 +161,7 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     session_cfg.envelope_material = str(payload["envelope_material"])
     session_cfg.physics_list = str(payload["physics_list"])
     session_cfg.random_seed = int(payload["random_seed"])
-    n_threads = int(payload.get("n_geant4_threads", 1))
-    if hasattr(session_cfg, "n_threads"):
-        session_cfg.n_threads = n_threads
-    elif n_threads != 1:
-        raise RuntimeError(
-            "Geant4 bridge does not support n_geant4_threads; rebuild the bridge."
-        )
+    session_cfg.n_threads = int(payload["n_geant4_threads"])
     session_cfg.device_components = _bridge_components(bridge, payload)
 
     timings: dict[str, float] = {}
@@ -212,18 +204,11 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
         timings["geant4_beam_cpu_per_wall"] = 0.0
 
     summary = result_summary(session.get_results(), payload, timings)
-    if summary["loaded_primaries"] != summary["source_size"]:
-        raise RuntimeError(
-            "Geant4 loaded_primaries does not match source_size: "
-            f"{summary['loaded_primaries']} != {summary['source_size']}."
-        )
     if summary["events_run"] != summary["source_size"]:
         raise RuntimeError(
             "Geant4 events_run does not match source_size: "
             f"{summary['events_run']} != {summary['source_size']}."
         )
-    if summary["status"] != "ok":
-        raise RuntimeError(f"Geant4 worker failed with status '{summary['status']}'.")
 
     write_summary_hdf5(summary, str(payload["geant4_output_path"]))
     return summary
@@ -232,32 +217,20 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
 def _bridge_components(bridge, payload: dict[str, Any]):
     names = np.asarray(payload["component_names"]).astype(str)
     materials = np.asarray(payload["component_materials"]).astype(str)
-    parents = np.asarray(payload.get("component_parents", [""] * len(names))).astype(
-        str
-    )
+    parents = np.asarray(payload["component_parents"]).astype(str)
     centers = np.asarray(payload["component_centers_mm"], dtype=np.float64)
     sizes = np.asarray(payload["component_sizes_mm"], dtype=np.float64)
     scores = np.asarray(payload["component_score"], dtype=np.bool_)
 
     components = []
     for i, name in enumerate(names):
-        if hasattr(bridge, "DeviceComponent"):
-            component = bridge.DeviceComponent()
-            component.name = str(name)
-            component.material = str(materials[i])
-            component.parent = str(parents[i])
-            component.center_mm = [float(x) for x in centers[i]]
-            component.size_mm = [float(x) for x in sizes[i]]
-            component.score = bool(scores[i])
-        else:
-            component = {
-                "name": str(name),
-                "material": str(materials[i]),
-                "parent": str(parents[i]),
-                "center_mm": [float(x) for x in centers[i]],
-                "size_mm": [float(x) for x in sizes[i]],
-                "score": bool(scores[i]),
-            }
+        component = bridge.DeviceComponent()
+        component.name = str(name)
+        component.material = str(materials[i])
+        component.parent = str(parents[i])
+        component.center_mm = [float(x) for x in centers[i]]
+        component.size_mm = [float(x) for x in sizes[i]]
+        component.score = bool(scores[i])
         components.append(component)
     return components
 

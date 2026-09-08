@@ -45,6 +45,7 @@ def test_payload_round_trip_distribution(tmp_path):
 
     assert result["name"] == "cpu"
     assert result["source_mode"] == "distribution"
+    assert result["detector_material"] == "G4_Si"
     assert int(result["random_seed"]) == 777
     assert int(result["n_geant4_threads"]) == 3
     np.testing.assert_allclose(result["box_bounds_mm"], payload["box_bounds_mm"])
@@ -75,6 +76,9 @@ class SessionConfig:
         self.random_seed = 0
         self.n_threads = 1
 
+class DeviceComponent:
+    pass
+
 class Results:
     loaded_primaries = 3
     last_events_run = 3
@@ -89,7 +93,6 @@ class Results:
     edep_spectrum_edep_mev = [1.5]
     edep_spectrum_underflow = 0
     edep_spectrum_overflow = 0
-    status = "ok"
 
 class Session:
     def __init__(self, config):
@@ -97,11 +100,13 @@ class Session:
             raise RuntimeError("random seed was not passed to bridge")
         if config.envelope_material != "G4_Galactic":
             raise RuntimeError("envelope material was not passed to bridge")
+        if config.detector_material != "G4_Si":
+            raise RuntimeError("detector material was not passed to bridge")
         if config.n_threads != 2:
             raise RuntimeError("thread count was not passed to bridge")
-        if config.device_components[0]["name"] != "detector":
+        if config.device_components[0].name != "detector":
             raise RuntimeError("device components were not passed to bridge")
-        if config.device_components[0]["parent"] != "":
+        if config.device_components[0].parent != "":
             raise RuntimeError("component parent was not passed to bridge")
         self.config = config
     def initialize(self):

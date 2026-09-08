@@ -70,6 +70,17 @@ def test_build_source_distribution_payload_uses_structured_mcdc_tally():
     assert payload["source_tally_name"] == "source_tally"
 
 
+def test_build_source_distribution_payload_returns_none_for_zero_weight():
+    simulation, data, _ = distribution_simulation_and_data(
+        weights=np.zeros((2, 2, 2, 6, 2, 3))
+    )
+
+    assert (
+        build_source_distribution_payload(simulation, data, distribution_config())
+        is None
+    )
+
+
 def test_build_source_distribution_payload_warns_when_collapsing_time_bins():
     simulation, data, weights = distribution_simulation_and_data(time_bins=2)
 
@@ -104,7 +115,6 @@ def test_build_source_distribution_payload_rejects_invalid_config(config_update,
         ({"filter_energy": False}, "energy"),
         ({"child_type": 1}, "surface-mesh"),
         ({"surface_mesh": False}, "surface_mesh"),
-        ({"weights": np.zeros((2, 2, 2, 6, 2, 3))}, "zero total"),
     ],
 )
 def test_build_source_distribution_payload_rejects_invalid_tally(

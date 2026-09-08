@@ -309,6 +309,9 @@ mu_bins = np.linspace(-1.0, 1.0, 9)
 azi_bins = np.linspace(-np.pi, np.pi, 9)
 surface_mesh = (2, 2)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
+
+# Currently truncated to 20Mev, data is from the default 100km altitude. Data can be scaled
+# to realistic flight altitudes but it does not change the distribution, only the absolute flux values
 source_spectrum_path = EXAMPLE_DIR / "ecss_20MeV.csv"
 source_energy_ev, source_energy_pdf = np.loadtxt(
     source_spectrum_path, delimiter=",", skiprows=1, unpack=True

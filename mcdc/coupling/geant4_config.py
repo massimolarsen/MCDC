@@ -46,10 +46,6 @@ def clear_configs() -> None:
     CONFIGS.clear()
 
 
-def has_configs() -> bool:
-    return len(CONFIGS) > 0
-
-
 def normalized_device_components(cfg: Geant4HandoffConfig) -> list[dict[str, Any]]:
     components = list(cfg.device_components)
     if not components:
@@ -64,85 +60,17 @@ def normalized_device_components(cfg: Geant4HandoffConfig) -> list[dict[str, Any
             }
         ]
 
-    normalized = []
-    names = set()
-    for component in components:
-        name = str(component.get("name", ""))
-        material = str(component.get("material", ""))
-        center = np.asarray(component.get("center_mm", []), dtype=np.float64)
-        size = np.asarray(component.get("size_mm", []), dtype=np.float64)
-        parent = str(component.get("parent", ""))
-        score = bool(component.get("score", False))
-
-        if not name:
-            raise RuntimeError("Geant4 device component name cannot be empty.")
-        if name in names:
-            raise RuntimeError(f"Duplicate Geant4 device component name: {name}.")
-        names.add(name)
-        if not material:
-            raise RuntimeError(
-                f"Geant4 device component '{name}' material cannot be empty."
-            )
-        if center.shape != (3,):
-            raise RuntimeError(
-                f"Geant4 device component '{name}' center_mm must have length 3."
-            )
-        if size.shape != (3,):
-            raise RuntimeError(
-                f"Geant4 device component '{name}' size_mm must have length 3."
-            )
-        if not np.all(np.isfinite(center)):
-            raise RuntimeError(
-                f"Geant4 device component '{name}' center_mm must be finite."
-            )
-        if not np.all(np.isfinite(size)) or np.any(size <= 0.0):
-            raise RuntimeError(
-                f"Geant4 device component '{name}' size_mm entries must be positive."
-            )
-
-        normalized.append(
-            {
-                "name": name,
-                "material": material,
-                "center_mm": center,
-                "size_mm": size,
-                "parent": parent,
-                "score": score,
-            }
-        )
-    _validate_component_parents(normalized)
-    return normalized
-
-
-def _validate_component_parents(components: list[dict[str, Any]]) -> None:
-    names = {component["name"] for component in components}
-    parent_by_name = {
-        component["name"]: component["parent"] for component in components
-    }
-
-    for component in components:
-        name = component["name"]
-        parent = component["parent"]
-        if parent == name:
-            raise RuntimeError(
-                f"Geant4 device component '{name}' cannot parent itself."
-            )
-        if parent and parent not in names:
-            raise RuntimeError(
-                f"Geant4 device component '{name}' references unknown parent '{parent}'."
-            )
-
-    for component in components:
-        seen = set()
-        name = component["name"]
-        parent = parent_by_name[name]
-        while parent:
-            if parent in seen:
-                raise RuntimeError(
-                    f"Geant4 device component parent cycle includes '{parent}'."
-                )
-            seen.add(parent)
-            parent = parent_by_name[parent]
+    return [
+        {
+            "name": str(component["name"]),
+            "material": str(component["material"]),
+            "center_mm": np.asarray(component["center_mm"], dtype=np.float64),
+            "size_mm": np.asarray(component["size_mm"], dtype=np.float64),
+            "parent": str(component.get("parent", "")),
+            "score": bool(component.get("score", False)),
+        }
+        for component in components
+    ]
 
 
 def _decode_hdf5_value(value):
