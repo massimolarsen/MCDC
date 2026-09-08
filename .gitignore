@@ -51,6 +51,8 @@ tmp_*
 **/.DS_Store
 **/.idea
 *.csv
+!examples/cubesat_test/ecss_10GeV.csv
+!examples/cubesat_test/ecss_20MeV.csv
 
 # test cache
 .pytest_cache
