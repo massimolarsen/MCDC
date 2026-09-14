@@ -15,7 +15,7 @@ def geant4_output_path(filename):
 
 
 def bridge_build_dir():
-    return str(Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build")
+    return str(Path(__file__).resolve().parents[3] / "couple-mcdc-g4" / "build")
 
 
 def box_region(mcdc, name, x_span_cm, y_span_cm, z_span_cm, boundary="none"):

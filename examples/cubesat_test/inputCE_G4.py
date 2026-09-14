@@ -385,8 +385,8 @@ mcdc.settings.geant4_max_workers = 4
 mcdc.settings.geant4_n_threads = 2
 mcdc.settings.geant4_payload_dir = "geant4_payloads"
 
-BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple_mcdc_g4" / "build"
-n_geant4_particles = 1000000
+BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple-mcdc-g4" / "build"
+n_geant4_particles = 10000000
 geant4_random_seeds = {
     "obc": 10011,
     "eps": 10021,

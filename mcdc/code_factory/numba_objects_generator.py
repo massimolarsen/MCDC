@@ -498,7 +498,10 @@ def set_structure(label, structures, accessor_targets, annotations):
             hint_decoded = decode_annotated_ndarray(hint)
             hint_origin = hint_decoded["origin"]
             hint_origin_shape = hint_decoded["shape"]
-            hint_inner_dtype = get_args(hint_decoded["dtype"])[0]
+            dtype_args = get_args(hint_decoded["dtype"])
+            hint_inner_dtype = (
+                dtype_args[0] if len(dtype_args) > 0 else hint_decoded["dtype"]
+            )
             fixed_size_array = True
 
             # Mark as arbitrary size if string is used in shape
@@ -953,7 +956,14 @@ def decode_annotated_ndarray(hint):
     inner, metadata = get_args(hint)
     inner_origin = get_origin(inner)
     inner_args = get_args(inner)
-    shape_type, dtype_type = inner_args
+    # NumPy <2 exposed ndarray generic arguments as (shape, dtype), while
+    # NumPy 2 exposes NDArray[T] as the dtype-only form (T,).  Shapes for
+    # MC/DC's Annotated arrays are provided separately in ``metadata``.
+    if len(inner_args) == 1:
+        shape_type = None
+        dtype_type = inner_args[0]
+    else:
+        shape_type, dtype_type = inner_args
     return {
         "origin": inner_origin,
         "shape": metadata,

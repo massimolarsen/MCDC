@@ -4,6 +4,13 @@ import os
 import numpy as np
 import mcdc
 
+from cubesat_G4_devices import build_detector_sizes_mm, build_device_components
+
+EXAMPLE_DIR = Path(__file__).resolve().parent
+RUN_DIR = Path(os.environ.get("MCDC_RUN_DIR", EXAMPLE_DIR)).resolve()
+RUN_DIR.mkdir(parents=True, exist_ok=True)
+os.chdir(RUN_DIR)
+
 # =============================================================================
 # CARRE project — 1U CubeSat simplified geometry
 #
@@ -71,24 +78,6 @@ m_copper = mcdc.Material(
 # Void, rho=0.0 g/cm3, wt%: 100 void.
 m_void = mcdc.Material(name="Void", nuclide_composition={"Si28": 0.0})
 
-EXAMPLE_DIR = Path(__file__).resolve().parent
-# keep MCDC output_name short while still running from any directory
-os.chdir(EXAMPLE_DIR)
-BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple-mcdc-g4" / "build"
-
-source_energy_ev = 1.0e6
-energy_bins_ev = np.logspace(3.0, np.log10(1.01 * source_energy_ev), 21)
-mu_bins = np.linspace(-1.0, 1.0, 9)
-azi_bins = np.linspace(-np.pi, np.pi, 9)
-surface_mesh = (2, 2)
-n_geant4_particles = 100
-geant4_random_seeds = {
-    "obc": 1001,
-    "eps": 1002,
-    "adcs": 1003,
-    "comms": 1004,
-}
-
 # =============================================================================
 # BOX HELPER
 # =============================================================================
@@ -141,18 +130,8 @@ def g4_size_mm(bounds, padding_scale):
     )
 
 
-def centered_device_component(name, material, bounds):
-    return {
-        "name": name,
-        "material": material,
-        "center_mm": [0.0, 0.0, 0.0],
-        "size_mm": g4_size_mm(bounds, padding_scale=1.0),
-        "score": True,
-    }
-
-
 def geant4_output_path(filename):
-    return str(EXAMPLE_DIR / "geant4_h5" / filename)
+    return str(RUN_DIR / "geant4_h5" / filename)
 
 # =============================================================================
 # OUTER BOUNDARY
@@ -300,12 +279,8 @@ sensitive_volumes = [
     ("comms", comms_sv, comms_sv_bounds),
 ]
 
-device_components = {
-    "obc": [centered_device_component("obc_silicon", "G4_Si", obc_sv_bounds)],
-    "eps": [centered_device_component("eps_active_lco", "LiCoO2", eps_sv_bounds)],
-    "adcs": [centered_device_component("adcs_silicon", "G4_Si", adcs_sv_bounds)],
-    "comms": [centered_device_component("comms_silicon", "G4_Si", comms_sv_bounds)],
-}
+device_components = build_device_components()
+detector_sizes_mm = build_detector_sizes_mm()
 
 # =============================================================================
 # VOID FILL
@@ -317,8 +292,7 @@ all_component_cells = (
     [obc_board, obc_sv,
      eps_board, eps_sv,
      adcs_board, adcs_sv] +
-    [
-     comms_board, comms_sv]
+    [comms_board, comms_sv]
 )
 
 void_region = outer
@@ -329,20 +303,62 @@ void_cell = mcdc.Cell(region=void_region, fill=m_void)
 
 # =============================================================================
 # SOURCE
-# Debug source aimed upward through each sensitive volume from the -Z boundary.
+# Tabulated CE source, isotropic across all six boundary-cube faces.
 # =============================================================================
 
+mu_bins = np.linspace(-1.0, 1.0, 9)
+azi_bins = np.linspace(-np.pi, np.pi, 9)
+surface_mesh = (2, 2)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
 
-for _, _, bounds in sensitive_volumes:
-    x0, x1, y0, y1, _, _ = bounds
-    mcdc.Source(
-        x=[x0, x1],
-        y=[y0, y1],
+# Currently truncated to 20Mev, data is from the default 100km altitude. Data can be scaled
+# to realistic flight altitudes but it does not change the distribution, only the absolute flux values
+source_spectrum_path = EXAMPLE_DIR / "ecss_20MeV.csv"
+source_energy_ev, source_energy_pdf = np.loadtxt(
+    source_spectrum_path, delimiter=",", skiprows=1, unpack=True
+)
+if source_energy_ev.size < 2: raise ValueError(f"Invalid source spectrum: {source_spectrum_path}")
+energy_bins_ev = np.geomspace(source_energy_ev[0], source_energy_ev[-1], 21)
+
+boundary_sources = [
+    dict(
+        x=[boundary_x0 + source_inset, boundary_x0 + source_inset],
+        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
+        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
+    ),
+    dict(
+        x=[boundary_x1 - source_inset, boundary_x1 - source_inset],
+        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
+        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
+    ),
+    dict(
+        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
+        y=[boundary_y0 + source_inset, boundary_y0 + source_inset],
+        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
+    ),
+    dict(
+        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
+        y=[boundary_y1 - source_inset, boundary_y1 - source_inset],
+        z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
+    ),
+    dict(
+        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
+        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
         z=[boundary_z0 + source_inset, boundary_z0 + source_inset],
-        direction=[0.0, 0.0, 1.0],
-        energy=source_energy_ev,
-        probability=1.0 / len(sensitive_volumes),
+    ),
+    dict(
+        x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
+        y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
+        z=[boundary_z1 - source_inset, boundary_z1 - source_inset],
+    ),
+]
+
+for source_bounds in boundary_sources:
+    mcdc.Source(
+        **source_bounds,
+        isotropic=True,
+        energy=[source_energy_ev, source_energy_pdf],
+        probability=1.0 / 6.0,
     )
 
 # =============================================================================
@@ -365,20 +381,34 @@ for name, cell, _ in sensitive_volumes:
 # SETTINGS AND RUN
 # =============================================================================
 
+# set parllel g4 workers
+mcdc.settings.geant4_max_workers = 4
+mcdc.settings.geant4_n_threads = 2
+mcdc.settings.geant4_payload_dir = "geant4_payloads"
+
+BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple-mcdc-g4" / "build"
+n_geant4_particles = 10000
+geant4_random_seeds = {
+    "obc": 10011,
+    "eps": 10021,
+    "adcs": 10031,
+    "comms": 10041,
+}
+
 for i, (name, _, bounds) in enumerate(sensitive_volumes):
     handoff = dict(
         name=name,
         bridge_build_dir=str(BRIDGE_BUILD_DIR),
         world_size_mm=g4_size_mm(bounds, padding_scale=1.2),
-        detector_size_mm=g4_size_mm(bounds, padding_scale=1.0),
-        detector_material=device_components[name][0]["material"],
+        detector_size_mm=detector_sizes_mm[name],
+        detector_material="G4_Galactic",
         envelope_material="G4_Galactic",
         device_components=device_components[name],
         physics_list="QGSP_BIC",
         source_mode="distribution",
         n_geant4_particles=n_geant4_particles,
         source_tally_name=f"{name}_g4_source",
-        geant4_output_path=geant4_output_path(f"cubesat_debug_{name}_geant4.h5"),
+        geant4_output_path=geant4_output_path(f"cubesat_{name}_geant4.h5"),
         random_seed=geant4_random_seeds[name],
     )
     if i == 0:
@@ -386,6 +416,6 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 100
-mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4_dbg"
+mcdc.settings.N_particle = 10000
+mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
 mcdc.run()

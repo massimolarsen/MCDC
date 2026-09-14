@@ -190,6 +190,13 @@ def load_energy_distribution(data, h5_group: h5py.Group):
         temperature = np.array(data.temperatures)
         restriction_energy = np.array(data.restriction_energy)
 
+        # Some ACE evaporation spectra omit an explicit interpolation block.
+        # ACE's default for tabulated data is linear-linear; MC/DC requires the
+        # equivalent law and its terminal boundary explicitly.
+        if len(interpolations) == 0:
+            interpolations = ["linear"]
+            interpolation_boundaries = [len(energy)]
+
         h5_group.create_dataset("temperature_interpolations", data=interpolations)
         h5_group.create_dataset(
             "interpolation_boundaries", data=interpolation_boundaries
@@ -212,7 +219,13 @@ def load_energy_distribution(data, h5_group: h5py.Group):
         temperature = np.array(data.temperatures)
         restriction_energy = np.array(data.restriction_energy)
 
-        h5_group.create_dataset("temperature_interpolation", data=interpolations)
+        # Some ACE Maxwellian spectra omit an explicit interpolation block.
+        # Use ACE's linear-linear default in MC/DC's explicit representation.
+        if len(interpolations) == 0:
+            interpolations = ["linear"]
+            interpolation_boundaries = [len(energy)]
+
+        h5_group.create_dataset("temperature_interpolations", data=interpolations)
         h5_group.create_dataset(
             "interpolation_boundaries", data=interpolation_boundaries
         )
