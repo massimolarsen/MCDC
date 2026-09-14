@@ -90,20 +90,6 @@ def run():
     # TIMER: output
     time_output_start = MPI.Wtime()
 
-    # Optional Geant4 handoff coupling. This is intentionally outside the Numba
-    # transport kernels and runs only at a coarse simulation boundary. Under MPI,
-    # only rank 0 launches Geant4; other ranks wait at output/final synchronization.
-    if simulation["mpi_master"] and geant4_config.CONFIGS:
-        coupling_summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
-        print_module.print_msg(
-            " Geant4 handoff summary: "
-            f"n_regions={coupling_summary['n_regions']} "
-            f"source_size={coupling_summary['source_size']} "
-            f"loaded_primaries={coupling_summary['loaded_primaries']} "
-            f"events_run={coupling_summary['events_run']} "
-            f"status={coupling_summary['status']}"
-        )
-
     # Generate hdf5 output file
     output_module.generate_output(simulation, data)
 
@@ -125,11 +111,35 @@ def run():
     if master:
         print_module.print_runtime(simulation)
 
+    # MC/DC output and runtime datasets are closed before Geant4 starts, so
+    # completed transport results remain usable during a handoff or after failure.
+    # Keep workers inside the MPI job and propagate failures to every rank.
+    coupling_error = None
+    if geant4_config.CONFIGS:
+        if master:
+            try:
+                coupling_summary = geant4_handoff.run_handoff_from_simulation(
+                    simulation, data
+                )
+                print_module.print_msg(
+                    " Geant4 handoff summary: "
+                    f"n_regions={coupling_summary['n_regions']} "
+                    f"source_size={coupling_summary['source_size']} "
+                    f"loaded_primaries={coupling_summary['loaded_primaries']} "
+                    f"events_run={coupling_summary['events_run']} "
+                    f"status={coupling_summary['status']}"
+                )
+            except Exception as exc:
+                coupling_error = f"{type(exc).__name__}: {exc}"
+        coupling_error = MPI.COMM_WORLD.bcast(coupling_error, root=0)
+
     # ==================================================================================
     # Finalizing
     # ==================================================================================
 
     finalize(simulation)
+    if coupling_error is not None:
+        raise RuntimeError(coupling_error)
 
 
 # ======================================================================================
