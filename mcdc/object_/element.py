@@ -13,6 +13,7 @@ from mcdc.object_.electron_reaction import (
     ElectronReactionElasticScattering,
     ElectronReactionExcitation,
     ElectronReactionIonization,
+    read_energy,
 )
 from mcdc.print_ import print_error
 
@@ -111,7 +112,9 @@ class Element(MCDCObject):
         # Reaction XS
         # ==========================================================================
 
-        self.electron_xs_energy_grid = file["electron_reactions/xs_energy_grid"][()]
+        self.electron_xs_energy_grid = read_energy(
+            file["electron_reactions/xs_energy_grid"]
+        )
         self.electron_total_xs = np.zeros_like(self.electron_xs_energy_grid)
         self.electron_elastic_xs = np.zeros_like(self.electron_xs_energy_grid)
         self.electron_excitation_xs = np.zeros_like(self.electron_xs_energy_grid)
@@ -173,7 +176,7 @@ class Element(MCDCObject):
             h5_group = file[f"electron_reactions/ionization/{MTs['ionization'][0]}"]
             for name in h5_group["subshells"]:
                 subshell = h5_group[f"subshells/{name}"]
-                binding_energy.append(float(subshell["binding_energy"][()]))
+                binding_energy.append(float(read_energy(subshell["binding_energy"])))
 
         self.electron_ionization_subshell_binding_energy = np.asarray(binding_energy)
 

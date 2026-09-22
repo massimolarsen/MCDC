@@ -44,7 +44,7 @@ def load_elastic_angular_distribution(block, h5_group: h5py.Group):
 
     h5_group.create_dataset("energy_offset", data=offset)
     h5_group.create_dataset("value", data=np.array(value))
-    h5_group.create_dataset("cdf", data=np.array(cdf))
+    h5_group.create_dataset("CDF", data=np.array(cdf))
 
 
 def load_electroionization_subshell(block, h5_group: h5py.Group):
@@ -70,7 +70,7 @@ def load_electroionization_subshell(block, h5_group: h5py.Group):
     h5_group.create_dataset("energy_offset", data=offset)
     dataset = h5_group.create_dataset("value", data=np.array(value))
     dataset.attrs["unit"] = "MeV"
-    h5_group.create_dataset("cdf", data=np.array(cdf))
+    h5_group.create_dataset("CDF", data=np.array(cdf))
 
 
 # =============================================================================

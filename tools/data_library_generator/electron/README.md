@@ -29,8 +29,9 @@ For each element (Z=1 to Z=100) in the EPRDATA14 library, the generator:
 1. Loads all elemental tables from the single concatenated EPRDATA14 file.
 2. Extracts the shared cross section energy grid and pointwise cross sections
    (elastic, excitation, bremsstrahlung, and total ionization summed over subshells).
-3. Extracts the transport and total elastic cross sections and the tabulated
-   elastic scattering cosine CDFs per incident energy (MT-526).
+3. Extracts the total elastic cross section (MT-526), transport and large-angle
+   elastic cross sections, and tabulated elastic scattering cosine CDFs per
+   incident energy.
 4. Extracts the excitation average energy loss as a function of incident energy (MT-528).
 5. Extracts the bremsstrahlung average energy loss as a function of incident energy (MT-527).
 6. Extracts per-subshell ionization cross sections, binding energies, and knock-on
@@ -52,16 +53,17 @@ only CDFs for EPRDATA14; sampling from the CDF is handled on the MC/DC side.
 │   ├── elastic_scattering/
 │   │   └── MT-526/                             (attr: MT)
 │   │       ├── reference_frame                 (string: "LAB")
-│   │       ├── xs                              (1-D array, barns; attr: offset)
+│   │       ├── xs                              (1-D array, barns; attr: offset; total elastic)
 │   │       └── large_angle/                     (attr: MT = 525)
 │   │           ├── xs_energy                   (1-D array, MeV)
+│   │           ├── xs                         (1-D array, barns; large-angle elastic)
 │   │           ├── transport                   (1-D array, barns)
 │   │           ├── total                       (1-D array, barns)
 │   │           └── scattering_cosine/
 │   │               ├── energy_grid             (1-D array, MeV)
 │   │               ├── energy_offset           (1-D array, int)
 │   │               ├── value                   (1-D array, cosine)
-│   │               └── cdf                     (1-D array)
+│   │               └── CDF                     (1-D array)
 │   ├── excitation/
 │   │   └── MT-528/                             (attr: MT)
 │   │       ├── reference_frame                 (string: "LAB")
@@ -89,7 +91,7 @@ only CDFs for EPRDATA14; sampling from the CDF is handled on the MC/DC side.
 │                       ├── energy_grid         (1-D array, MeV)
 │                       ├── energy_offset       (1-D array, int)
 │                       ├── value               (1-D array, MeV)
-│                       └── cdf                 (1-D array)
+│                       └── CDF                 (1-D array)
 └── atomic_relaxation/
     └── MT-NNN/                                 (attrs: MT; subshell; one per ionization subshell, 534+)
         ├── number_of_transitions               (int)
