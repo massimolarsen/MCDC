@@ -16,7 +16,7 @@ os.chdir(RUN_DIR)
 #
 # Geometry is modeled with rectangular boxes. The CubeSat footprint is
 # x/y = 0->10 cm, the large rails span z = 0->11 cm, and the board stack is
-# vertically centered in that rail height. A 15 cm boundary cube surrounds the
+# vertically centered in that rail height. A 1 m boundary cube surrounds the
 # model and is centered at (5, 5, 5).
 #
 # Continuous-energy materials use the local HDF5 nuclear data library.
@@ -135,11 +135,11 @@ def geant4_output_path(filename):
 
 # =============================================================================
 # OUTER BOUNDARY
-# 15 cm x 15 cm x 15 cm vacuum cube centered on the CubeSat.
+# 100 cm x 100 cm x 100 cm vacuum cube centered on the CubeSat.
 # =============================================================================
 
 boundary_center = np.array([5.0, 5.0, 5.0])
-boundary_half_width = 7.5
+boundary_half_width = 50.0
 
 boundary_x0, boundary_y0, boundary_z0 = boundary_center - boundary_half_width
 boundary_x1, boundary_y1, boundary_z1 = boundary_center + boundary_half_width
@@ -303,13 +303,12 @@ void_cell = mcdc.Cell(region=void_region, fill=m_void)
 
 # =============================================================================
 # SOURCE
-# Tabulated CE source, uniformly white and directed inward across all six
-# boundary-cube faces.
+# Tabulated CE source, isotropic across all six boundary-cube faces.
 # =============================================================================
 
 mu_bins = np.linspace(-1.0, 1.0, 9)
 azi_bins = np.linspace(-np.pi, np.pi, 9)
-surface_mesh = (5, 5)
+surface_mesh = (3, 3)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
 
 # Currently truncated to 20Mev, data is from the default 100km altitude. Data can be scaled
@@ -319,50 +318,45 @@ source_energy_ev, source_energy_pdf = np.loadtxt(
     source_spectrum_path, delimiter=",", skiprows=1, unpack=True
 )
 if source_energy_ev.size < 2: raise ValueError(f"Invalid source spectrum: {source_spectrum_path}")
-energy_bins_ev = np.geomspace(source_energy_ev[0], source_energy_ev[-1], 41)
+energy_bins_ev = np.geomspace(source_energy_ev[0], source_energy_ev[-1], 21)
 
 boundary_sources = [
     dict(
         x=[boundary_x0 + source_inset, boundary_x0 + source_inset],
         y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
         z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-        white_direction=[1.0, 0.0, 0.0],
     ),
     dict(
         x=[boundary_x1 - source_inset, boundary_x1 - source_inset],
         y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
         z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-        white_direction=[-1.0, 0.0, 0.0],
     ),
     dict(
         x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
         y=[boundary_y0 + source_inset, boundary_y0 + source_inset],
         z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-        white_direction=[0.0, 1.0, 0.0],
     ),
     dict(
         x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
         y=[boundary_y1 - source_inset, boundary_y1 - source_inset],
         z=[boundary_z0 + source_inset, boundary_z1 - source_inset],
-        white_direction=[0.0, -1.0, 0.0],
     ),
     dict(
         x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
         y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
         z=[boundary_z0 + source_inset, boundary_z0 + source_inset],
-        white_direction=[0.0, 0.0, 1.0],
     ),
     dict(
         x=[boundary_x0 + source_inset, boundary_x1 - source_inset],
         y=[boundary_y0 + source_inset, boundary_y1 - source_inset],
         z=[boundary_z1 - source_inset, boundary_z1 - source_inset],
-        white_direction=[0.0, 0.0, -1.0],
     ),
 ]
 
 for source_bounds in boundary_sources:
     mcdc.Source(
         **source_bounds,
+        isotropic=True,
         energy=[source_energy_ev, source_energy_pdf],
         probability=1.0 / 6.0,
     )
@@ -393,7 +387,7 @@ mcdc.settings.geant4_n_threads = 2
 mcdc.settings.geant4_payload_dir = "geant4_payloads"
 
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple-mcdc-g4" / "build"
-n_geant4_particles = 10000000
+n_geant4_particles = 50000000
 geant4_random_seeds = {
     "obc": 10011,
     "eps": 10021,
@@ -422,6 +416,6 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 10000000
+mcdc.settings.N_particle = 50000000
 mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
 mcdc.run()
