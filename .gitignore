@@ -98,3 +98,7 @@ share/
 *.sif
 *_sandbox
 *.tar
+
+# Preserve complete CubeSat run records, including logs and environment metadata.
+!examples/cubesat_test/runs/
+!examples/cubesat_test/runs/**
