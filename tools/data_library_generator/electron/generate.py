@@ -177,6 +177,10 @@ for zaid, Z, symbol, mcdc_name in pbar:
         "total", data=np.array(elastic_xs_block.total)
     )
     dataset.attrs["unit"] = "barns"
+    dataset = large_angle_group.create_dataset(
+        "xs", data=np.array(elastic_xs_block.total)
+    )
+    dataset.attrs["unit"] = "barns"
 
     cosine_group = large_angle_group.create_group("scattering_cosine")
     util.load_elastic_angular_distribution(
