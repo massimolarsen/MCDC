@@ -25,6 +25,18 @@ from mcdc.print_ import print_1d_array
 # ======================================================================================
 
 
+def read_energy(dataset):
+    """Read an electron energy dataset in MC/DC's internal eV units."""
+
+    values = dataset[()]
+    unit = dataset.attrs.get("unit", "eV")
+    if isinstance(unit, bytes):
+        unit = unit.decode("utf-8")
+    if unit == "MeV":
+        values = values * 1e6
+    return values
+
+
 class ElectronReactionBase(ObjectPolymorphic):
     # Annotations for Numba mode
     label: str = "electron_reaction"
@@ -114,7 +126,7 @@ class ElectronReactionIonization(ElectronReactionBase):
             # Subshell cross section table (each has its own energy grid)
             subshell_xs.append(
                 DataTable(
-                    subshell["energy_grid"][()],
+                    read_energy(subshell["energy_grid"]),
                     subshell["xs"][()],
                     INTERPOLATION_LINEAR,
                 )
@@ -125,18 +137,18 @@ class ElectronReactionIonization(ElectronReactionBase):
             if "CDF" in product:
                 subshell_product.append(
                     DistributionMultiTable(
-                        product["energy_grid"][()],
+                        read_energy(product["energy_grid"]),
                         product["energy_offset"][()],
-                        product["value"][()],
+                        read_energy(product["value"]),
                         cdf=product["CDF"][()],
                     )
                 )
             else:
                 subshell_product.append(
                     DistributionMultiTable(
-                        product["energy_grid"][()],
+                        read_energy(product["energy_grid"]),
                         product["energy_offset"][()],
-                        product["value"][()],
+                        read_energy(product["value"]),
                         product["PDF"][()],
                     )
                 )
@@ -195,20 +207,22 @@ class ElectronReactionElasticScattering(ElectronReactionBase):
 
         large_angle = h5_group["large_angle"]
         xs_large = DataTable(
-            large_angle["xs_energy"][()], large_angle["xs"][()], INTERPOLATION_LINEAR
+            read_energy(large_angle["xs_energy"]),
+            large_angle["xs"][()],
+            INTERPOLATION_LINEAR,
         )
 
         mu_group = large_angle["scattering_cosine"]
         if "CDF" in mu_group:
             mu = DistributionMultiTable(
-                mu_group["energy_grid"][()],
+                read_energy(mu_group["energy_grid"]),
                 mu_group["energy_offset"][()],
                 mu_group["value"][()],
                 cdf=mu_group["CDF"][()],
             )
         else:
             mu = DistributionMultiTable(
-                mu_group["energy_grid"][()],
+                read_energy(mu_group["energy_grid"]),
                 mu_group["energy_offset"][()],
                 mu_group["value"][()],
                 mu_group["PDF"][()],
@@ -245,7 +259,11 @@ class ElectronReactionBremsstrahlung(ElectronReactionBase):
         MT, xs, xs_offset, reference_frame = set_basic_properties(h5_group)
 
         base = h5_group["energy_loss"]
-        eloss = DataTable(base["energy"][()], base["value"][()], INTERPOLATION_LINEAR)
+        eloss = DataTable(
+            read_energy(base["energy"]),
+            read_energy(base["value"]),
+            INTERPOLATION_LINEAR,
+        )
 
         return cls(MT, xs, xs_offset, reference_frame, eloss)
 
@@ -276,7 +294,11 @@ class ElectronReactionExcitation(ElectronReactionBase):
         MT, xs, xs_offset, reference_frame = set_basic_properties(h5_group)
 
         base = h5_group["energy_loss"]
-        eloss = DataTable(base["energy"][()], base["value"][()], INTERPOLATION_LINEAR)
+        eloss = DataTable(
+            read_energy(base["energy"]),
+            read_energy(base["value"]),
+            INTERPOLATION_LINEAR,
+        )
 
         return cls(MT, xs, xs_offset, reference_frame, eloss)
 

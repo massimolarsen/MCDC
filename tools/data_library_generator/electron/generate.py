@@ -140,6 +140,7 @@ for zaid, Z, symbol, mcdc_name in pbar:
     # xs_energy_grid: shared electron XS energy grid (MeV) used for all reactions
 
     xs0_block = ace_table.electron_cross_section_block
+    elastic_xs_block = ace_table.electron_elastic_cross_section_block
 
     xs_energy = np.array(xs0_block.energies)
     dataset = reactions.create_dataset("xs_energy_grid", data=xs_energy)
@@ -150,7 +151,7 @@ for zaid, Z, symbol, mcdc_name in pbar:
     ]
 
     for MT_group, xs_data in [
-        (elastic_MT, np.array(xs0_block.elastic)),
+        (elastic_MT, np.array(elastic_xs_block.total)),
         (excitation_MT, np.array(xs0_block.excitation)),
         (bremsstrahlung_MT, np.array(xs0_block.bremsstrahlung)),
         (ionization_MT, np.sum(electroionisation, axis=0)),
@@ -163,22 +164,19 @@ for zaid, Z, symbol, mcdc_name in pbar:
     # Elastic large-angle cross section and scattering cosine distribution
     # ==================================================================================
 
-    elastic_xs_block = ace_table.electron_elastic_cross_section_block
     large_angle_group = elastic_MT.create_group("large_angle")
     large_angle_group.attrs["MT"] = large_angle_elastic_mt
 
     dataset = large_angle_group.create_dataset("xs_energy", data=xs_energy)
     dataset.attrs["unit"] = "MeV"
+    dataset = large_angle_group.create_dataset("xs", data=np.array(xs0_block.elastic))
+    dataset.attrs["unit"] = "barns"
     dataset = large_angle_group.create_dataset(
         "transport", data=np.array(elastic_xs_block.transport)
     )
     dataset.attrs["unit"] = "barns"
     dataset = large_angle_group.create_dataset(
         "total", data=np.array(elastic_xs_block.total)
-    )
-    dataset.attrs["unit"] = "barns"
-    dataset = large_angle_group.create_dataset(
-        "xs", data=np.array(elastic_xs_block.total)
     )
     dataset.attrs["unit"] = "barns"
 
