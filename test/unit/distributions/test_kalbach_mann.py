@@ -36,3 +36,17 @@ def test_kalbach_mann_sample(mock_rng_sequence, make_distribution_record):
 
     np.testing.assert_allclose(sampled_E, expected_E, rtol=0.0, atol=1e-12)
     np.testing.assert_allclose(sampled_mu, expected_mu, rtol=0.0, atol=1e-12)
+
+
+def test_kalbach_mann_last_outgoing_table(mock_rng_sequence, make_distribution_record):
+    kalbach_dict, data = make_test_kalbach_mann_data()
+    kalbach_dict["energy_length"] = 2
+    kalbach_dict["offset_length"] = 2
+    kalbach = make_distribution_record(type_.kalbach_mann_distribution, kalbach_dict)
+    data = np.asarray(data, dtype=np.float64)
+
+    mock_rng = mock_rng_sequence(0.3, 0.1, 0.7, 0.5)
+    sampled_E, sampled_mu = dist.sample_kalbach_mann(2.0, mock_rng, kalbach, data)
+
+    np.testing.assert_allclose(sampled_E, 1.875, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(sampled_mu, 0.0, rtol=0.0, atol=1e-12)
