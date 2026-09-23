@@ -372,7 +372,7 @@ for name, cell, _ in sensitive_volumes:
 # =============================================================================
 
 mcdc.settings.set_transported_particles(["electron"])
-mcdc.settings.N_particle = 10
+mcdc.settings.N_particle = 1000
 mcdc.settings.active_bank_buffer = 1000
 mcdc.settings.output_name = "mcdc_h5/cubesat_E"
 mcdc.run()
