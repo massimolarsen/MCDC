@@ -463,7 +463,7 @@ def sample_kalbach_mann(E, rng_state, kalbach_mann, data):
     # Second table
     start = end
     if idx + 2 == len(grid):
-        end = kalbach_mann["energy_length"]
+        end = kalbach_mann["energy_out_length"]
     else:
         end = int(
             mcdc_get.kalbach_mann_distribution.offset(idx + 2, kalbach_mann, data)
@@ -482,7 +482,7 @@ def sample_kalbach_mann(E, rng_state, kalbach_mann, data):
     # Get the table range
     start = int(mcdc_get.kalbach_mann_distribution.offset(idx, kalbach_mann, data))
     if idx + 1 == len(grid):
-        end = kalbach_mann["energy_length"]
+        end = kalbach_mann["energy_out_length"]
     else:
         end = int(
             mcdc_get.kalbach_mann_distribution.offset(idx + 1, kalbach_mann, data)
