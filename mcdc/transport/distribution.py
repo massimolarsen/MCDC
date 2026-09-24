@@ -560,7 +560,7 @@ def sample_tabulated_energy_angle(E, rng_state, table, data):
     # Second table
     start = end
     if idx + 2 == len(grid):
-        end = table["energy_length"]
+        end = table["energy_out_length"]
     else:
         end = mcdc_get.tabulated_energy_angle_distribution.offset(idx + 2, table, data)
     E1_min = mcdc_get.tabulated_energy_angle_distribution.energy_out(start, table, data)
@@ -579,7 +579,7 @@ def sample_tabulated_energy_angle(E, rng_state, table, data):
     # Get the table range
     start = mcdc_get.tabulated_energy_angle_distribution.offset(idx, table, data)
     if idx + 1 == len(grid):
-        end = table["energy_length"]
+        end = table["energy_out_length"]
     else:
         end = mcdc_get.tabulated_energy_angle_distribution.offset(idx + 1, table, data)
     size = end - start
@@ -618,19 +618,19 @@ def sample_tabulated_energy_angle(E, rng_state, table, data):
     )
     E_new = E_min + (E_hat - E_low) / (E_high - E_low) * (E_max - E_min)
 
-    # Determine angular table index
+    # Determine angular table index (nearest outgoing energy point)
     if xi2 - cdf[idx] > cdf[idx + 1] - xi2:
-        idx += 1
+        idx_local += 1
 
     # Get the angular table range
     start = mcdc_get.tabulated_energy_angle_distribution.cosine_offset_(
-        idx, table, data
+        idx_local, table, data
     )
-    if idx + 1 == len(grid):
+    if idx_local + 1 == table["energy_out_length"]:
         end = table["cosine_length"]
     else:
         end = mcdc_get.tabulated_energy_angle_distribution.cosine_offset_(
-            idx + 1, table, data
+            idx_local + 1, table, data
         )
     size = end - start
 
