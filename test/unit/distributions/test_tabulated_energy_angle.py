@@ -36,9 +36,30 @@ def test_tabulated_energy_angle_sample(mock_rng_sequence, make_distribution_reco
     # For the angular table, Law 61 says the linear-interpolation case chooses the
     # tabular angular distribution whose CDF point is closest to the sampled xi_2.
     # Here xi_2 = 0.1 is tied between the first two CDF points in the selected energy
-    # bin, and the implementation keeps the lower index, so the first cosine table is
-    # used. Sampling that table gives mu = -1 + xi_3 / 0.5.
-    expected_mu = -1.0 + (xi3 - 0.0) / 0.5
+    # bin, and the implementation keeps the lower index, so the cosine table of the
+    # first outgoing point of the second energy table is used. Sampling that table
+    # gives mu = -0.5 + xi_3 / 0.2.
+    expected_mu = -0.5 + (xi3 - 0.0) / 0.2
 
     np.testing.assert_allclose(sampled_E, expected_E, rtol=0.0, atol=1e-12)
     np.testing.assert_allclose(sampled_mu, expected_mu, rtol=0.0, atol=1e-12)
+
+
+def test_tabulated_energy_angle_last_outgoing_table(
+    mock_rng_sequence, make_distribution_record
+):
+    table_dict, data = make_test_tabulated_energy_angle_data()
+    table_dict["energy_length"] = 2
+    table_dict["offset_length"] = 2
+    table = make_distribution_record(
+        type_.tabulated_energy_angle_distribution, table_dict
+    )
+    data = np.asarray(data, dtype=np.float64)
+
+    mock_rng = mock_rng_sequence(0.3, 0.1, 0.25)
+    sampled_E, sampled_mu = dist.sample_tabulated_energy_angle(
+        2.0, mock_rng, table, data
+    )
+
+    np.testing.assert_allclose(sampled_E, 1.875, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(sampled_mu, 0.75, rtol=0.0, atol=1e-12)

@@ -9,10 +9,12 @@ def make_test_tabulated_energy_angle_data():
     p_i_k = [0.5, 0.5, 0.5, 0.2, 0.2, 0.2]
     c_i_k = [0.0, 0.5, 1.0, 0.0, 0.2, 1.0]
 
-    L_i_k = [0.0, 3.0, 6.0]
-    mu_i_j = [-1.0, 0.0, 1.0, -0.5, 0.5, 1.0]
-    p_mu_i_j = [0.5, 0.5, 0.5, 0.2, 0.2, 0.2]
-    c_mu_i_j = [0.0, 0.5, 1.0, 0.0, 0.3, 1.0]
+    # One cosine table per outgoing energy point. Points in the first incident
+    # table share one angular table, and points in the second table share another.
+    L_i_k = [0.0, 3.0, 6.0, 9.0, 12.0, 15.0]
+    mu_i_j = [-1.0, 0.0, 1.0] * 3 + [-0.5, 0.5, 1.0] * 3
+    p_mu_i_j = [0.5, 0.5, 0.5] * 3 + [0.2, 0.2, 0.2] * 3
+    c_mu_i_j = [0.0, 0.5, 1.0] * 3 + [0.0, 0.3, 1.0] * 3
 
     data = np.array(
         Ei + L_i + E_i_k + p_i_k + c_i_k + L_i_k + mu_i_j + p_mu_i_j + c_mu_i_j,
