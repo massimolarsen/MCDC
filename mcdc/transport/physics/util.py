@@ -17,6 +17,14 @@ def evaluate_neutron_xs_energy_grid(e, nuclide, data):
     # Above is equivalent to: energy_grid = mcdc_get.nuclide.neutron_xs_energy_grid_all(nuclide, data)
 
     idx = find_bin(e, energy_grid)
+
+    # Off-grid energy: use the edge bin instead of indexing out of bounds
+    if idx == -1:
+        if e < energy_grid[0]:
+            idx = 0
+        else:
+            idx = length - 2
+
     e0 = energy_grid[idx]
     e1 = energy_grid[idx + 1]
     return idx, e0, e1

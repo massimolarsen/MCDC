@@ -111,6 +111,9 @@ def total_micro_xs(reaction_type, E, nuclide, data):
         # Should be unreachable
         xs0 = 0.0
         xs1 = 0.0
+
+    # Hold the edge value for off-grid energy
+    E = min(max(E, E0), E1)
     return linear_interpolation(E, E0, E1, xs0, xs1)
 
 
@@ -127,6 +130,9 @@ def reaction_micro_xs(E, reaction_base, nuclide, data):
 
     xs0 = mcdc_get.neutron_reaction.xs(idx, reaction_base, data)
     xs1 = mcdc_get.neutron_reaction.xs(idx + 1, reaction_base, data)
+
+    # Hold the edge value for off-grid energy
+    E = min(max(E, E0), E1)
     return linear_interpolation(E, E0, E1, xs0, xs1)
 
 
