@@ -211,8 +211,10 @@ for zaid, Z, symbol, mcdc_name in pbar:
     dataset = brems_group.create_dataset("energy", data=breml_energy)
     dataset.attrs["unit"] = "MeV"
 
+    # EPRDATA14 BREML stores EPICS2014's mean photon energy despite ACEtk's old name
+    # https://mcnp.lanl.gov/pdf_files/TechReport_2016_LANL_LA-UR-16-20840_Hughes.pdf section 3.3
     dataset = brems_group.create_dataset(
-        "value", data=breml_energy - np.array(breml_block.energy_after_bremsstrahlung)
+        "value", data=np.array(breml_block.energy_after_bremsstrahlung)
     )
     dataset.attrs["unit"] = "MeV"
 
