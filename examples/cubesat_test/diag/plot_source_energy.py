@@ -153,6 +153,8 @@ def plot_spatial_current(mcdc_path, output_path):
             _, all_spatial[region] = spatial_current(file, region)
 
     max_current = max(float(values.max()) for values in all_spatial.values())
+    if max_current == 0.0:
+        max_current = 1.0
     fig, axes = plt.subplots(
         len(REGIONS),
         len(face_labels),

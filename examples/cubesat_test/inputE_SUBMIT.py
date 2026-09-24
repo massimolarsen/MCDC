@@ -302,7 +302,7 @@ source_energy_ev, source_energy_pdf = np.loadtxt(
     source_spectrum_path, delimiter=",", skiprows=1, unpack=True
 )
 if source_energy_ev.size < 2: raise ValueError(f"Invalid source spectrum: {source_spectrum_path}")
-energy_bins_ev = np.geomspace(source_energy_ev[0], source_energy_ev[-1], 41)
+energy_bins_ev = np.geomspace(100.0, source_energy_ev[-1], 41)
 
 boundary_sources = [
     dict(
