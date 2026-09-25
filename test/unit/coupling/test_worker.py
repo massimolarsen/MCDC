@@ -4,7 +4,8 @@ import sys
 import h5py
 import numpy as np
 
-from mcdc.coupling import geant4_worker
+from mcdc.coupling import geant4_config, geant4_worker
+from mcdc.coupling.seu_diagnostics import write_diagnostic_tables
 
 
 def test_payload_round_trip_distribution(tmp_path):
@@ -60,7 +61,7 @@ def test_payload_round_trip_distribution(tmp_path):
     assert int(result["n_events"]) == 4
 
 
-def test_worker_real_subprocess_with_stub_bridge(tmp_path):
+def test_worker_distribution_subprocess_with_stub_bridge(tmp_path):
     bridge_dir = tmp_path / "bridge"
     bridge_dir.mkdir()
     (bridge_dir / "geant4_bridge.py").write_text(
@@ -75,6 +76,9 @@ class SessionConfig:
         self.physics_list = ""
         self.random_seed = 0
         self.n_threads = 1
+        self.em_production_cut_mm = 0.0
+        self.record_seu_events = False
+        self.diagnostic_min_Eion_mev = 0.001
 
 class DeviceComponent:
     pass
@@ -93,6 +97,22 @@ class Results:
     edep_spectrum_edep_mev = [1.5]
     edep_spectrum_underflow = 0
     edep_spectrum_overflow = 0
+    geant4_version = "11.4.0"
+    physics_list = "QGSP_BIC_HP"
+    em_production_cut_mm = 0.0
+    proton_production_cut_mm = 0.0
+    electronics_cut_materials = []
+    electronics_cut_energy_mev = []
+    component_niel_mev = [0.1]
+    component_ionizing_mev = [1.4]
+    seu_species_names = ["electron_positron", "proton", "neutron", "gamma", "alpha", "ion_recoil", "other"]
+    component_species_ionizing_mev = [1.4, 0, 0, 0, 0, 0, 0]
+    component_primary_ionizing_mev = [0.4]
+    component_secondary_ionizing_mev = [1.0]
+    component_event_ionizing_edges_mev = [0.001, 0.002]
+    component_event_ionizing_count = [0, 3, 0, 0]
+    component_event_ionizing_sumw = [0, 2.5, 0, 0]
+    component_event_ionizing_sumw2 = [0, 2.1, 0, 0]
 
 class Session:
     def __init__(self, config):
@@ -119,6 +139,8 @@ class Session:
         pass
     def get_results(self):
         return Results()
+    def close(self):
+        pass
 """,
         encoding="utf-8",
     )
@@ -128,8 +150,8 @@ class Session:
     geant4_worker.write_payload(
         payload_path,
         {
-            "name": "bank",
-            "source_mode": "bank",
+            "name": "distribution",
+            "source_mode": "distribution",
             "bridge_build_dir": str(bridge_dir),
             "geant4_output_path": str(output_path),
             "world_size_mm": (100.0, 100.0, 100.0),
@@ -146,7 +168,16 @@ class Session:
             "random_seed": 13579,
             "n_geant4_threads": 2,
             "source_size": 3,
-            "bank": np.ones((3, 10)),
+            "source_tally_name": "test_source",
+            "source_total_weight": 2.5,
+            "box_bounds_mm": np.asarray([[-1, 1], [-1, 1], [-1, 1]]),
+            "mu_edges": np.asarray([0.0, 1.0]),
+            "azi_edges": np.asarray([-np.pi, np.pi]),
+            "energy_edges_mev": np.asarray([1.0, 2.0]),
+            "weights": np.asarray([0, 0, 0, 0, 2.5, 0]),
+            "Nu": 1,
+            "Nv": 1,
+            "n_events": 3,
         },
     )
 
@@ -159,10 +190,32 @@ class Session:
 
     assert result.returncode == 0
     with h5py.File(output_path, "r") as file:
-        assert file["source_mode"][()].decode("utf-8") == "bank"
+        assert file["source_mode"][()].decode("utf-8") == "distribution"
         assert int(file["random_seed"][()]) == 13579
         assert int(file["n_geant4_threads"][()]) == 2
         assert int(file["events_run"][()]) == 3
         assert float(file["total_edep_mev"][()]) == 1.5
         assert file["component_names"][0].decode("utf-8") == "detector"
         assert float(file["component_edep_mev"][0]) == 1.5
+        assert float(file["component_ionizing_mev"][0]) == 1.4
+        assert file["component_species_ionizing_mev"].shape == (1, 7)
+        assert file["component_event_ionizing_count"].shape == (1, 4)
+        assert float(file["em_production_cut_mm"][()]) == 0.0
+        assert not bool(file["record_seu_events"][()])
+
+    stream_dir = tmp_path / "streams"
+    stream_dir.mkdir()
+    (stream_dir / "worker_0.tsv").write_text(
+        "E\t0\t2\t0\t0.5\t1.0\t0.1\t0.9\t0.2\t0.7\t0.7\t0.2\t0\t0\t0\t0\t0\n"
+        "M\t0\t2\t3\t0.4\t0\t0\t1\t0.2\n"
+        "I\t0\t2\t0\t4\t1\t2212\t3\t0\t0\t0\t0\t0\t1\thadElastic\t0\t0\t-1\t4\tdie\n"
+        "N\t0\t2\t4\t1\t2212\t4\t0\t0\t-1\tdie\thadElastic\n"
+    )
+    write_diagnostic_tables(output_path, stream_dir)
+    with h5py.File(output_path) as file:
+        details = file["seu_diagnostics"]
+        assert details["event_sv"][0]["event_id"] == 2
+        assert details["sv_entry"][0]["track_id"] == 4
+        assert details["nuclear_birth"][0]["track_id"] == 4
+        assert details["em_secondary_summary"][0]["electron_count"] == 3
+    assert geant4_config.read_summary_hdf5(str(output_path))["events_run"] == 3

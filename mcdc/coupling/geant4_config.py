@@ -17,6 +17,9 @@ class Geant4HandoffConfig:
     envelope_material: str = "G4_Galactic"
     device_components: list[dict[str, Any]] = field(default_factory=list)
     physics_list: str = "QGSP_BIC"
+    em_production_cut_mm: float = 0.0
+    record_seu_events: bool = False
+    diagnostic_min_Eion_mev: float = 0.001
     source_mode: str = "bank"
     n_geant4_particles: int = 0
     source_tally_name: str = ""
@@ -80,7 +83,8 @@ def _decode_hdf5_value(value):
         return value.astype(str)
     if isinstance(value, np.ndarray) and value.dtype.kind == "O":
         decode = np.vectorize(
-            lambda item: item.decode("utf-8") if isinstance(item, bytes) else item
+            lambda item: item.decode("utf-8") if isinstance(item, bytes) else item,
+            otypes=[object],
         )
         return decode(value)
     return value
@@ -90,5 +94,7 @@ def read_summary_hdf5(output_path: str) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     with h5py.File(output_path, "r") as file:
         for key, dataset in file.items():
+            if isinstance(dataset, h5py.Group):
+                continue
             summary[key] = _decode_hdf5_value(dataset[()])
     return summary

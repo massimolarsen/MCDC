@@ -1,7 +1,10 @@
 import pathlib
+import runpy
 import subprocess
 import threading
+from types import SimpleNamespace
 
+import h5py
 import numpy as np
 import pytest
 
@@ -235,6 +238,8 @@ def test_run_handoff_uses_configured_random_seed(monkeypatch, tmp_path):
         payload = geant4_worker.read_payload(cmd[-1])
         assert int(payload["random_seed"]) == 12345
         _write_fake_distribution_output(payload)
+        with h5py.File(payload["geant4_output_path"], "a") as file:
+            file.create_group("seu_diagnostics").create_dataset("event_sv", data=[1])
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -242,6 +247,41 @@ def test_run_handoff_uses_configured_random_seed(monkeypatch, tmp_path):
     summary = geant4_handoff.run_handoff_from_simulation(simulation, data)
 
     assert summary["regions"][0]["random_seed"] == 12345
+    with h5py.File(output_path) as file:
+        assert file["seu_diagnostics/event_sv"][0] == 1
+        assert file["worker_wall_s"][()] >= 0.0
+
+
+def test_payload_replay_preserves_diagnostics(monkeypatch, tmp_path):
+    runner = runpy.run_path(
+        str(pathlib.Path(__file__).resolve().parents[3]
+            / "examples/cubesat_test/run_geant4_payloads.py")
+    )
+    payload_path = tmp_path / "payload.h5"
+    output_path = tmp_path / "result.h5"
+    geant4_worker.write_payload(
+        payload_path,
+        {"name": "test", "source_mode": "distribution", "source_size": 1,
+         "geant4_output_path": str(output_path)},
+    )
+
+    def fake_run(cmd, capture_output, text, check):
+        geant4_worker.write_summary_hdf5(
+            {"events_run": 1, "status": "ok"}, str(output_path)
+        )
+        with h5py.File(output_path, "a") as file:
+            file.create_group("seu_diagnostics").create_dataset("event_sv", data=[1])
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    args = SimpleNamespace(n_events=None, output_dir=None, bridge_build_dir=None,
+                           threads=None)
+    runner["_run_one_payload"](
+        payload_path, args, geant4_worker, geant4_config.read_summary_hdf5
+    )
+    with h5py.File(output_path) as file:
+        assert file["seu_diagnostics/event_sv"][0] == 1
+        assert file["worker_wall_s"][()] >= 0.0
 
 
 def test_run_handoff_rejects_invalid_random_seed(monkeypatch):

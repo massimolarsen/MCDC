@@ -8,6 +8,8 @@ import sys
 import tempfile
 import time
 
+import h5py
+
 
 EXAMPLE_DIR = pathlib.Path(__file__).resolve().parent
 DEFAULT_PAYLOAD_DIR = EXAMPLE_DIR / "geant4_payloads"
@@ -153,7 +155,8 @@ def _run_one_payload(
 
     summary = read_summary_hdf5(str(output_path))
     summary["worker_wall_s"] = worker_wall_s
-    geant4_worker.write_summary_hdf5(summary, str(output_path))
+    with h5py.File(output_path, "a") as file:
+        file["worker_wall_s"] = worker_wall_s
     print(
         f" Geant4 payload '{name}': worker finished "
         f"events_run={summary['events_run']} "

@@ -410,7 +410,10 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
         detector_material="G4_Galactic",
         envelope_material="G4_Galactic",
         device_components=device_components[name],
-        physics_list="QGSP_BIC",
+        physics_list="QGSP_BIC_HP",
+        em_production_cut_mm=0.001,  # provisional; compare effective thresholds and cut convergence
+        record_seu_events=False,  # opt in to selected-event diagnostic tables
+        diagnostic_min_Eion_mev=0.001,
         source_mode="distribution",
         n_geant4_particles=n_geant4_particles,
         source_tally_name=f"{name}_g4_source",

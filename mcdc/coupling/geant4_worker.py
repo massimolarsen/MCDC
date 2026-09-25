@@ -4,7 +4,9 @@ import argparse
 import importlib.machinery
 import importlib.util
 import pathlib
+import shutil
 import sys
+import tempfile
 import time
 from typing import Any
 
@@ -13,8 +15,10 @@ import numpy as np
 
 try:
     from .geant4_config import _decode_hdf5_value
+    from .seu_diagnostics import write_diagnostic_tables
 except ImportError:
     from geant4_config import _decode_hdf5_value
+    from seu_diagnostics import write_diagnostic_tables
 
 
 ARRAY_FIELDS = {
@@ -139,6 +143,47 @@ def result_summary(
         "component_dose_gy": np.asarray(
             results.component_dose_gy, dtype=np.float64
         ),
+        "geant4_version": str(results.geant4_version),
+        "physics_list": str(results.physics_list),
+        "em_production_cut_mm": float(results.em_production_cut_mm),
+        "proton_production_cut_mm": float(results.proton_production_cut_mm),
+        "electronics_cut_materials": np.asarray(
+            results.electronics_cut_materials, dtype=str
+        ),
+        "electronics_cut_energy_mev": np.asarray(
+            results.electronics_cut_energy_mev, dtype=np.float64
+        ).reshape(-1, 4),
+        "electronics_cut_particles": np.asarray(["gamma", "e-", "e+", "proton"]),
+        "component_niel_mev": np.asarray(results.component_niel_mev, dtype=np.float64),
+        "component_ionizing_mev": np.asarray(
+            results.component_ionizing_mev, dtype=np.float64
+        ),
+        "seu_species_names": np.asarray(results.seu_species_names, dtype=str),
+        "component_species_ionizing_mev": np.asarray(
+            results.component_species_ionizing_mev, dtype=np.float64
+        ).reshape(len(results.component_names), len(results.seu_species_names)),
+        "component_primary_ionizing_mev": np.asarray(
+            results.component_primary_ionizing_mev, dtype=np.float64
+        ),
+        "component_secondary_ionizing_mev": np.asarray(
+            results.component_secondary_ionizing_mev, dtype=np.float64
+        ),
+        "component_event_ionizing_edges_mev": np.asarray(
+            results.component_event_ionizing_edges_mev, dtype=np.float64
+        ),
+        "component_event_ionizing_count": np.asarray(
+            results.component_event_ionizing_count, dtype=np.float64
+        ).reshape(len(results.component_names), -1),
+        "component_event_ionizing_sumw": np.asarray(
+            results.component_event_ionizing_sumw, dtype=np.float64
+        ).reshape(len(results.component_names), -1),
+        "component_event_ionizing_sumw2": np.asarray(
+            results.component_event_ionizing_sumw2, dtype=np.float64
+        ).reshape(len(results.component_names), -1),
+        "record_seu_events": bool(payload.get("record_seu_events", False)),
+        "diagnostic_min_Eion_mev": float(
+            payload.get("diagnostic_min_Eion_mev", 0.001)
+        ),
     }
     if timings is not None:
         summary.update(timings)
@@ -162,6 +207,19 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     session_cfg.physics_list = str(payload["physics_list"])
     session_cfg.random_seed = int(payload["random_seed"])
     session_cfg.n_threads = int(payload["n_geant4_threads"])
+    session_cfg.em_production_cut_mm = float(payload.get("em_production_cut_mm", 0.0))
+    session_cfg.record_seu_events = bool(payload.get("record_seu_events", False))
+    session_cfg.diagnostic_min_Eion_mev = float(
+        payload.get("diagnostic_min_Eion_mev", 0.001)
+    )
+    diagnostic_dir = None
+    if session_cfg.record_seu_events:
+        output_dir = pathlib.Path(payload["geant4_output_path"]).parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        diagnostic_dir = pathlib.Path(
+            tempfile.mkdtemp(prefix="mcdc_g4_seu_", dir=output_dir)
+        )
+        session_cfg.diagnostic_dir = str(diagnostic_dir)
     session_cfg.device_components = _bridge_components(bridge, payload)
 
     timings: dict[str, float] = {}
@@ -203,7 +261,9 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     else:
         timings["geant4_beam_cpu_per_wall"] = 0.0
 
-    summary = result_summary(session.get_results(), payload, timings)
+    results = session.get_results()
+    session.close()
+    summary = result_summary(results, payload, timings)
     if summary["events_run"] != summary["source_size"]:
         raise RuntimeError(
             "Geant4 events_run does not match source_size: "
@@ -211,6 +271,9 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
         )
 
     write_summary_hdf5(summary, str(payload["geant4_output_path"]))
+    if diagnostic_dir is not None:
+        write_diagnostic_tables(payload["geant4_output_path"], diagnostic_dir)
+        shutil.rmtree(diagnostic_dir)
     return summary
 
 

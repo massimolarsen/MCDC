@@ -9,6 +9,7 @@ import tempfile
 import time
 from typing import Any
 
+import h5py
 import numpy as np
 
 from mcdc.coupling.geant4_bank import (
@@ -215,7 +216,8 @@ def _run_one_region(
 
     summary["worker_wall_s"] = worker_wall_s
     if user_output:
-        geant4_worker.write_summary_hdf5(summary, str(output_path))
+        with h5py.File(output_path, "a") as file:
+            file["worker_wall_s"] = worker_wall_s
 
     if not retain_payload:
         pathlib.Path(payload_path).unlink(missing_ok=True)
@@ -262,6 +264,9 @@ def _build_region_payload(
         "detector_material": cfg.detector_material,
         "envelope_material": cfg.envelope_material,
         "physics_list": cfg.physics_list,
+        "em_production_cut_mm": float(cfg.em_production_cut_mm),
+        "record_seu_events": bool(cfg.record_seu_events),
+        "diagnostic_min_Eion_mev": float(cfg.diagnostic_min_Eion_mev),
         "random_seed": _random_seed(cfg),
         "n_geant4_threads": int(
             _setting(simulation["settings"], "geant4_n_threads", 1)
