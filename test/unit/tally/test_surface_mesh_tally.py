@@ -130,6 +130,45 @@ def test_cell_current_surface_mesh_face_order(material_mg):
         assert np.isclose(data[idx], 2.0)
 
 
+def test_cell_current_scores_on_coincident_surface(material_mg):
+    xmin = mcdc.Surface.PlaneX(x=-1.0)
+    xmax = mcdc.Surface.PlaneX(x=1.0)
+    ymin = mcdc.Surface.PlaneY(y=-1.0)
+    ymax = mcdc.Surface.PlaneY(y=1.0)
+    lower_bottom = mcdc.Surface.PlaneZ(z=-4.0)
+    lower_top = mcdc.Surface.PlaneZ(z=-3.0)
+    upper_bottom = mcdc.Surface.PlaneZ(z=-3.0)
+    upper_top = mcdc.Surface.PlaneZ(z=3.0)
+    sides = +xmin & -xmax & +ymin & -ymax
+    lower = mcdc.Cell(region=sides & +lower_bottom & -lower_top, fill=material_mg)
+    upper = mcdc.Cell(region=sides & +upper_bottom & -upper_top, fill=material_mg)
+
+    plain = mcdc.Tally(cell=upper, scores=["current-in"])
+    meshed = mcdc.Tally(cell=upper, scores=["current-in"], surface_mesh=(2, 2))
+    explicit = mcdc.Tally(surface=upper_bottom, cell=upper, scores=["current-in"])
+    mcdc_container, data = preparation()
+    mcdc_struct = mcdc_container[0]
+
+    assert plain in lower_top.tallies
+    assert meshed in lower_top.tallies
+    assert explicit not in lower_top.tallies
+
+    particle_container = _particle(lower_top.ID, 0.0, 0.0, -3.0, 0.0, 0.0, 1.0)
+    particle_container[0]["cell_ID"] = lower.ID
+    surface_crossing(particle_container, mcdc_struct, data)
+
+    plain_tally = mcdc_struct["surface_crossing_tallies"][plain.child_ID]
+    meshed_tally = mcdc_struct["surface_crossing_tallies"][meshed.child_ID]
+    explicit_tally = mcdc_struct["surface_crossing_tallies"][explicit.child_ID]
+    plain_offset = mcdc_struct["tallies"][plain_tally["parent_ID"]]["bin_offset"]
+    explicit_offset = mcdc_struct["tallies"][explicit_tally["parent_ID"]][
+        "bin_offset"
+    ]
+    assert data[plain_offset] == 2.0
+    assert data[_surface_mesh_bin_offset(meshed_tally, mcdc_struct, 4, 1, 1)] == 2.0
+    assert data[explicit_offset] == 0.0
+
+
 @pytest.mark.parametrize(
     "surface_index, position, direction, expected",
     [

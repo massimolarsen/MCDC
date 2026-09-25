@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(slab_e CXX)
+find_package(Geant4 REQUIRED)
+add_executable(slab_e main.cc)
+target_link_libraries(slab_e ${Geant4_LIBRARIES})
+target_include_directories(slab_e PRIVATE ${Geant4_INCLUDE_DIRS})
+target_compile_features(slab_e PRIVATE cxx_std_17)

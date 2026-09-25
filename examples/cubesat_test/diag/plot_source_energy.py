@@ -6,6 +6,7 @@ from pathlib import Path
 import h5py
 import matplotlib
 import numpy as np
+from matplotlib.colors import LogNorm
 
 
 matplotlib.use("Agg")
@@ -152,9 +153,16 @@ def plot_spatial_current(mcdc_path, output_path):
         for region in REGIONS[1:]:
             _, all_spatial[region] = spatial_current(file, region)
 
-    max_current = max(float(values.max()) for values in all_spatial.values())
-    if max_current == 0.0:
-        max_current = 1.0
+    positive_values = np.concatenate(
+        [values[values > 0.0] for values in all_spatial.values()]
+    )
+    if positive_values.size:
+        min_current = float(positive_values.min())
+        max_current = float(positive_values.max())
+        if min_current == max_current:
+            min_current /= 10.0
+    else:
+        min_current, max_current = 1.0e-12, 1.0
     fig, axes = plt.subplots(
         len(REGIONS),
         len(face_labels),
@@ -169,8 +177,7 @@ def plot_spatial_current(mcdc_path, output_path):
             image = ax.imshow(
                 all_spatial[region][col].T,
                 origin="lower",
-                vmin=0.0,
-                vmax=max_current,
+                norm=LogNorm(vmin=min_current, vmax=max_current),
                 aspect="equal",
             )
             if row == 0:

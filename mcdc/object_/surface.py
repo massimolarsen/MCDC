@@ -10,6 +10,7 @@ from mcdc.constant import (
     BC_NONE,
     BC_REFLECTIVE,
     BC_VACUUM,
+    COINCIDENCE_TOLERANCE,
     INF,
     SURFACE_CYLINDER_X,
     SURFACE_CYLINDER_Y,
@@ -1180,6 +1181,31 @@ def decode_type(type_):
         return "Torus-Z surface"
     elif type_ == SURFACE_TORUS:
         return "General torus surface"
+
+
+_COINCIDENCE_COEFFICIENTS = ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
+
+
+def static_surfaces_coincident(surface_a, surface_b, atol=COINCIDENCE_TOLERANCE):
+    if surface_a.moving or surface_b.moving or surface_a.quartic or surface_b.quartic:
+        return False
+
+    coefficients_a = np.array(
+        [getattr(surface_a, name) for name in _COINCIDENCE_COEFFICIENTS]
+    )
+    coefficients_b = np.array(
+        [getattr(surface_b, name) for name in _COINCIDENCE_COEFFICIENTS]
+    )
+    scale_a = np.max(np.abs(coefficients_a))
+    scale_b = np.max(np.abs(coefficients_b))
+    if scale_a == 0.0 or scale_b == 0.0:
+        return False
+
+    coefficients_a /= scale_a
+    coefficients_b /= scale_b
+    return np.allclose(
+        coefficients_a, coefficients_b, rtol=0.0, atol=atol
+    ) or np.allclose(coefficients_a, -coefficients_b, rtol=0.0, atol=atol)
 
 
 def decode_BC_type(type_):

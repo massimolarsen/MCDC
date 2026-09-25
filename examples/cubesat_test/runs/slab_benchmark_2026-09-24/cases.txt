@@ -1,0 +1,8 @@
+1.0e6 0.3 mcdc_E1MeV_T0.3
+4.0e6 0.3 mcdc_E4MeV_T0.3
+6.0e6 0.3 mcdc_E6MeV_T0.3
+1.0e7 0.3 mcdc_E10MeV_T0.3
+1.0e5 0.3 mcdc_E0.1MeV_T0.3
+2.55e5 0.3 mcdc_E0.255MeV_T0.3
+1.0e5 0.003 mcdc_E0.1MeV_T0.003
+2.55e5 0.012 mcdc_E0.255MeV_T0.012

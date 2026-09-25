@@ -24,8 +24,8 @@ from mcdc.constant import (
 )
 from mcdc.transport.data import evaluate_data
 from mcdc.transport.distribution import (
+    sample_correlated_multi_table,
     sample_distribution,
-    sample_multi_table,
 )
 from mcdc.transport.physics.util import (
     evaluate_electron_xs_energy_grid,
@@ -296,7 +296,9 @@ def elastic_scattering(reaction, particle_container, element, simulation, data):
         # ---------------------------------------------------------------------
 
         multi_table = simulation["multi_table_distributions"][reaction["mu_ID"]]
-        mu0 = sample_multi_table(E, particle_container, multi_table, simulation, data)
+        mu0 = sample_correlated_multi_table(
+            E, particle_container, multi_table, simulation, data
+        )
 
     else:
         # ---------------------------------------------------------------------

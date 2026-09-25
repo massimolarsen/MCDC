@@ -278,6 +278,19 @@ def preparation():
     from mcdc.code_factory.numba_objects_generator import generate_numba_objects
     from mcdc.code_factory.literals_generator import make_literals
 
+    from mcdc.object_.surface import static_surfaces_coincident
+
+    for tally in simulationPy.tallies:
+        if getattr(tally, "label", "") != "surface_crossing_tally":
+            continue
+        if not tally.cell_filtered or tally.surface_filtered:
+            continue
+        for boundary_surface in tally.cell.surfaces:
+            for surface in simulationPy.surfaces:
+                if static_surfaces_coincident(boundary_surface, surface):
+                    if tally not in surface.tallies:
+                        surface.tallies.append(tally)
+
     make_literals(simulationPy)
 
     simulation_container, data = generate_numba_objects(simulationPy)

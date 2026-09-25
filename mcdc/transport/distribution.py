@@ -185,11 +185,15 @@ def sample_tabulated(table, rng_state, simulation, data):
     Sample a value from a tabulated distribution.
     """
 
+    return sample_tabulated_at(table, rng.lcg(rng_state), simulation, data)
+
+
+@njit
+def sample_tabulated_at(table, xi, simulation, data):
     pdf_table = simulation["table_data"][table["pdf_ID"]]
 
     cdf = mcdc_get.table_data.aux_vector(0, pdf_table, data)
 
-    xi = rng.lcg(rng_state)
     idx = find_bin(xi, cdf)
 
     c0 = mcdc_get.table_data.aux(0, idx, pdf_table, data)
@@ -293,6 +297,38 @@ def sample_white_direction(nx, ny, nz, rng_state):
 @njit
 def sample_multi_table(E, rng_state, multi_table, simulation, data):
     return _sample_multi_table(E, rng_state, multi_table, simulation, data, False)
+
+
+@njit
+def sample_correlated_multi_table(E, rng_state, multi_table, simulation, data):
+    """Interpolate neighboring tables at the same sampled quantile."""
+
+    offset = multi_table["grid_offset"]
+    length = multi_table["grid_length"]
+    grid = data[offset : offset + length]
+    xi = rng.lcg(rng_state)
+
+    if E <= grid[0]:
+        idx = 0
+    elif E >= grid[-1]:
+        idx = length - 1
+    else:
+        idx = find_bin(E, grid)
+
+    ID = int(mcdc_get.multi_table_distribution.table_IDs(idx, multi_table, data))
+    table = simulation["tabulated_distributions"][ID]
+    sample = sample_tabulated_at(table, xi, simulation, data)
+
+    if E <= grid[0] or E >= grid[-1] or E == grid[idx]:
+        return sample
+
+    ID_next = int(
+        mcdc_get.multi_table_distribution.table_IDs(idx + 1, multi_table, data)
+    )
+    table_next = simulation["tabulated_distributions"][ID_next]
+    sample_next = sample_tabulated_at(table_next, xi, simulation, data)
+    f = (E - grid[idx]) / (grid[idx + 1] - grid[idx])
+    return sample + f * (sample_next - sample)
 
 
 @njit

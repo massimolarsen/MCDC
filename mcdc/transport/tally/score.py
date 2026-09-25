@@ -38,6 +38,62 @@ from mcdc.transport.tally.filter import get_filter_indices
 
 
 @njit
+def _static_surfaces_coincident(surface_a, surface_b):
+    if surface_a["moving"] or surface_b["moving"]:
+        return False
+    if surface_a["quartic"] or surface_b["quartic"]:
+        return False
+
+    coefficients_a = (
+        surface_a["A"],
+        surface_a["B"],
+        surface_a["C"],
+        surface_a["D"],
+        surface_a["E"],
+        surface_a["F"],
+        surface_a["G"],
+        surface_a["H"],
+        surface_a["I"],
+        surface_a["J"],
+    )
+    coefficients_b = (
+        surface_b["A"],
+        surface_b["B"],
+        surface_b["C"],
+        surface_b["D"],
+        surface_b["E"],
+        surface_b["F"],
+        surface_b["G"],
+        surface_b["H"],
+        surface_b["I"],
+        surface_b["J"],
+    )
+    scale_a = 0.0
+    scale_b = 0.0
+    for i in range(10):
+        scale_a = max(scale_a, abs(coefficients_a[i]))
+        scale_b = max(scale_b, abs(coefficients_b[i]))
+    if scale_a == 0.0 or scale_b == 0.0:
+        return False
+
+    same = True
+    opposite = True
+    for i in range(10):
+        a = coefficients_a[i] / scale_a
+        b = coefficients_b[i] / scale_b
+        same = same and abs(a - b) <= COINCIDENCE_TOLERANCE
+        opposite = opposite and abs(a + b) <= COINCIDENCE_TOLERANCE
+    return same or opposite
+
+
+@njit
+def _matches_mesh_face(surface, surface_ID, face_ID, simulation):
+    return surface_ID == face_ID or _static_surfaces_coincident(
+        surface, simulation["surfaces"][face_ID]
+    )
+
+
+@njit
 def _surface_mesh_bin(value, lower, upper, N):
     width = (upper - lower) / N
     if value <= lower + COINCIDENCE_TOLERANCE:
@@ -53,7 +109,7 @@ def _surface_mesh_bin(value, lower, upper, N):
 
 
 @njit
-def _surface_mesh_indices(particle, surface, tally):
+def _surface_mesh_indices(particle, surface, tally, simulation):
     surface_ID = surface["ID"]
     i_face = -1
     u_value = 0.0
@@ -64,7 +120,9 @@ def _surface_mesh_indices(particle, surface, tally):
     v_max = 0.0
 
     # face-local convention: xmin, xmax, ymin, ymax, zmin, zmax
-    if surface_ID == tally["surface_mesh_xmin_surface_ID"]:
+    if _matches_mesh_face(
+        surface, surface_ID, tally["surface_mesh_xmin_surface_ID"], simulation
+    ):
         i_face = 0
         u_value = particle["y"]
         v_value = particle["z"]
@@ -72,7 +130,9 @@ def _surface_mesh_indices(particle, surface, tally):
         u_max = tally["surface_mesh_y_max"]
         v_min = tally["surface_mesh_z_min"]
         v_max = tally["surface_mesh_z_max"]
-    elif surface_ID == tally["surface_mesh_xmax_surface_ID"]:
+    elif _matches_mesh_face(
+        surface, surface_ID, tally["surface_mesh_xmax_surface_ID"], simulation
+    ):
         i_face = 1
         u_value = particle["y"]
         v_value = particle["z"]
@@ -80,7 +140,9 @@ def _surface_mesh_indices(particle, surface, tally):
         u_max = tally["surface_mesh_y_max"]
         v_min = tally["surface_mesh_z_min"]
         v_max = tally["surface_mesh_z_max"]
-    elif surface_ID == tally["surface_mesh_ymin_surface_ID"]:
+    elif _matches_mesh_face(
+        surface, surface_ID, tally["surface_mesh_ymin_surface_ID"], simulation
+    ):
         i_face = 2
         u_value = particle["x"]
         v_value = particle["z"]
@@ -88,7 +150,9 @@ def _surface_mesh_indices(particle, surface, tally):
         u_max = tally["surface_mesh_x_max"]
         v_min = tally["surface_mesh_z_min"]
         v_max = tally["surface_mesh_z_max"]
-    elif surface_ID == tally["surface_mesh_ymax_surface_ID"]:
+    elif _matches_mesh_face(
+        surface, surface_ID, tally["surface_mesh_ymax_surface_ID"], simulation
+    ):
         i_face = 3
         u_value = particle["x"]
         v_value = particle["z"]
@@ -96,7 +160,9 @@ def _surface_mesh_indices(particle, surface, tally):
         u_max = tally["surface_mesh_x_max"]
         v_min = tally["surface_mesh_z_min"]
         v_max = tally["surface_mesh_z_max"]
-    elif surface_ID == tally["surface_mesh_zmin_surface_ID"]:
+    elif _matches_mesh_face(
+        surface, surface_ID, tally["surface_mesh_zmin_surface_ID"], simulation
+    ):
         i_face = 4
         u_value = particle["x"]
         v_value = particle["y"]
@@ -104,7 +170,9 @@ def _surface_mesh_indices(particle, surface, tally):
         u_max = tally["surface_mesh_x_max"]
         v_min = tally["surface_mesh_y_min"]
         v_max = tally["surface_mesh_y_max"]
-    elif surface_ID == tally["surface_mesh_zmax_surface_ID"]:
+    elif _matches_mesh_face(
+        surface, surface_ID, tally["surface_mesh_zmax_surface_ID"], simulation
+    ):
         i_face = 5
         u_value = particle["x"]
         v_value = particle["y"]
@@ -207,7 +275,7 @@ def surface_crossing_tally(
     entered_filter_cell = not was_in_filter_cell and now_in_filter_cell
     exited_filter_cell = was_in_filter_cell and not now_in_filter_cell
     if tally["use_surface_mesh"]:
-        i_face, i_u, i_v = _surface_mesh_indices(particle, surface, tally)
+        i_face, i_u, i_v = _surface_mesh_indices(particle, surface, tally, simulation)
         if i_face == -1 or i_u == -1 or i_v == -1:
             return
         idx_base += (
