@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 
 - Correct ACEtk electron data loading units, elastic cross-section assignments, and CDF dataset names, from [@massimolarsen]
 - Improve tally variance accuracy with stable online statistics and parallel moment merging; require multiple batches for fixed-source time-census and GPU transport, from [@ilhamv]
+- Fix UCX transport errors in MPI runs on the unit-test and Numba-support CI workflows by restricting `UCX_TLS` to `self,sm,tcp`, from [@melekderman]
 
 ### Security
 

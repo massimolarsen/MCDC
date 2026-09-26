@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+env:
+  UCX_TLS: self,sm,tcp
+
 jobs:
   unit-test:
     name: (py${{ matrix.python-version }})

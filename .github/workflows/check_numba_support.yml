@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  UCX_TLS: self,sm,tcp
+
 jobs:
   check-numba-support:
     runs-on: ubuntu-latest
