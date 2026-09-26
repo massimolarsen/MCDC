@@ -29,9 +29,9 @@ def load_elastic_angular_distribution(block, h5_group: h5py.Group):
     Stores incident energy grid, scattering cosine grid, and CDF per energy.
     Note: ACEtk provides CDF only (no PDF) for electron elastic angular data.
     """
-    energies = np.array(block.energies)
+    energies = np.array(block.energies) * MEV_TO_EV
     dataset = h5_group.create_dataset("energy_grid", data=energies)
-    dataset.attrs["unit"] = "MeV"
+    dataset.attrs["unit"] = "eV"
 
     NE = len(energies)
     offset = np.zeros(NE, dtype=int)
@@ -54,9 +54,9 @@ def load_electroionization_subshell(block, h5_group: h5py.Group):
     CDF per incident energy.
     Note: ACEtk provides CDF only (no PDF) for electroionization distributions.
     """
-    energies = np.array(block.energies)
+    energies = np.array(block.energies) * MEV_TO_EV
     dataset = h5_group.create_dataset("energy_grid", data=energies)
-    dataset.attrs["unit"] = "MeV"
+    dataset.attrs["unit"] = "eV"
 
     NE = len(energies)
     offset = np.zeros(NE, dtype=int)
@@ -68,14 +68,16 @@ def load_electroionization_subshell(block, h5_group: h5py.Group):
         cdf.extend(dist.cdf)
 
     h5_group.create_dataset("energy_offset", data=offset)
-    dataset = h5_group.create_dataset("value", data=np.array(value))
-    dataset.attrs["unit"] = "MeV"
+    dataset = h5_group.create_dataset("value", data=np.array(value) * MEV_TO_EV)
+    dataset.attrs["unit"] = "eV"
     h5_group.create_dataset("CDF", data=np.array(cdf))
 
 
 # =============================================================================
 # Constants
 # =============================================================================
+
+MEV_TO_EV = 1e6
 
 ELECTRON_MF_CROSS_SECTIONS = 23
 ELECTRON_MF_DISTRIBUTIONS = 26

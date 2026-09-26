@@ -2,6 +2,10 @@
 Converts EPRDATA14 ACE-format electron/photon/relaxation data into MC/DC's
 per-element HDF5 format for continuous-energy electron transport.
 
+ACE input energies are in MeV. The generator converts all energy datasets,
+including atomic relaxation energies, to eV when writing the HDF5 library to
+match MC/DC's electron transport units. Cross sections remain in barns.
+
 ## Prerequisites
 
 - Installing ACEtk from source: [link](https://github.com/njoy/ACEtk)
@@ -15,7 +19,11 @@ per-element HDF5 format for continuous-energy electron transport.
 | `MCDC_LIB_ELECTRON`    | Path to the output directory for MC/DC HDF5 files. |
 
 ## Usage
+
+Set `PYTHONPATH` to include your ACEtk build's `python` directory:
+
 ```bash
+export PYTHONPATH="/path/to/ACEtk/build/python${PYTHONPATH:+:$PYTHONPATH}"
 export MCDC_ACELIB_ELECTRON=/path/to/eprdata14/eprdata14/eprdata14
 export MCDC_LIB_ELECTRON=/path/to/mcdc/electron/library
 
@@ -49,18 +57,18 @@ only CDFs for EPRDATA14; sampling from the CDF is handled on the MC/DC side.
 ├── atomic_number                               (int)
 ├── atomic_weight_ratio                         (float)
 ├── electron_reactions/
-│   ├── xs_energy_grid                          (1-D array, MeV)
+│   ├── xs_energy_grid                          (1-D array, eV)
 │   ├── elastic_scattering/
 │   │   └── MT-526/                             (attr: MT)
 │   │       ├── reference_frame                 (string: "LAB")
 │   │       ├── xs                              (1-D array, barns; attr: offset; total elastic)
 │   │       └── large_angle/                     (attr: MT = 525)
-│   │           ├── xs_energy                   (1-D array, MeV)
+│   │           ├── xs_energy                   (1-D array, eV)
 │   │           ├── xs                         (1-D array, barns; large-angle elastic)
 │   │           ├── transport                   (1-D array, barns)
 │   │           ├── total                       (1-D array, barns)
 │   │           └── scattering_cosine/
-│   │               ├── energy_grid             (1-D array, MeV)
+│   │               ├── energy_grid             (1-D array, eV)
 │   │               ├── energy_offset           (1-D array, int)
 │   │               ├── value                   (1-D array, cosine)
 │   │               └── CDF                     (1-D array)
@@ -69,35 +77,35 @@ only CDFs for EPRDATA14; sampling from the CDF is handled on the MC/DC side.
 │   │       ├── reference_frame                 (string: "LAB")
 │   │       ├── xs                              (1-D array, barns; attr: offset)
 │   │       └── energy_loss/
-│   │           ├── energy                      (1-D array, MeV)
-│   │           └── value                       (1-D array, MeV)
+│   │           ├── energy                      (1-D array, eV)
+│   │           └── value                       (1-D array, eV)
 │   ├── bremsstrahlung/
 │   │   └── MT-527/                             (attr: MT)
 │   │       ├── reference_frame                 (string: "LAB")
 │   │       ├── xs                              (1-D array, barns; attr: offset)
 │   │       └── energy_loss/
-│   │           ├── energy                      (1-D array, MeV)
-│   │           └── value                       (1-D array, MeV)
+│   │           ├── energy                      (1-D array, eV)
+│   │           └── value                       (1-D array, eV)
 │   └── ionization/
 │       └── MT-522/                             (attr: MT; all subshells grouped here)
 │           ├── reference_frame                 (string: "LAB")
 │           ├── xs                              (1-D array, barns; attr: offset; sum over subshells)
 │           └── subshells/
 │               └── MT-NNN/                     (attrs: MT = ENDF subshell MT, 534+; subshell)
-│                   ├── energy_grid             (1-D array, MeV)
+│                   ├── energy_grid             (1-D array, eV)
 │                   ├── xs                      (1-D array, barns)
-│                   ├── binding_energy          (float, MeV)
+│                   ├── binding_energy          (float, eV)
 │                   └── product/
-│                       ├── energy_grid         (1-D array, MeV)
+│                       ├── energy_grid         (1-D array, eV)
 │                       ├── energy_offset       (1-D array, int)
-│                       ├── value               (1-D array, MeV)
+│                       ├── value               (1-D array, eV)
 │                       └── CDF                 (1-D array)
 └── atomic_relaxation/
     └── MT-NNN/                                 (attrs: MT; subshell; one per ionization subshell, 534+)
         ├── number_of_transitions               (int)
         ├── primary_designator                  (1-D array, int)   [if number_of_transitions > 0]
         ├── secondary_designator                (1-D array, int)   [if number_of_transitions > 0]
-        ├── energy                              (1-D array, MeV)   [if number_of_transitions > 0]
+        ├── energy                              (1-D array, eV)   [if number_of_transitions > 0]
         └── probability                         (1-D array)        [if number_of_transitions > 0]
 ```
 
