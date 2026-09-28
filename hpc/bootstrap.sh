@@ -2,7 +2,6 @@
 # Explicit provisioning only: never called by env.sh.
 set -eo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/stack.sh"
-module load cmake/3.27.9
 if [[ -e "$MCDC_G4_BUILD" ]]; then
     echo "Refusing to reuse $MCDC_G4_BUILD. Choose a new MCDC_G4_BUILD." >&2
     exit 1

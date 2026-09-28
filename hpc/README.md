@@ -10,20 +10,22 @@ python inputCE_G4.py --mode=numba
 
 `env.sh` works from any directory and can also be sourced by batch scripts.
 It deactivates an existing Python virtualenv, resets modules, activates the
-shared environment, sources Geant4, and configures data/cache paths. It does
+shared environment, sources Geant4, adds the bridge build to `PYTHONPATH`,
+and configures data/cache paths. It does
 not install packages, launch simulations, change directory, or set shell
 options. Start with a fresh Bash shell if Conda is active.
 
-`stack.sh` is the common build/runtime configuration: GCC 10.3, Python 3.13,
-MPICH 4.0h (runtime reports 4.0.2), and the existing Geant4 11.2.1 installation.
+`stack.sh` is the common build/runtime configuration: GCC 12.5, Python 3.13,
+MPICH 4.0h (runtime reports 4.0.2), CMake 3.27.9, and Geant4 11.3.2.
 The captured interpreter is Python 3.13.13; bootstrap checks this patch version.
 Module aliases, especially `slurm/current`, can change. This setup depends on
 the cluster retaining its installations.
 
 Defaults use sibling `venvs/mcdc-g4`, `couple-mcdc-g4`, and
 `nuclear-data/mcdc-hdf5` directories. Export `MCDC_G4_VENV`, `MCDC_G4_SOURCE`,
-`MCDC_G4_BUILD`, `MCDC_G4_SETUP`, `Geant4_DIR`, or `MCDC_LIB` to override paths.
-When switching Geant4, set both setup and CMake paths to matching locations.
+`MCDC_G4_BUILD`, `MCDC_G4_SETUP`, or `MCDC_LIB` to override paths.
+`Geant4_DIR` is derived from `MCDC_G4_SETUP` so the setup and CMake package match.
+An inherited Geant4 11.2.1 setup path is replaced with the new default.
 
 ## Rebuild explicitly
 

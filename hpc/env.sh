@@ -10,6 +10,14 @@ if [[ ! -x "$MCDC_G4_VENV/bin/python" ]]; then
     return 1
 fi
 source "$MCDC_G4_VENV/bin/activate" || return 1
+if [[ ! -d "$MCDC_G4_BUILD" ]] || ! compgen -G "$MCDC_G4_BUILD/geant4_bridge*.so" >/dev/null; then
+    echo "Missing Geant4 bridge build: $MCDC_G4_BUILD. Run bash hpc/bootstrap.sh first." >&2
+    return 1
+fi
+case ":${PYTHONPATH:-}:" in
+    *":$MCDC_G4_BUILD:"*) ;;
+    *) export PYTHONPATH="$MCDC_G4_BUILD${PYTHONPATH:+:$PYTHONPATH}" ;;
+esac
 if [[ ! -d "$MCDC_LIB" ]]; then
     echo "Missing nuclear data directory: $MCDC_LIB" >&2
     return 1
