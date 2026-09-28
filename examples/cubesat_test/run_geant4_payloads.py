@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import concurrent.futures
 import pathlib
 import subprocess
@@ -13,6 +14,8 @@ import h5py
 
 EXAMPLE_DIR = pathlib.Path(__file__).resolve().parent
 DEFAULT_PAYLOAD_DIR = EXAMPLE_DIR / "geant4_payloads"
+REPLAY_PHYSICS_LIST = "QGSP_BIC_HP"
+REPLAY_EM_PRODUCTION_CUT_MM = 0.001
 
 
 def main() -> int:
@@ -100,34 +103,31 @@ def _run_one_payload(
 ) -> dict:
     payload = geant4_worker.read_payload(payload_path)
     name = str(payload["name"])
-    run_payload_path = payload_path
-    temp_payload_path = None
-
-    if _needs_payload_rewrite(args):
-        payload = dict(payload)
-        if args.n_events is not None:
-            if str(payload["source_mode"]) != "distribution":
-                raise RuntimeError("--n-events override only supports distribution mode")
-            payload["n_events"] = int(args.n_events)
-            payload["source_size"] = int(args.n_events)
-        if args.output_dir is not None:
-            output_dir = pathlib.Path(args.output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
-            payload["geant4_output_path"] = str(
-                output_dir / pathlib.Path(str(payload["geant4_output_path"])).name
-            )
-        if args.bridge_build_dir is not None:
-            payload["bridge_build_dir"] = str(pathlib.Path(args.bridge_build_dir))
-        if args.threads is not None:
-            payload["n_geant4_threads"] = int(args.threads)
-
-        handle = tempfile.NamedTemporaryFile(
-            prefix=f"mcdc_g4_replay_{name}_", suffix=".h5", delete=False
+    payload["physics_list"] = REPLAY_PHYSICS_LIST
+    payload["em_production_cut_mm"] = REPLAY_EM_PRODUCTION_CUT_MM
+    payload["record_seu_events"] = False
+    payload["diagnostic_min_Eion_mev"] = 0.001
+    if args.n_events is not None:
+        if str(payload["source_mode"]) != "distribution":
+            raise RuntimeError("--n-events override only supports distribution mode")
+        payload["n_events"] = int(args.n_events)
+        payload["source_size"] = int(args.n_events)
+    if args.output_dir is not None:
+        output_dir = pathlib.Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        payload["geant4_output_path"] = str(
+            output_dir / pathlib.Path(str(payload["geant4_output_path"])).name
         )
-        handle.close()
+    if args.bridge_build_dir is not None:
+        payload["bridge_build_dir"] = str(pathlib.Path(args.bridge_build_dir))
+    if args.threads is not None:
+        payload["n_geant4_threads"] = int(args.threads)
+
+    with tempfile.NamedTemporaryFile(
+        prefix=f"mcdc_g4_replay_{name}_", suffix=".h5", delete=False
+    ) as handle:
         temp_payload_path = pathlib.Path(handle.name)
-        geant4_worker.write_payload(temp_payload_path, payload)
-        run_payload_path = temp_payload_path
+    geant4_worker.write_payload(temp_payload_path, payload)
 
     output_path = pathlib.Path(str(payload["geant4_output_path"]))
     worker_path = pathlib.Path(geant4_worker.__file__).resolve()
@@ -138,19 +138,25 @@ def _run_one_payload(
     )
     sys.stdout.flush()
     worker_wall_start = time.perf_counter()
-    result = subprocess.run(
-        [sys.executable, str(worker_path), str(run_payload_path)],
-        capture_output=True,
+    process = subprocess.Popen(
+        [sys.executable, str(worker_path), str(temp_payload_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
-        check=False,
+        bufsize=1,
     )
+    output_tail = collections.deque(maxlen=20)
+    for line in process.stdout:
+        line = line.rstrip()
+        output_tail.append(line)
+        print(f" Geant4 payload '{name}': {line}", flush=True)
+    returncode = process.wait()
     worker_wall_s = time.perf_counter() - worker_wall_start
-    if temp_payload_path is not None:
-        temp_payload_path.unlink(missing_ok=True)
-    if result.returncode != 0:
-        stderr_tail = "\n".join(result.stderr.splitlines()[-20:])
+    temp_payload_path.unlink(missing_ok=True)
+    if returncode != 0:
+        stderr_tail = "\n".join(output_tail)
         raise RuntimeError(
-            f"worker return code {result.returncode}; stderr tail:\n{stderr_tail}"
+            f"worker return code {returncode}; output tail:\n{stderr_tail}"
         )
 
     summary = read_summary_hdf5(str(output_path))
@@ -167,15 +173,6 @@ def _run_one_payload(
     )
     sys.stdout.flush()
     return summary
-
-
-def _needs_payload_rewrite(args) -> bool:
-    return (
-        args.n_events is not None
-        or args.output_dir is not None
-        or args.bridge_build_dir is not None
-        or args.threads is not None
-    )
 
 
 def _print_timing_summary(summaries: list[dict]) -> None:

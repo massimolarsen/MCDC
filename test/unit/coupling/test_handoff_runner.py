@@ -265,20 +265,26 @@ def test_payload_replay_preserves_diagnostics(monkeypatch, tmp_path):
          "geant4_output_path": str(output_path)},
     )
 
-    def fake_run(cmd, capture_output, text, check):
+    def fake_popen(cmd, stdout, stderr, text, bufsize):
+        replay_payload = geant4_worker.read_payload(cmd[-1])
+        assert replay_payload["physics_list"] == "QGSP_BIC_HP"
+        assert replay_payload["em_production_cut_mm"] == 0.001
+        assert not replay_payload["record_seu_events"]
+        assert replay_payload["diagnostic_min_Eion_mev"] == 0.001
         geant4_worker.write_summary_hdf5(
             {"events_run": 1, "status": "ok"}, str(output_path)
         )
         with h5py.File(output_path, "a") as file:
             file.create_group("seu_diagnostics").create_dataset("event_sv", data=[1])
-        return subprocess.CompletedProcess(cmd, 0, "", "")
+        return SimpleNamespace(stdout=["Geant4 progress: 1/1 events (100%)\n"], wait=lambda: 0)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
     args = SimpleNamespace(n_events=None, output_dir=None, bridge_build_dir=None,
                            threads=None)
     runner["_run_one_payload"](
         payload_path, args, geant4_worker, geant4_config.read_summary_hdf5
     )
+    assert "em_production_cut_mm" not in geant4_worker.read_payload(payload_path)
     with h5py.File(output_path) as file:
         assert file["seu_diagnostics/event_sv"][0] == 1
         assert file["worker_wall_s"][()] >= 0.0

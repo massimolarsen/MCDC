@@ -1,0 +1,5 @@
+ Geant4 payload replay: payloads=4 workers=4 threads_per_worker=2
+ Geant4 payload 'eps': worker started source_size=50000000 threads=2 output=examples/cubesat_test/runs/21422371/geant4_h5/seu_replay_50m/cubesat_eps_geant4.h5
+ Geant4 payload 'adcs': worker started source_size=50000000 threads=2 output=examples/cubesat_test/runs/21422371/geant4_h5/seu_replay_50m/cubesat_adcs_geant4.h5
+ Geant4 payload 'obc': worker started source_size=50000000 threads=2 output=examples/cubesat_test/runs/21422371/geant4_h5/seu_replay_50m/cubesat_obc_geant4.h5
+ Geant4 payload 'comms': worker started source_size=50000000 threads=2 output=examples/cubesat_test/runs/21422371/geant4_h5/seu_replay_50m/cubesat_comms_geant4.h5

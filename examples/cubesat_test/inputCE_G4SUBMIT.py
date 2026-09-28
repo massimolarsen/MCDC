@@ -393,7 +393,7 @@ mcdc.settings.geant4_n_threads = 2
 mcdc.settings.geant4_payload_dir = "geant4_payloads"
 
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple-mcdc-g4" / "build"
-n_geant4_particles = 10000000
+n_geant4_particles = 50000000
 geant4_random_seeds = {
     "obc": 10011,
     "eps": 10021,
