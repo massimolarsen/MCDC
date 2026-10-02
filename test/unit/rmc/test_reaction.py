@@ -22,6 +22,7 @@ from mcdc.rmc.reaction import (
     continuous_lab_density,
     delta_lab_line,
     fission_yield,
+    inelastic_yield,
     kernel_type,
     lab_energy_support,
 )
@@ -216,4 +217,26 @@ def test_fission(nuclide_simulation):
         E_in,
         sample_fission,
         fission_yield(E_in, nuclide, simulation, data),
+    )
+
+
+@requires_nuclide("U235")
+def test_tabulated_yield(tabulated_yield_simulation):
+    simulation, data, nuclide = tabulated_yield_simulation
+    reaction = find_inelastic(
+        simulation, data, nuclide, lambda base, inelastic: base["MT"] == 5
+    )
+    inelastic = simulation["neutron_inelastic_scattering_reactions"][reaction["sub_ID"]]
+    assert inelastic["multiplicity_tabulated"]
+    E_in = 14.0e6
+    yield_ = inelastic_yield(E_in, inelastic, simulation, data)
+    assert yield_ == pytest.approx(0.3 + 14.0 / 30.0, rel=1e-6)
+    check_continuous(
+        reaction,
+        nuclide,
+        simulation,
+        data,
+        E_in,
+        sample_inelastic_scattering,
+        yield_,
     )

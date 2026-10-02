@@ -43,6 +43,30 @@ def nuclide_simulation(prepare_simulation, monkeypatch):
     return _make
 
 
+@pytest.fixture
+def tabulated_yield_simulation(prepare_simulation, monkeypatch, tmp_path):
+    """U-235 whose MT-5 has a linear energy-dependent yield (0.3 to 1.3 over 0-30 MeV)."""
+    import h5py
+    import shutil
+
+    path = tmp_path / "U235-293.6K.h5"
+    shutil.copy(os.path.join(DATA_DIR, "U235-293.6K.h5"), path)
+    with h5py.File(path, "r+") as f:
+        group = f["neutron_reactions/inelastic_scattering/MT-005"]
+        del group["multiplicity"]
+        group.create_dataset("multiplicity", data=-1)
+        table = group.create_group("multiplicity_table")
+        table.attrs["type"] = "tabulated"
+        table.create_dataset("energy", data=np.array([1.0e-11, 30.0]))  # MeV
+        table.create_dataset("value", data=np.array([0.3, 1.3]))
+    monkeypatch.setenv("MCDC_LIB", str(tmp_path))
+
+    material = mcdc.Material(nuclide_composition={"U235": 0.05})
+    container, data = prepare_simulation(cells=(mcdc.Cell(fill=material),))
+    simulation = container[0]
+    return simulation, data, simulation["nuclides"][0]
+
+
 def inelastic_reactions(simulation, data, nuclide):
     """List of (base reaction, inelastic sub-record) pairs of a nuclide."""
     result = []

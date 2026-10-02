@@ -52,6 +52,7 @@ from mcdc.transport.physics.neutron.native import (
     neutron_fission_delayed_multiplicity,
     neutron_fission_prompt_multiplicity,
 )
+from mcdc.transport.data import evaluate_data
 from mcdc.transport.util import find_bin
 
 KERNEL_CONTINUOUS = 0
@@ -73,6 +74,8 @@ def kernel_type(reaction, simulation, data):
         inelastic = simulation["neutron_inelastic_scattering_reactions"][
             reaction["sub_ID"]
         ]
+        if inelastic["multiplicity_tabulated"] and inelastic["N_spectrum"] != 1:
+            raise ValueError("RMC: unsupported multi-spectrum tabulated-yield reaction")
         spectrum = _inelastic_spectrum(inelastic, 0, simulation, data)
         if spectrum["sub_type"] == DISTRIBUTION_LEVEL_SCATTERING:
             if inelastic["N_spectrum"] != 1 or (
@@ -95,12 +98,24 @@ def _inelastic_spectrum(inelastic, n, simulation, data):
 
 
 @njit
-def _spectrum_weight(E_in, inelastic, n, data):
+def inelastic_yield(E_in, inelastic, simulation, data):
+    """Expected secondaries per reaction: integer multiplicity or tabulated yield(E)."""
+    if inelastic["multiplicity_tabulated"]:
+        table = simulation["data"][inelastic["multiplicity_table_ID"]]
+        return evaluate_data(E_in, table, simulation, data)
+    return float(inelastic["multiplicity"])
+
+
+@njit
+def _spectrum_weight(E_in, inelastic, n, simulation, data):
     """
     Expected number of secondaries emitted through spectrum n, mirroring
     `sample_inelastic_scattering`: one per spectrum if multiplicity == N_spectrum,
-    otherwise multiplicity times the tabulated spectrum probability.
+    otherwise multiplicity times the tabulated spectrum probability. A tabulated
+    yield (single spectrum only) emits yield(E) through spectrum 0.
     """
+    if inelastic["multiplicity_tabulated"]:
+        return inelastic_yield(E_in, inelastic, simulation, data)
     N = inelastic["multiplicity"]
     if N == inelastic["N_spectrum"]:
         return 1.0
@@ -183,7 +198,7 @@ def continuous_lab_density(E_in, E_out, mu_lab, reaction, nuclide, simulation, d
     inelastic = simulation["neutron_inelastic_scattering_reactions"][reaction["sub_ID"]]
     density = 0.0
     for n in range(inelastic["N_spectrum"]):
-        weight = _spectrum_weight(E_in, inelastic, n, data)
+        weight = _spectrum_weight(E_in, inelastic, n, simulation, data)
         if weight == 0.0:
             continue
         spectrum = _inelastic_spectrum(inelastic, n, simulation, data)
@@ -246,7 +261,11 @@ def delta_lab_line(E_in, E_out, reaction, nuclide, simulation, data):
         p_mu = evaluate_distribution(
             E_in, mu_cm, mu_distribution, simulation, data, False
         )
-    g = inelastic["multiplicity"] * p_mu * level_dmu_cm_dE_out(E_in, E_cm, A)
+    g = (
+        inelastic_yield(E_in, inelastic, simulation, data)
+        * p_mu
+        * level_dmu_cm_dE_out(E_in, E_cm, A)
+    )
     mu_lab = mu_cm * math.sqrt(E_cm / E_out) + math.sqrt(E_in / E_out) / (A + 1)
     return g, mu_lab
 
