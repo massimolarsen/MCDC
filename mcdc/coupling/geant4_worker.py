@@ -158,9 +158,18 @@ def result_summary(
         "component_ionizing_mev": np.asarray(
             results.component_ionizing_mev, dtype=np.float64
         ),
+        "component_ionizing_sum_sq_mev2": np.asarray(
+            results.component_ionizing_sum_sq_mev2, dtype=np.float64
+        ),
         "seu_species_names": np.asarray(results.seu_species_names, dtype=str),
         "component_species_ionizing_mev": np.asarray(
             results.component_species_ionizing_mev, dtype=np.float64
+        ).reshape(len(results.component_names), len(results.seu_species_names)),
+        "component_species_ionizing_sum_sq_mev2": np.asarray(
+            results.component_species_ionizing_sum_sq_mev2, dtype=np.float64
+        ).reshape(len(results.component_names), len(results.seu_species_names)),
+        "component_species_positive_events": np.asarray(
+            results.component_species_positive_events, dtype=np.int64
         ).reshape(len(results.component_names), len(results.seu_species_names)),
         "component_primary_ionizing_mev": np.asarray(
             results.component_primary_ionizing_mev, dtype=np.float64

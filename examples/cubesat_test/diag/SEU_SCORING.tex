@@ -1,0 +1,218 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+
+\title{Geant4 Scoring in the MCDC--CubeSat Coupling}
+\author{}
+\date{30 September 2026}
+
+\begin{document}
+\maketitle
+
+\section{Scope and interpretation}
+
+The distribution-mode coupling samples Geant4 source neutrons from the MCDC
+surface-current distribution. It writes one Geant4 HDF5 result file per modeled
+region (OBC, EPS, ADCS, or communications). Only components configured as scored
+sensitive volumes (SVs) contribute to the deposition scores below. All tracks
+in a Geant4 event---the source primary and its descendants---contribute when
+they make a step inside an SV. The quantities are energy-deposition responses
+in the modeled volumes, \emph{not} collected charge or validated bit-upset rates.
+
+Let $e$ denote a Geant4 event, $v$ a scored SV, and $s$ a step in that SV. The
+event's physical, unweighted energies are
+\begin{align}
+ E_{\mathrm{total},ev} &= \sum_{s\in(e,v)} E_{\mathrm{dep},s},\\
+ E_{\mathrm{NIEL},ev} &= \sum_{s\in(e,v)} E_{\mathrm{NIEL},s},\\
+ E_{\mathrm{ion},ev} &= E_{\mathrm{total},ev}-E_{\mathrm{NIEL},ev}.
+\end{align}
+Here NIEL is the non-ionizing energy deposit reported by the Geant4 step.
+The distinction matters: $E_{\mathrm{ion}}$ is the present SEU-response proxy;
+NIEL is retained separately, not treated as generated charge. The scorer
+rejects non-finite or materially negative step deposition and NIEL exceeding
+the step's total deposition beyond a small tolerance.
+
+\section{Scores present in every run}
+
+The distribution handoff assigns each sampled event a source weight $w_e$.
+For each SV, run-integrated energies are weighted sums, for example
+\begin{equation}
+ S_{\mathrm{ion},v}=\sum_e w_e E_{\mathrm{ion},ev},\qquad
+ S_{\mathrm{NIEL},v}=\sum_e w_e E_{\mathrm{NIEL},ev}.
+\end{equation}
+Weights do not change the physical event energy used for histogram placement
+or optional detailed event records. In the present distribution sampler,
+$w_e$ is the source-distribution total weight divided by the number of sampled
+events. The event-weight interpretation assumes that Geant4 does not split or
+roulette descendants into independently weighted branches.
+
+\begin{center}
+\begin{tabular}{p{0.44\linewidth}p{0.47\linewidth}}
+\toprule
+HDF5 dataset & Meaning \\
+\midrule
+\texttt{component\_edep\_mev} & Weighted total deposited energy per SV (MeV). \\
+\texttt{component\_niel\_mev} & Weighted non-ionizing deposition per SV (MeV). \\
+\texttt{component\_ionizing\_mev} & Weighted ionizing deposition per SV (MeV); total minus NIEL. \\
+\texttt{component\_mass\_kg} & Geant4 mass of each scored SV (kg). \\
+\texttt{component\_dose\_gy} & Weighted total deposition divided by SV mass (Gy). \\
+\texttt{total\_edep\_mev}, \texttt{dose\_gy} & Existing region-level totals over the scored SVs. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The older region-level total-deposition spectrum is also retained:
+\texttt{edep\_spectrum\_edges\_mev}, \texttt{edep\_spectrum\_counts},
+\texttt{edep\_spectrum\_edep\_mev}, and underflow/overflow counts. It bins
+the unweighted event total over the scored SVs, while the deposition stored
+in a bin is weighted. It is distinct from the per-SV ionizing-energy spectrum.
+
+\subsection{Depositing-track attribution}
+
+For each SV, the ionizing part of a step is assigned to the \emph{track making
+that step}, not necessarily to the incident particle or the particle that
+initiated an interaction. The seven columns of
+\texttt{component\_species\_ionizing\_mev} follow
+\texttt{seu\_species\_names}:
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Column & Track identity \\
+\midrule
+\texttt{electron\_positron} & Electron or positron \\
+\texttt{proton} & Proton (PDG magnitude 2212) \\
+\texttt{neutron} & Neutron (PDG magnitude 2112) \\
+\texttt{gamma} & Photon \\
+\texttt{alpha} & Alpha particle (nuclear PDG code) \\
+\texttt{ion\_recoil} & Other nuclear-code particles, including deuterons, tritons, and recoils \\
+\texttt{other} & All remaining track types \\
+\bottomrule
+\end{tabular}
+\end{center}
+The companion \texttt{component\_primary\_ionizing\_mev} and
+\texttt{component\_secondary\_ionizing\_mev} split the same energy by
+whether the depositing track has Geant4 parent ID zero or nonzero. Thus the
+species columns and the primary/secondary columns are two classifications
+of one ionizing-energy total, not additional energy to add to it:
+\begin{equation}
+ S_{\mathrm{ion},v}=\sum_k S_{\mathrm{ion},v,k}
+ =S_{\mathrm{ion},v,\mathrm{primary}}
+ +S_{\mathrm{ion},v,\mathrm{secondary}}.
+\end{equation}
+Species attribution depends in part on production cuts: energy deposited
+locally in lieu of producing a low-energy charged secondary is attributed to
+the parent track.
+
+\subsection{Per-event, per-SV ionizing-energy distribution}
+
+Each SV has a 150-bin logarithmic histogram of the \emph{unweighted}
+$E_{\mathrm{ion},ev}$ from 0.001 to 50 MeV. Its 153 slots are zero,
+positive underflow ($0<E_{\mathrm{ion}}<0.001$ MeV), 150 ordinary bins,
+and overflow ($E_{\mathrm{ion}}\geq 50$ MeV). Every event contributes one
+entry to each SV, including events with zero deposition. The datasets are
+\texttt{component\_event\_ionizing\_edges\_mev} and the per-SV arrays
+\texttt{component\_event\_ionizing\_count},
+\texttt{component\_event\_ionizing\_sumw}, and
+\texttt{component\_event\_ionizing\_sumw2}. For a slot $b$,
+\begin{equation}
+ C_{vb}=\sum_e \mathbf{1}[E_{\mathrm{ion},ev}\in b],\quad
+ W_{vb}=\sum_e w_e\mathbf{1}[E_{\mathrm{ion},ev}\in b],\quad
+ W^{(2)}_{vb}=\sum_e w_e^2\mathbf{1}[E_{\mathrm{ion},ev}\in b].
+\end{equation}
+These permit post-processing of weighted exceedance counts for a \emph{chosen}
+ionizing-energy threshold; no critical charge or upset decision is built into
+the scorer. The stored $\sum w^2$ permits a Geant4-only sampling error for a
+threshold aligned with a histogram edge; it is not a full uncertainty estimate
+for the coupled calculation.
+
+\subsection{Geant4 sampling uncertainty}
+
+The Geant4 event, not an individual step or secondary track, is the independent
+observation. For an SV, let $x_e=w_e E_{\mathrm{ion},ev}$, let
+$S=\sum_e x_e$ be its existing weighted ionizing-energy sum, and let
+$Q=\sum_e x_e^2$ be the new
+\texttt{component\_ionizing\_sum\_sq\_mev2} score. With
+$N=\texttt{events\_run}>1$, the estimated standard error of $S$ conditional
+on the fixed MCDC source distribution is
+\begin{equation}
+ \widehat{\mathrm{SE}}(S)
+ =\sqrt{\frac{N}{N-1}\left(Q-\frac{S^2}{N}\right)}.
+\end{equation}
+The same event-level squared sum is recorded for each of the seven depositing
+species in \texttt{component\_species\_ionizing\_sum\_sq\_mev2}. Dataset
+\texttt{component\_species\_positive\_events} records how many Geant4
+events had positive ionizing deposition from each species in each SV; it
+counts events, not tracks or steps. A zero count therefore means no such
+deposition was observed, not that it is physically impossible. For the
+equal-weight distribution sampler, the one-sided 95\% upper bound on the
+occurrence probability after zero observations is
+$1-0.05^{1/N}\simeq 3/N$. The per-bin $W_{vb}$ and $W^{(2)}_{vb}$ similarly
+give the sampling error of a weighted threshold-exceedance sum. These errors
+do not include uncertainty in the MCDC source estimate, Geant4 physics
+models, or the device response. They cannot be recovered for species-energy
+sums in older HDF5 output without rerunning Geant4.
+
+\section{Optional selected-event diagnostics}
+
+Setting \texttt{record\_seu\_events=True} enables four linked tables in
+\texttt{seu\_diagnostics}. An event is selected if its \emph{maximum} SV
+ionizing deposition is at least
+\texttt{diagnostic\_min\_Eion\_mev} (default 0.001 MeV, or 1 keV).
+This threshold filters only detailed output; all events still enter the
+aggregate scores. A selected event gets one \texttt{event\_sv} row for
+\emph{every} scored SV, including SVs with zero deposition.
+
+\begin{center}
+\begin{tabular}{p{0.27\linewidth}p{0.64\linewidth}}
+\toprule
+Table & Recorded fields and interpretation \\
+\midrule
+\texttt{event\_sv} & Geant4 run/event IDs, SV ID, source weight, physical total/NIEL/ionizing energies, seven species contributions, and primary/secondary ionizing contributions. \\
+\texttt{sv\_entry} & One row per SV boundary entry/re-entry, plus a primary starting inside an SV: event/SV and track/parent IDs, PDG code, entry kinetic energy, position and direction, creator process, track vertex position and kinetic energy, and logical volume at the vertex. A track born inside an SV is not counted as an entry. \\
+\texttt{nuclear\_birth} & Individual secondary neutron, proton, alpha, deuteron/triton, and other nuclear-ion/recoil births anywhere in the modeled Geant4 event: IDs, PDG code, creation energy and position, vertex logical volume, and creator process. \\
+\texttt{em\_secondary\_summary} & Per-selected-event counts and sums of creation kinetic energy for secondary electrons, positrons, and photons; no individual EM birth rows. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The run/event IDs identify events within a Geant4 region run, not individual
+MCDC history IDs. The detailed records are written via worker-local streams
+and included in HDF5 after the Geant4 session closes. The archived input for
+run 21455525 used \texttt{record\_seu\_events=False}; its aggregate scores
+exist, but its four diagnostic tables cannot be reconstructed afterward.
+
+\section{Transport configuration and output use}
+
+The CubeSat example currently requests \texttt{QGSP\_BIC\_HP} and an
+electronics-region EM production range cut of 0.001 mm. One shared
+\texttt{ElectronicsRegion} contains the scored SV hierarchies. The range cut
+is set individually for gamma, electron, and positron; the proton range cut
+is explicitly zero. The region HDF5 file records these requested cuts,
+the converted gamma/electron/positron/proton energy thresholds by region
+material, the Geant4 version, and the physics-list name. A range cut is not
+a track-termination threshold; its effective energy threshold is material
+dependent.
+
+By default, \texttt{plot\_seu.py} creates one region overview showing
+ionizing and NIEL totals, depositing-species and primary/secondary fractions,
+and the fraction of source weight with at least 1 keV of SV ionizing
+deposition. It shows one-standard-error bars on ionizing-energy sums and the
+1-keV exceedance fractions, plus an event-count/relative-error panel for each
+depositing species. The normalized species and ancestry bars remain descriptive
+fractions, not confidence intervals for those ratios. An individual SV event-energy histogram is created only when
+\texttt{--sv} is requested; when detailed records exist, that plot also shows
+species contributions for up to 20 high-deposition selected events and their
+secondary-track contribution. The separate
+\texttt{plot\_component\_edep.py} displays the older total-edep score.
+No per-species event-energy histogram grid is stored.
+
+Finally, the modeled scored volumes are not calibrated memory-cell collection
+volumes. Converting this response to a physical SEU rate still requires
+device-sensitive geometry, charge-generation/collection modeling, a justified
+critical-charge or critical-energy response, and scientific validation of
+production cuts and transport physics.
+
+\end{document}

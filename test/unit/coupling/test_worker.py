@@ -105,8 +105,11 @@ class Results:
     electronics_cut_energy_mev = []
     component_niel_mev = [0.1]
     component_ionizing_mev = [1.4]
+    component_ionizing_sum_sq_mev2 = [1.1]
     seu_species_names = ["electron_positron", "proton", "neutron", "gamma", "alpha", "ion_recoil", "other"]
     component_species_ionizing_mev = [1.4, 0, 0, 0, 0, 0, 0]
+    component_species_ionizing_sum_sq_mev2 = [1.1, 0, 0, 0, 0, 0, 0]
+    component_species_positive_events = [2, 0, 0, 0, 0, 0, 0]
     component_primary_ionizing_mev = [0.4]
     component_secondary_ionizing_mev = [1.0]
     component_event_ionizing_edges_mev = [0.001, 0.002]
@@ -198,7 +201,10 @@ class Session:
         assert file["component_names"][0].decode("utf-8") == "detector"
         assert float(file["component_edep_mev"][0]) == 1.5
         assert float(file["component_ionizing_mev"][0]) == 1.4
+        assert float(file["component_ionizing_sum_sq_mev2"][0]) == 1.1
         assert file["component_species_ionizing_mev"].shape == (1, 7)
+        assert file["component_species_ionizing_sum_sq_mev2"].shape == (1, 7)
+        assert int(file["component_species_positive_events"][0, 0]) == 2
         assert file["component_event_ionizing_count"].shape == (1, 4)
         assert float(file["em_production_cut_mm"][()]) == 0.0
         assert not bool(file["record_seu_events"][()])

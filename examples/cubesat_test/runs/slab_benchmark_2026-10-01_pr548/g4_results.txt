@@ -1,0 +1,16 @@
+RESULT E_MeV=1 T_cm=0.3 N=40000 det_all=0 det_primary=0 slab_back=3934 slab_trans=0
+RESULT_BINS 0 0 0 0 0 0 0 0 0 0 0 0
+RESULT E_MeV=4 T_cm=0.3 N=40000 det_all=37197 det_primary=35352 slab_back=1424 slab_trans=39117
+RESULT_BINS 7 83 220 205 566 729 1328 4226 29833 0 0 0
+RESULT E_MeV=6 T_cm=0.3 N=40000 det_all=41514 det_primary=39204 slab_back=850 slab_trans=42573
+RESULT_BINS 7 82 193 166 442 512 638 982 4506 33986 0 0
+RESULT E_MeV=10 T_cm=0.3 N=40000 det_all=42289 det_primary=39849 slab_back=558 slab_trans=42689
+RESULT_BINS 8 51 141 163 332 368 499 562 786 1115 4027 34237
+RESULT E_MeV=0.1 T_cm=0.3 N=40000 det_all=0 det_primary=0 slab_back=5849 slab_trans=0
+RESULT_BINS 0 0 0 0 0 0 0 0 0 0 0 0
+RESULT E_MeV=0.255 T_cm=0.3 N=40000 det_all=0 det_primary=0 slab_back=5344 slab_trans=0
+RESULT_BINS 0 0 0 0 0 0 0 0 0 0 0 0
+RESULT E_MeV=0.1 T_cm=0.003 N=40000 det_all=19006 det_primary=18644 slab_back=5701 slab_trans=20396
+RESULT_BINS 34 383 4608 13981 0 0 0 0 0 0 0 0
+RESULT E_MeV=0.255 T_cm=0.012 N=40000 det_all=23692 det_primary=23245 slab_back=5362 slab_trans=25345
+RESULT_BINS 18 169 955 2126 20424 0 0 0 0 0 0 0
