@@ -763,8 +763,9 @@ def sample_fission(
     weight_product = particle["w"]
     if simulation["technique"]["weighted_emission"]["active"]:
         weight_target = simulation["technique"]["weighted_emission"]["weight_target"]
-        weight_production = particle["w"] / weight_target
-        weight_product = weight_target
+        # Sign-safe: production from |w|, children carry the sign of w
+        weight_production = abs(particle["w"]) / weight_target
+        weight_product = math.copysign(weight_target, particle["w"])
 
     # Fission yields
     N_delayed = nuclide["N_neutron_fission_delayed_precursor"]
@@ -796,7 +797,7 @@ def sample_fission(
         delayed_group = -1
         xi = rng.lcg(particle_container_new)
         total = nu_p / nu
-        if xi > total:
+        if xi > total and not settings["neutron_fission_all_prompt"]:
             prompt = False
             # Determine delayed group
             for j in range(N_delayed):

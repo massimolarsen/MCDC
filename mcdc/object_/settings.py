@@ -83,6 +83,15 @@ class Settings(MCDCBase):
 
     # Neutron transport modes
     neutron_eigenvalue_mode: bool = False
+    #: Whether neutrons outside ``[neutron_energy_min, neutron_energy_max]``
+    #: (eV) are killed at birth and after each collision. The default is
+    #: ``False``.
+    use_neutron_energy_window: bool = False
+    neutron_energy_min: float = 0.0
+    neutron_energy_max: float = np.inf
+    #: Whether all fission neutrons are emitted as prompt neutrons. The default
+    #: is ``False``.
+    neutron_fission_all_prompt: bool = False
 
     # GPU mode
     gpu_strategy: int = GPU_STRATEGY_ASYNC

@@ -284,6 +284,10 @@ def source_closeout(simulation, idx_work, N_prog, data):
 def particle_loop(particle_container, simulation, data):
     particle = particle_container[0]
 
+    # Neutron energy window at birth
+    if simulation["settings"]["use_neutron_energy_window"]:
+        kill_outside_neutron_energy_window(particle_container, simulation)
+
     while particle["alive"]:
         step_particle(particle_container, simulation, data)
 
@@ -306,6 +310,10 @@ def step_particle(particle_container, program, data):
 
         # Execute the physics
         physics.collision(particle_container, collision_data_container, program, data)
+
+        # Neutron energy window after collision
+        if simulation["settings"]["use_neutron_energy_window"]:
+            kill_outside_neutron_energy_window(particle_container, simulation)
 
         # Score collision tallies
         if simulation["cycle_active"]:
@@ -349,6 +357,17 @@ def step_particle(particle_container, program, data):
     # Global weight roulette
     if simulation["technique"]["global_weight_roulette"]["active"]:
         technique.global_weight_roulette(particle_container, simulation)
+
+
+@njit
+def kill_outside_neutron_energy_window(particle_container, simulation):
+    particle = particle_container[0]
+    if particle["particle_type"] != PARTICLE_NEUTRON:
+        return
+    settings = simulation["settings"]
+    E = particle["E"]
+    if E < settings["neutron_energy_min"] or E > settings["neutron_energy_max"]:
+        particle["alive"] = False
 
 
 @njit

@@ -34,11 +34,13 @@ def weight_roulette(particle_container, w_threshold, w_target):
         Target weight assigned upon survival.
     """
     particle = particle_container[0]
-    if particle["w"] < w_threshold:
-        survival_probability = particle["w"] / w_target
+    # Sign-safe: roulette on |w|, survivors keep the sign of w
+    w = particle["w"]
+    if abs(w) < w_threshold:
+        survival_probability = abs(w) / w_target
         # sample random number to determine survival
         if rng.lcg(particle_container) < survival_probability:
-            particle["w"] = w_target
+            particle["w"] = math.copysign(w_target, w)
         else:
             particle["alive"] = False
 
@@ -179,13 +181,15 @@ def split_from_weight_window(particle_container, w_upper, w_target, w_lower, pro
         Program object containing simulation state with access to active bank.
     """
     particle = particle_container[0]
-    weight = particle["w"]
+    # Sign-safe: split on |w|, all pieces keep the sign of w
+    sign = math.copysign(1.0, particle["w"])
+    weight = abs(particle["w"])
     if weight > w_upper:
         # determine how many to split into
         num_split_to_target = math.floor(weight / w_target)
 
         # bank target particles
-        particle["w"] = w_target
+        particle["w"] = sign * w_target
         for _ in range(num_split_to_target - 1):
             container_copy = util.local_array(1, type_.particle)
             particle_module.copy_as_child(container_copy, particle_container)
@@ -196,7 +200,7 @@ def split_from_weight_window(particle_container, w_upper, w_target, w_lower, pro
         if residual_weight > 0.0:
             residual_copy = util.local_array(1, type_.particle)
             particle_module.copy_as_child(residual_copy, particle_container)
-            residual_copy[0]["w"] = residual_weight
+            residual_copy[0]["w"] = sign * residual_weight
             residual_copy[0]["alive"] = True
             weight_roulette(residual_copy, w_lower, w_target)
             if residual_copy[0]["alive"]:
