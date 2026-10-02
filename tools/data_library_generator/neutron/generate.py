@@ -315,10 +315,18 @@ for ace_name in pbar:
             group.create_dataset(f"MT-{MT:03}/reference_frame", data=reference_frame)
 
     # Inelastic multiplicity
+    #   |TY| > 100: energy-dependent yield table in the DLW block
     for MT in inelastic_MTs:
         idx = rx_block.index(MT)
         nu = nu_block.multiplicity(idx)
-        inelastic_group.create_dataset(f"MT-{MT:03}/multiplicity", data=nu)
+        if abs(nu) > 100:
+            inelastic_group.create_dataset(f"MT-{MT:03}/multiplicity", data=-1)
+            util.load_tabulated_yield(
+                ace_table.energy_distribution_block.multiplicity_data(idx),
+                inelastic_group.create_group(f"MT-{MT:03}/multiplicity_table"),
+            )
+        else:
+            inelastic_group.create_dataset(f"MT-{MT:03}/multiplicity", data=nu)
 
     # ==================================================================================
     # Angular distributions

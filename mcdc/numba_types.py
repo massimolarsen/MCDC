@@ -487,6 +487,8 @@ neutron_fission_reaction = into_dtype([
 
 neutron_inelastic_scattering_reaction = into_dtype([
     ('multiplicity', int64),
+    ('multiplicity_tabulated', bool_),
+    ('multiplicity_table_ID', int64),
     ('angle_type', int64),
     ('mu_ID', int64),
     ('N_spectrum_probability_bin', int64),
