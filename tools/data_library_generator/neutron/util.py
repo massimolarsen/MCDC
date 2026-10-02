@@ -136,6 +136,17 @@ def load_fission_multiplicity(data, h5_group: h5py.Group):
         exit()
 
 
+def load_tabulated_yield(data, h5_group: h5py.Group):
+    """Energy-dependent reaction yield (ACE |TY| > 100), lin-lin tabulated."""
+    if any(x != 2 for x in data.interpolants):
+        print_error("Non linear-linear tabulated yield is not supported")
+
+    h5_group.attrs["type"] = "tabulated"
+    dataset = h5_group.create_dataset("energy", data=np.array(data.energies))
+    dataset.attrs["unit"] = "MeV"
+    h5_group.create_dataset("value", data=np.array(data.multiplicities))
+
+
 def load_cosine_distribution(data, h5_group: h5py.Group):
     if isinstance(data, ACEtk.continuous.FullyIsotropicDistribution):
         h5_group.attrs["type"] = "isotropic"

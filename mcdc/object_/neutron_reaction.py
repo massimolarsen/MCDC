@@ -10,6 +10,7 @@ from mcdc.constant import (
     ANGLE_ISOTROPIC,
     ANGLE_ENERGY_CORRELATED,
     ANGLE_DISTRIBUTED,
+    INTERPOLATION_LINEAR,
     NEUTRON_REACTION_CAPTURE,
     NEUTRON_REACTION_ELASTIC_SCATTERING,
     NEUTRON_REACTION_FISSION,
@@ -19,7 +20,7 @@ from mcdc.constant import (
 )
 from mcdc.object_.secondary_product import SecondaryProduct
 from mcdc.object_.base import MCDCPolymorphic
-from mcdc.object_.data import encode_interpolation
+from mcdc.object_.data import DataBase, DataTable, encode_interpolation
 from mcdc.object_.distribution import (
     DistributionBase,
     DistributionMultiTable,
@@ -30,7 +31,7 @@ from mcdc.object_.distribution import (
     DistributionTabulatedEnergyAngle,
     DistributionNBody,
 )
-from mcdc.print_ import print_1d_array, print_error
+from mcdc.print_ import print_1d_array, print_error, print_warning
 
 # ======================================================================================
 # Neutron reaction base class
@@ -153,6 +154,8 @@ class NeutronReactionInelasticScattering(NeutronReactionBase):
     sub_type = NEUTRON_REACTION_INELASTIC_SCATTERING
 
     multiplicity: int
+    multiplicity_tabulated: bool
+    multiplicity_table: DataBase
     angle_type: int
     mu: DistributionBase
     N_spectrum_probability_bin: int
@@ -171,6 +174,8 @@ class NeutronReactionInelasticScattering(NeutronReactionBase):
         reference_frame,
         q_value,
         multiplicity,
+        multiplicity_tabulated,
+        multiplicity_table,
         angle_type,
         mu,
         spectrum_probability_grid,
@@ -180,6 +185,8 @@ class NeutronReactionInelasticScattering(NeutronReactionBase):
         super().__init__(MT, xs, xs_offset, reference_frame, q_value)
 
         self.multiplicity = multiplicity
+        self.multiplicity_tabulated = multiplicity_tabulated
+        self.multiplicity_table = multiplicity_table
         self.angle_type = angle_type
         self.mu = mu
         self.N_spectrum_probability_bin = len(spectrum_probability_grid) - 1
@@ -193,6 +200,23 @@ class NeutronReactionInelasticScattering(NeutronReactionBase):
         """Build an inelastic-scattering reaction from a library HDF5 group."""
         MT, xs, xs_offset, reference_frame, q_value = set_basic_properties(h5_group)
         multiplicity = int(h5_group["multiplicity"][()])
+
+        # Energy-dependent yield (ACE |TY| > 100)
+        multiplicity_tabulated = "multiplicity_table" in h5_group
+        if multiplicity_tabulated:
+            table = h5_group["multiplicity_table"]
+            multiplicity_table = DataTable(
+                table["energy"][()] * 1e6,  # MeV to eV
+                table["value"][()],
+                INTERPOLATION_LINEAR,
+            )
+        else:
+            multiplicity_table = simulation.data[0]
+            if multiplicity > 100:
+                print_warning(
+                    f"MT-{MT:03} multiplicity {multiplicity} encodes an energy-dependent"
+                    " yield (ACE |TY| > 100); regenerate the nuclear data library."
+                )
 
         angle_type, mu = set_angular_distribution(
             h5_group["angular_cosine_distribution"], simulation
@@ -215,6 +239,8 @@ class NeutronReactionInelasticScattering(NeutronReactionBase):
             reference_frame,
             q_value,
             multiplicity,
+            multiplicity_tabulated,
+            multiplicity_table,
             angle_type,
             mu,
             spectrum_probability_grid,

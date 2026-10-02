@@ -624,6 +624,13 @@ def sample_inelastic_scattering(
 
     # Number of secondaries and spectra
     N = inelastic_scattering["multiplicity"]
+    if inelastic_scattering["multiplicity_tabulated"]:
+        # Energy-dependent yield: integer number of secondaries with the tabulated mean
+        multiplicity_data = simulation["data"][
+            inelastic_scattering["multiplicity_table_ID"]
+        ]
+        nu = evaluate_data(E, multiplicity_data, simulation, data)
+        N = int(math.floor(nu + rng.lcg(particle_container)))
     N_spectrum = inelastic_scattering["N_spectrum"]
     use_all_spectrum = N == N_spectrum
 
