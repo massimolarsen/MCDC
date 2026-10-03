@@ -212,7 +212,7 @@ def load_energy_distribution(data, h5_group: h5py.Group):
         temperature = np.array(data.temperatures)
         restriction_energy = np.array(data.restriction_energy)
 
-        h5_group.create_dataset("temperature_interpolation", data=interpolations)
+        h5_group.create_dataset("temperature_interpolations", data=interpolations)
         h5_group.create_dataset(
             "interpolation_boundaries", data=interpolation_boundaries
         )
