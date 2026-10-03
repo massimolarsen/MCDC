@@ -243,3 +243,99 @@ def test_analytic_slowing_down_inverse_sqrt(tmp_path, monkeypatch):
     relative = phi[2:].mean(axis=0) / exact - 1.0
     assert np.sqrt(np.mean(relative**2)) < 0.06, relative
     assert abs(np.mean(relative)) < 0.04, relative
+
+
+def slab_model(material_a, material_b, E0, delta, smc):
+    """z in [0, 4]: material a in [0, 2], b in [2, 4]; reflective x/y, vacuum z."""
+    x0 = mcdc.Surface.PlaneX(x=-0.5, boundary_condition="reflective")
+    x1 = mcdc.Surface.PlaneX(x=0.5, boundary_condition="reflective")
+    y0 = mcdc.Surface.PlaneY(y=-0.5, boundary_condition="reflective")
+    y1 = mcdc.Surface.PlaneY(y=0.5, boundary_condition="reflective")
+    z0 = mcdc.Surface.PlaneZ(z=0.0, boundary_condition="vacuum")
+    z2 = mcdc.Surface.PlaneZ(z=2.0)
+    z4 = mcdc.Surface.PlaneZ(z=4.0, boundary_condition="vacuum")
+    box = +x0 & -x1 & +y0 & -y1
+    simulation = mcdc.Simulation("rmc-slab")
+    simulation.set_model(
+        [
+            mcdc.Cell(box & +z0 & -z2, fill=material_a),
+            mcdc.Cell(box & +z2 & -z4, fill=material_b),
+        ]
+    )
+    # Isotropic, uniform in z in [0, 1], uniform in energy over [E0 - delta, E0]
+    energy = np.array([[E0 - delta, E0], [1.0 / delta, 1.0 / delta]])
+    simulation.set_sources(
+        [
+            mcdc.Source(
+                x=[-0.5, 0.5],
+                y=[-0.5, 0.5],
+                z=[0.0, 1.0],
+                isotropic=True,
+                energy=energy,
+            )
+        ]
+    )
+    return simulation
+
+
+def test_slab_against_smc(tmp_path, monkeypatch):
+    """1D two-material slab with vacuum boundaries: RMC (stagnated iterates) vs SMC."""
+    import h5py
+
+    write_synthetic_nuclide(
+        tmp_path, "HX", 1.0, [1.0e-6, 1.0e3], [1.0, 1.0], [1.0, 1.0]
+    )
+    monkeypatch.setenv("MCDC_LIB", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    E0, delta = 10.0, 0.1
+    z_edges = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    E_edges = np.concatenate((np.logspace(0.0, np.log10(E0 - delta), 9), [E0]))
+    mu_edges = np.array([-1.0, 0.0, 1.0])
+    K, G = 4, len(E_edges) - 1
+
+    # Standard Monte Carlo reference
+    material_a = mcdc.Material(nuclide_composition={"HX": 1.0}, temperature=0.1)
+    material_b = mcdc.Material(nuclide_composition={"HX": 0.4}, temperature=0.1)
+    simulation = slab_model(material_a, material_b, E0, delta, True)
+    simulation.settings.N_particle = 200_000
+    simulation.settings.use_neutron_energy_window = True
+    simulation.settings.neutron_energy_min = E_edges[0]
+    simulation.settings.neutron_energy_max = E_edges[-1]
+    simulation.settings.output_name = "smc"
+    mesh = mcdc.MeshStructured("slab", z=z_edges)
+    simulation.set_tallies([mcdc.Tally(mesh=mesh, scores=["flux"], energy=E_edges)])
+    simulation.run()
+    with h5py.File("smc.h5", "r") as f:
+        group = f["tallies"][list(f["tallies"])[0]]
+        mean = np.squeeze(group["flux/mean"][()])
+        sdev = np.squeeze(group["flux/sdev"][()])
+    # (energy, z) -> per unit z and energy
+    width = np.diff(z_edges)[None, :] * np.diff(E_edges)[:, None]
+    phi_smc = (mean / width).T
+    sd_smc = (sdev / width).T
+
+    # RMC
+    material_a = mcdc.Material(nuclide_composition={"HX": 1.0}, temperature=0.1)
+    material_b = mcdc.Material(nuclide_composition={"HX": 0.4}, temperature=0.1)
+    simulation = slab_model(material_a, material_b, E0, delta, False)
+    Q = np.zeros((K, G, 2))
+    Q[0, -1, :] = 1.0 / (1.0 * delta * 2.0)
+    result = run(
+        simulation,
+        z_edges,
+        E_edges,
+        mu_edges,
+        Q,
+        [material_a, material_a, material_b, material_b],
+        8,
+        200,
+        boundary=("vacuum", "vacuum"),
+    )
+    phi = np.array(
+        [np.einsum("kgj,j->kg", psi, np.diff(mu_edges)) for psi in result.psi_history]
+    )[2:]
+    phi_rmc = phi.mean(axis=0)
+    sd_rmc = phi.std(axis=0, ddof=1) / np.sqrt(len(phi))
+    z = (phi_rmc - phi_smc) / np.sqrt(sd_rmc**2 + sd_smc**2)
+    assert np.sqrt(np.mean(z**2)) < 2.0, z
+    assert np.all(np.abs(z) < 5.0), z
