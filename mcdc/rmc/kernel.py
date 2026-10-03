@@ -20,6 +20,7 @@ treatment and no frame Jacobian appears:
   - Continuous COM laws: f_C(E_cm, mu_cm) dE_cm dmu_cm; for fixed E_cm, E_out is affine
     in mu_cm, so each outgoing bin is a closed-form mu_cm interval.
   - Continuous lab laws: directly in (E_out, mu0).
+  - Free-gas elastic (E <= 400 kT): the analytic lab kernel in (E_out, mu0).
 Inner integrals use Gauss-Legendre on pieces split at every kink/jump of the sampled
 densities. The outer E_in integral uses adaptive Gauss-Kronrod (G7-K15), split at
 cross-section grid points, the reaction threshold, and where kinematic support edges
@@ -38,6 +39,7 @@ import mcdc.mcdc_get as mcdc_get
 
 from mcdc.constant import (
     ANGLE_DISTRIBUTED,
+    BOLTZMANN_K,
     ANGLE_ENERGY_CORRELATED,
     ANGLE_ISOTROPIC,
     DISTRIBUTION_TABULATED_ENERGY_ANGLE,
@@ -67,7 +69,11 @@ from mcdc.rmc.reaction import (
     _inelastic_spectrum,
     _spectrum_weight,
     fission_yield,
+    free_gas_density,
+    free_gas_support,
+    free_gas_threshold,
     inelastic_yield,
+    is_free_gas,
     kernel_type,
     lab_energy_support,
 )
@@ -120,7 +126,12 @@ for _i, _w in zip((1, 3, 5), _WG7[:3]):
     GK_WG[14 - _i] = _w
 GK_WG[7] = _WG7[3]
 
-MAX_DEPTH = 30
+MAX_DEPTH = 20
+# Tightest usable relative tolerance. The angular transfer table is linear in theta
+# between N_THETA_DEFAULT nodes and the inner angular integrals are accurate to
+# TAU_TOLERANCE, so below ~1e-8 every unlisted table node becomes a kink to resolve:
+# an O-16 elastic row takes ~5 ms at 1e-8 and ~130 s at 1e-9 for the same 7 digits.
+TOLERANCE_FLOOR = 1e-8
 
 # ======================================================================================
 # Helpers
@@ -433,6 +444,49 @@ def _lab_spectrum_inner(
 
 
 @njit
+def _free_gas_inner(E_in, nuclide, E_edges, table, out, A):
+    """
+    Free-gas elastic kernel in (E_out, mu0): pieces in E_out at E_in and at multiples
+    of the kernel width sqrt(4 E kT / A) around it, and in mu0 toward the forward
+    peak at mu0 = 1.
+    """
+    awr = nuclide["atomic_weight_ratio"]
+    kT = BOLTZMANN_K * nuclide["temperature"]
+    low, high = free_gas_support(E_in, awr, kT)
+    width = math.sqrt(4.0 * E_in * kT / awr) + kT
+    E_points = np.empty(13)
+    E_points[0] = E_in
+    for k in range(6):
+        E_points[1 + 2 * k] = E_in - (0.25 * 2.0**k) * width
+        E_points[2 + 2 * k] = E_in + (0.25 * 2.0**k) * width
+    mu_points = np.array([0.0, 0.9, 0.99, 0.999, 0.9999, 0.99999])
+    mu_pieces = _pieces(-1.0, 1.0, mu_points)
+    g0, g1 = _bin_range(E_edges, low, high)
+    for g in range(g0, g1 + 1):
+        Ea = max(E_edges[g], low)
+        Eb = min(E_edges[g + 1], high)
+        if Eb <= Ea:
+            continue
+        E_pieces = _pieces(Ea, Eb, E_points)
+        for e in range(len(E_pieces) - 1):
+            a = E_pieces[e]
+            b = E_pieces[e + 1]
+            for qe in range(len(_GL_X)):
+                E_out = 0.5 * (b - a) * _GL_X[qe] + 0.5 * (b + a)
+                wE = 0.5 * (b - a) * _GL_W[qe]
+                for p in range(len(mu_pieces) - 1):
+                    c = mu_pieces[p]
+                    d = mu_pieces[p + 1]
+                    for q in range(len(_GL_X)):
+                        mu0 = 0.5 * (d - c) * _GL_X[q] + 0.5 * (d + c)
+                        f = free_gas_density(E_in, E_out, mu0, awr, kT)
+                        if f == 0.0:
+                            continue
+                        angular_transfer(mu0, table, A)
+                        out[g] += (wE * 0.5 * (d - c) * _GL_W[q] * f) * A
+
+
+@njit
 def _continuous_inner(
     E_in, reaction, nuclide, simulation, data, E_edges, mu_edges, table, out, A
 ):
@@ -526,6 +580,8 @@ def _integrand(
         _continuous_inner(
             E_in, reaction, nuclide, simulation, data, E_edges, mu_edges, table, out, A
         )
+    elif is_free_gas(E_in, reaction, nuclide):
+        _free_gas_inner(E_in, nuclide, E_edges, table, out, A)
     else:
         _delta_inner(E_in, reaction, nuclide, simulation, data, E_edges, table, out, A)
     out *= sigma
@@ -584,10 +640,14 @@ def reaction_transfer_row(
     """
     out[g, j, j'] += int_{E_a}^{E_b} dE_in sigma_r(E_in) inner_r(E_in)[g, j, j'].
 
-    Adaptive G7-K15 on pieces; a piece is accepted when its Kronrod-Gauss difference is
-    below tol times its own integral magnitude (so the row's relative error is <= tol).
+    Adaptive G7-K15 on pieces. A piece [a, b] is accepted when its Kronrod-Gauss
+    difference is below tol times its own magnitude, or below its width share of tol
+    times the row magnitude S (from one G7-K15 pass per piece): the row's error is then
+    <= tol S. The width share stops refinement of negligible pieces (kinematic tails,
+    near-zero kernels) where a relative tolerance cannot be met.
     """
     ktype = kernel_type(reaction, simulation, data)
+    tol = max(tol, TOLERANCE_FLOOR)
 
     # Threshold
     xs_grid = mcdc_get.nuclide.neutron_xs_energy_grid_all(nuclide, data)
@@ -600,6 +660,11 @@ def reaction_transfer_row(
     i0 = np.searchsorted(xs_grid, E_a, side="right")
     i1 = np.searchsorted(xs_grid, E_b, side="left")
     points = _pieces(E_a, E_b, xs_grid[i0:i1])
+    if reaction["sub_type"] == NEUTRON_REACTION_ELASTIC_SCATTERING:
+        # The kernel switches from free gas to target at rest above 400 kT
+        points = _pieces(
+            E_a, E_b, np.concatenate((points, np.array([free_gas_threshold(nuclide)])))
+        )
     crossings = _support_crossings(points, reaction, nuclide, simulation, data, E_edges)
     points = _pieces(E_a, E_b, np.concatenate((points, crossings)))
 
@@ -615,6 +680,31 @@ def reaction_transfer_row(
     stack_b = np.empty(MAX_DEPTH * 2 + len(points))
     stack_d = np.empty(MAX_DEPTH * 2 + len(points), dtype=np.int64)
     N_evaluation = 0
+
+    # Row magnitude: one G7-K15 pass per piece
+    S = 0.0
+    for p in range(len(points) - 1):
+        half = 0.5 * (points[p + 1] - points[p])
+        center = 0.5 * (points[p + 1] + points[p])
+        K[:] = 0.0
+        for q in range(15):
+            _integrand(
+                center + half * GK_X[q],
+                reaction,
+                ktype,
+                nuclide,
+                simulation,
+                data,
+                E_edges,
+                mu_edges,
+                table,
+                f,
+                A,
+            )
+            N_evaluation += 1
+            K += (half * GK_WK[q]) * f
+        S += np.sum(np.abs(K))
+    width = points[-1] - points[0]
 
     for p in range(len(points) - 1):
         top = 0
@@ -651,7 +741,12 @@ def reaction_transfer_row(
                     Gs += (half * GK_WG[q]) * f
             error = np.max(np.abs(K - Gs))
             magnitude = np.sum(np.abs(K))
-            if error <= tol * magnitude or depth >= MAX_DEPTH or magnitude == 0.0:
+            if (
+                error <= tol * magnitude
+                or error <= tol * S * (b - a) / width
+                or depth >= MAX_DEPTH
+                or magnitude == 0.0
+            ):
                 out += K
             else:
                 stack_a[top] = a
@@ -698,7 +793,7 @@ def nuclide_reactions(simulation, data, nuclide):
 
 
 def nuclide_transfer_moments(
-    simulation, data, nuclide, E_edges, mu_edges, table, tol=1e-8, tol_low=1e-10
+    simulation, data, nuclide, E_edges, mu_edges, table, tol=1e-8, tol_low=1e-8
 ):
     """
     Transfer moments M[g', j', g, j] of one nuclide (per unit atom density), split into

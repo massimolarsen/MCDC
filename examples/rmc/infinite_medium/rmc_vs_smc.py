@@ -3,7 +3,7 @@ Infinite medium (0D) with real nuclear data: RMC vs MC/DC standard Monte Carlo.
 
 One case per process:
 
-    RMC_CASE=O16 python input.py
+    MCDC_LIB=<library> RMC_CASE=O16 python rmc_vs_smc.py --mode=numba
 
 The source is uniform in energy over the window and isotropic. Results (SMC mean and
 standard error, RMC iterates, timings) are written to results_<case>.npz.

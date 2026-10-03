@@ -77,6 +77,7 @@ def test_analytic_slowing_down_A1(tmp_path, monkeypatch):
         [material],
         N_iteration=8,
         N_per_bin=500,
+        N_correction=12,
     )
 
     Sigma_t = sigma_s + sigma_c
@@ -87,25 +88,40 @@ def test_analytic_slowing_down_A1(tmp_path, monkeypatch):
         c / (Sigma_t * E0) * E0**c * (b ** (1 - c) - a ** (1 - c)) / (1 - c) / (b - a)
     )
     dmu = np.diff(mu_edges)
-    phi = np.array(
-        [np.einsum("kgj,j->kg", psi, dmu)[0, :-1] for psi in result.psi_history]
-    )
 
-    # Iteration 0 solves the source problem; afterwards eps~ only corrects it
+    def flux(psi):
+        return np.einsum("kgj,j->kg", psi, dmu)[0, :-1]
+
+    # Phase 1: exponential convergence of the collision-only iteration
     norms = np.array(result.epsilon_norm)
-    assert norms[1] < 2e-2 * norms[0]
+    assert norms[5] < 1e-6 * norms[0], norms
+    # ... to the binned fixed point, whose bias is the bin-shape floor (G-dependent)
+    phi_fixed = flux(result.psi_fixed_point)
+    assert np.max(np.abs(phi_fixed / exact - 1.0)) < 3e-3
 
-    # The iteration stagnates at the trial-space floor of the scattering correction
-    # (see mcdc.rmc.driver); the stagnated iterates are unbiased
-    relative = phi[2:].mean(axis=0) / exact - 1.0
-    assert np.sqrt(np.mean(relative**2)) < 0.06, relative
-    assert abs(np.mean(relative)) < 0.04, relative
+    # Phase 2: the averaged corrections estimate exact - fixed point without bias
+    #   (12 passes: the correction weights are heavy-tailed, so fewer passes give an
+    #   unreliable standard error)
+    corrections = np.array([flux(eps) for eps in result.corrections])
+    mean = corrections.mean(axis=0)
+    error = corrections.std(axis=0, ddof=1) / np.sqrt(len(corrections))
+    z = (mean - (exact - phi_fixed)) / error
+    assert np.sqrt(np.mean(z**2)) < 2.5, z
 
 
-def small_problem(tmp_path, monkeypatch, E_low=1.0):
-    write_synthetic_nuclide(
+def small_problem(tmp_path, monkeypatch, E_low=1.0, anisotropic=False):
+    path = write_synthetic_nuclide(
         tmp_path, "HX", 1.0, [1.0e-6, 1.0e3], [1.0, 1.0], [1.0, 1.0]
     )
+    if anisotropic:
+        # Linearly anisotropic COM elastic scattering, p(mu) = (1 + mu / 2) / 2
+        import h5py
+
+        with h5py.File(path, "r+") as f:
+            pdf = f["neutron_reactions/elastic_scattering/MT-002"][
+                "angular_cosine_distribution/pdf"
+            ]
+            pdf[...] = [0.25, 0.75, 0.25, 0.75]
     monkeypatch.setenv("MCDC_LIB", str(tmp_path))
     material = mcdc.Material(nuclide_composition={"HX": 1.0}, temperature=0.1)
     simulation = mcdc.Simulation("rmc-small")
@@ -124,7 +140,7 @@ def small_problem(tmp_path, monkeypatch, E_low=1.0):
 def test_guards(tmp_path, monkeypatch, capsys, case):
     E_low = 1.0e-3 if case == "free-gas" else 1.0
     simulation, material, E_edges, mu_edges, Q = small_problem(
-        tmp_path, monkeypatch, E_low
+        tmp_path, monkeypatch, E_low, anisotropic=case == "free-gas"
     )
     if case == "mu":
         mu_edges = np.array([-1.0, 0.5, 1.0])
@@ -138,7 +154,7 @@ def test_guards(tmp_path, monkeypatch, capsys, case):
         "mu": "mu = 0 must be a bin edge",
         "Q": "Q must have shape",
         "eigenvalue": "only fixed-source",
-        "free-gas": "free-gas threshold",
+        "free-gas": "anisotropic free-gas kernel is not supported",
     }[case]
     assert message in capsys.readouterr().out
 
@@ -236,13 +252,11 @@ def test_analytic_slowing_down_inverse_sqrt(tmp_path, monkeypatch):
 
     a, b = E_edges[:-2], E_edges[1:-1]
     exact = 2.0 * (np.sqrt(b) - np.sqrt(a)) / (b - a)
-    dmu = np.diff(mu_edges)
-    phi = np.array(
-        [np.einsum("kgj,j->kg", psi, dmu)[0, :-1] for psi in result.psi_history]
-    )
-    relative = phi[2:].mean(axis=0) / exact - 1.0
-    assert np.sqrt(np.mean(relative**2)) < 0.06, relative
-    assert abs(np.mean(relative)) < 0.04, relative
+    phi = np.einsum("kgj,j->kg", result.psi, np.diff(mu_edges))[0, :-1]
+    norms = np.array(result.epsilon_norm)
+    print("sqrt: eps", norms, "max rel", np.max(np.abs(phi / exact - 1.0)))
+    assert norms[5] < 1e-4 * norms[0], norms
+    assert np.max(np.abs(phi / exact - 1.0)) < 1e-2
 
 
 def slab_model(material_a, material_b, E0, delta, smc):
@@ -329,13 +343,28 @@ def test_slab_against_smc(tmp_path, monkeypatch):
         [material_a, material_a, material_b, material_b],
         8,
         200,
+        N_correction=8,
         boundary=("vacuum", "vacuum"),
     )
-    phi = np.array(
-        [np.einsum("kgj,j->kg", psi, np.diff(mu_edges)) for psi in result.psi_history]
-    )[2:]
-    phi_rmc = phi.mean(axis=0)
-    sd_rmc = phi.std(axis=0, ddof=1) / np.sqrt(len(phi))
-    z = (phi_rmc - phi_smc) / np.sqrt(sd_rmc**2 + sd_smc**2)
+    norms = np.array(result.epsilon_norm)
+    dmu = np.diff(mu_edges)
+    phi_rmc = np.einsum("kgj,j->kg", result.psi, dmu)
+    # The collision-only fixed point is biased (binned in-scatter, flat in-cell
+    #   shape); the averaged full-residual corrections remove that without bias, so
+    #   compare with the corrections' own standard error and SMC's combined
+    corrections = np.array([np.einsum("kgj,j->kg", e, dmu) for e in result.corrections])
+    se_rmc = corrections.std(axis=0, ddof=1) / np.sqrt(len(corrections))
+    z = (phi_rmc - phi_smc) / np.sqrt(sd_smc**2 + se_rmc**2)
+    print(
+        "slab: eps",
+        norms,
+        "z rms",
+        np.sqrt(np.mean(z**2)),
+        "max rel",
+        np.max(np.abs(phi_rmc / phi_smc - 1)),
+    )
+    # In 1D the face residual keeps an in-cell shape, so ||eps~|| drops in the first
+    #   iteration and then plateaus at the noise of one iteration (NOTES.md, 2b)
+    assert np.all(norms[1:] < 0.1 * norms[0]), norms
     assert np.sqrt(np.mean(z**2)) < 2.0, z
     assert np.all(np.abs(z) < 5.0), z

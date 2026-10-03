@@ -15,15 +15,11 @@ Units: psi~ is per unit z (cm), energy (eV), and polar cosine about z, per unit 
 area; Q uses the same units. MC/DC tallies are per source history, so residual
 weights carry the residual's absolute normalization.
 
-Known limitation (to revisit): the scattering/fission correction r_s = T_bar - s_bar
-carries the in-bin shape of the in-scatter source of the piecewise-constant psi~ and
-does not shrink with iterations. It is dominated by diagonal (g' = g) transfer blocks,
-where T_bar has a kinematic edge (e.g. E_out < E_in) while s_bar is flat, so its
-sampled weights are of the order of the full in-scatter norm. With ~10% of histories
-on r_s, the iteration stagnates near plain-SMC accuracy (A = 1 slowing down, G = 100:
-||r_s||_1 ~ 1.7% of the in-scatter source, ~60x ||r_c||_1). Averaging stagnated
-iterates is unbiased. Candidate fixes: a sub-bin representation of s~ (tabulated
-in-scatter shape, exact diagonal triangles), or allocating histories by L1 norms.
+Schedule: collision-only iterations (exponential convergence to the fixed point of the
+binned in-scatter operator), then optional averaged full-residual correction passes
+that remove the remaining bin-shape bias without bias of their own. Sampling the
+scattering correction in every iteration stalls the iteration; see mcdc/rmc/NOTES.md
+for the investigation and the deferred low-variance fix.
 """
 
 import hashlib
@@ -43,15 +39,18 @@ import mcdc.transport.simulation as simulation_module
 import mcdc.transport.tally as tally_module
 
 from mcdc.constant import (
-    BOLTZMANN_K,
     COINCIDENCE_TOLERANCE_ENERGY,
-    THERMAL_THRESHOLD_FACTOR,
+    NEUTRON_REACTION_ELASTIC_SCATTERING,
 )
 from mcdc.main import prepare
 from mcdc.print_ import print_error, print_msg, print_warning
 from mcdc.rmc.angular import N_THETA_DEFAULT, build_angular_transfer_table
 from mcdc.rmc.kernel import nuclide_reactions, nuclide_transfer_moments
-from mcdc.rmc.reaction import kernel_type
+from mcdc.rmc.reaction import (
+    elastic_isotropic_below,
+    free_gas_threshold,
+    kernel_type,
+)
 from mcdc.rmc.residual import (
     BOUNDARY_REFLECTIVE,
     BOUNDARY_VACUUM,
@@ -63,8 +62,11 @@ from mcdc.rmc.source import (
     PROPOSAL_DEFENSIVE,
     PROPOSAL_UNIFORM_LETHARGY,
     PROPOSAL_UNIFORM_LINEAR,
+    binned_in_scatter,
+    correction_masses,
     sample_collision_edge,
     sample_correction,
+    sample_correction_integrated,
 )
 
 import mcdc.mcdc_get as mcdc_get
@@ -84,14 +86,41 @@ class RMCResult:
         self.z_edges = z_edges
         self.E_edges = E_edges
         self.mu_edges = mu_edges
-        self.psi = None
-        self.epsilon_norm = []
-        self.psi_history = []
+        self.psi = None  # final answer (fixed point + averaged correction)
+        self.psi_fixed_point = None  # converged collision-only iterate
+        self.epsilon_norm = []  # ||eps~|| per collision-only iteration
+        self.psi_history = []  # psi~ after each collision-only iteration
+        self.corrections = []  # full-residual corrections at the fixed point
+        self.N_history = 0  # histories per iteration (and per correction pass)
+        self.time_precompute = 0.0  # [s] model compile and transfer moments
+        self.time_iteration = []  # [s] per collision-only iteration
+        self.time_correction = []  # [s] per correction pass
 
     @property
     def scalar_flux(self):
         """phi~[k, g] = sum_j psi~[k, g, j] dmu_j (per unit z and energy)."""
         return np.einsum("kgj,j->kg", self.psi, np.diff(self.mu_edges))
+
+    @property
+    def correction_standard_error(self):
+        """Standard error of the averaged correction (None with < 2 passes)."""
+        if len(self.corrections) < 2:
+            return None
+        return np.std(self.corrections, axis=0, ddof=1) / np.sqrt(len(self.corrections))
+
+    def write(self, group):
+        """Write the result into an open h5py group."""
+        for name in ("z_edges", "E_edges", "mu_edges", "psi", "psi_fixed_point"):
+            group.create_dataset(name, data=getattr(self, name))
+        group.create_dataset("scalar_flux", data=self.scalar_flux)
+        group.create_dataset("epsilon_norm", data=np.array(self.epsilon_norm))
+        group.create_dataset("psi_history", data=np.array(self.psi_history))
+        group.create_dataset("time_iteration", data=np.array(self.time_iteration))
+        if self.corrections:
+            group.create_dataset("corrections", data=np.array(self.corrections))
+            group.create_dataset("time_correction", data=np.array(self.time_correction))
+        group.attrs["N_history"] = self.N_history
+        group.attrs["time_precompute"] = self.time_precompute
 
 
 # ======================================================================================
@@ -195,6 +224,33 @@ def _emission_integrals(program, data, tables, xs, E_edges):
 # ======================================================================================
 
 
+def binned_total_xs(table, E_edges):
+    """
+    Piecewise-constant Sigma_t: the bin average (1/dE_g) int_g Sigma_t dE on each
+    energy bin, as a lin-lin table (a ramp of relative width 1e-13 at each edge).
+    """
+    energy, Sigma = table
+    average = np.zeros(len(E_edges) - 1)
+    for g in range(len(average)):
+        inside = (energy > E_edges[g]) & (energy < E_edges[g + 1])
+        x = np.concatenate(([E_edges[g]], energy[inside], [E_edges[g + 1]]))
+        average[g] = np.trapezoid(np.interp(x, energy, Sigma), x) / (x[-1] - x[0])
+    step_energy = np.empty(2 * len(average))
+    step_energy[0::2] = E_edges[:-1]
+    step_energy[1::2] = E_edges[1:] * (1.0 - 1e-13)
+    step_energy[-1] = E_edges[-1]
+    return step_energy, np.repeat(average, 2)
+
+
+def _xs_arrays(xs):
+    offsets = np.concatenate(([0], np.cumsum([len(x[0]) for x in xs]))).astype(np.int64)
+    return (
+        offsets,
+        np.concatenate([x[0] for x in xs]),
+        np.concatenate([x[1] for x in xs]),
+    )
+
+
 class RMCSolver:
     """
     Compiled RMC problem: set up once, then `iterate(psi, n)` performs one residual
@@ -214,10 +270,12 @@ class RMCSolver:
         proposal="defensive",
         defensive_fraction=0.5,
         quadrature_tol=1e-8,
-        quadrature_tol_low=1e-10,
+        quadrature_tol_low=1e-8,
         boundary=("reflective", "reflective"),
         cache_dir=None,
         seed=1,
+        collision_xs="binned",
+        correction_sampler="integrated",
     ):
         z_edges = np.asarray(z_edges, dtype=float)
         E_edges = np.asarray(E_edges, dtype=float)
@@ -237,6 +295,10 @@ class RMCSolver:
             print_error("RMC: mu = 0 must be a bin edge")
         if proposal not in PROPOSALS:
             print_error(f"RMC: unknown proposal {proposal}")
+        if collision_xs not in ("binned", "pointwise"):
+            print_error(f"RMC: unknown collision_xs {collision_xs}")
+        if correction_sampler not in ("integrated", "pointwise"):
+            print_error(f"RMC: unknown correction_sampler {correction_sampler}")
         settings = simulation.settings
         if settings.neutron_eigenvalue_mode:
             print_error("RMC: only fixed-source problems are supported")
@@ -252,7 +314,7 @@ class RMCSolver:
         # Configure and compile the MC/DC model
         # ==============================================================================
 
-        N_total = N_per_bin * K * G * J
+        N_total = int(round(N_per_bin * K * G * J))
         settings.N_particle = N_total
         settings.N_batch = 1
         settings.use_source_bank = True
@@ -279,20 +341,25 @@ class RMCSolver:
             [material_index[m] for m in material_IDs], dtype=np.int64
         )
 
-        # Free-gas threshold: target-at-rest elastic kernels require E_min above it
+        # Free-gas range (E <= 400 kT): the inverted kernel assumes isotropic COM
+        #   elastic scattering there (anisotropic free gas is not supported)
         for m in unique_materials:
             for nuclide_ID, _ in _material_nuclides(
                 program, data, program["materials"][m]
             ):
                 nuclide = program["nuclides"][nuclide_ID]
-                threshold = (
-                    THERMAL_THRESHOLD_FACTOR * BOLTZMANN_K * nuclide["temperature"]
-                )
-                if E_edges[0] <= threshold:
-                    print_error(
-                        f"RMC: E_min = {E_edges[0]} eV is below the free-gas "
-                        f"threshold ({threshold} eV) of {nuclide['name']}"
-                    )
+                threshold = free_gas_threshold(nuclide)
+                if E_edges[0] > threshold:
+                    continue
+                for reaction, _ in nuclide_reactions(program, data, nuclide):
+                    if reaction["sub_type"] != NEUTRON_REACTION_ELASTIC_SCATTERING:
+                        continue
+                    if not elastic_isotropic_below(reaction, threshold, program, data):
+                        print_error(
+                            f"RMC: {nuclide['name']} has anisotropic COM elastic data "
+                            f"below the free-gas threshold ({threshold} eV); the "
+                            "anisotropic free-gas kernel is not supported"
+                        )
 
         # ==============================================================================
         # Transfer moments, cross sections, and reaction tables per material
@@ -333,6 +400,7 @@ class RMCSolver:
         self.N_total = N_total
         self.collision_fraction = collision_fraction
         self.proposal = PROPOSALS[proposal]
+        self.correction_sampler = correction_sampler
         self.defensive_fraction = defensive_fraction
         self.boundary = (BOUNDARIES[boundary[0]], BOUNDARIES[boundary[1]])
         self.seed = seed
@@ -345,12 +413,13 @@ class RMCSolver:
         self.cell_material = cell_material
         self.M_scatter, self.M_fission = M_scatter, M_fission
         self.M_total = M_scatter + M_fission
+        # Collision-only iterations use the bin-averaged Sigma_t when binned
         self.xs = xs
-        self.xs_offsets = np.concatenate(
-            ([0], np.cumsum([len(x[0]) for x in xs]))
-        ).astype(np.int64)
-        self.xs_energy = np.concatenate([x[0] for x in xs])
-        self.xs_total = np.concatenate([x[1] for x in xs])
+        self.xs_iteration = xs
+        if collision_xs == "binned":
+            self.xs_iteration = [binned_total_xs(x, E_edges) for x in xs]
+        self.xs_arrays = _xs_arrays(self.xs)
+        self.xs_arrays_iteration = _xs_arrays(self.xs_iteration)
         self.tables_scatter = _reaction_tables(program, data, unique_materials, False)
         self.tables_fission = _reaction_tables(program, data, unique_materials, True)
         self.emission_scatter = _emission_integrals(
@@ -365,39 +434,68 @@ class RMCSolver:
             * np.diff(mu_edges)[None, None, :]
         )
 
-    def residual(self, psi):
+    def residual(self, psi, corrections=True):
         K = self.shape[0]
+        xs = self.xs if corrections else self.xs_iteration
         return Residual(
             psi,
             self.Q,
             [self.M_total[self.cell_material[k]] for k in range(K)],
-            [self.xs[self.cell_material[k]] for k in range(K)],
+            [xs[self.cell_material[k]] for k in range(K)],
             self.z_edges,
             self.E_edges,
             self.mu_edges,
             *self.boundary,
         )
 
-    def iterate(self, psi, n):
-        """One residual solve from psi~; returns eps~."""
+    def iterate(self, psi, n, corrections=True):
+        """
+        One residual solve from psi~; returns eps~. With corrections=False only the
+        collision and edge residual (binned in-scatter) is sampled.
+        """
         K = self.shape[0]
         h = np.diff(self.z_edges)
         program, data = self.program, self.data
         N_total = self.N_total
-        residual = self.residual(psi)
+        residual = self.residual(psi, corrections)
+        xs_arrays = self.xs_arrays if corrections else self.xs_arrays_iteration
 
         # Particle budget: collision/edge, then corrections by binned source size
         cm = self.cell_material
-        size_scatter = sum(
-            h[k] * np.abs(np.einsum("pqgj,pq->", self.M_scatter[cm[k]], psi[k]))
-            for k in range(K)
-        )
-        size_fission = sum(
-            h[k] * np.abs(np.einsum("pqgj,pq->", self.M_fission[cm[k]], psi[k]))
-            for k in range(K)
-        )
+        integrated = corrections and self.correction_sampler == "integrated"
+        if integrated:
+            # Sampling masses of r = T - S_bar per bin (deterministic pilot)
+            terms = []
+            for M_term, tables in (
+                (self.M_scatter, self.tables_scatter),
+                (self.M_fission, self.tables_fission),
+            ):
+                S_bar = binned_in_scatter(psi, M_term, cm, self.E_edges, self.mu_edges)
+                mass = correction_masses(
+                    psi,
+                    S_bar,
+                    self.z_edges,
+                    self.E_edges,
+                    self.mu_edges,
+                    cm,
+                    *tables,
+                    program,
+                    data,
+                )
+                terms.append((S_bar, mass))
+            size_scatter = np.sum(terms[0][1])
+            size_fission = np.sum(terms[1][1])
+        else:
+            size_scatter = sum(
+                h[k] * np.abs(np.einsum("pqgj,pq->", self.M_scatter[cm[k]], psi[k]))
+                for k in range(K)
+            )
+            size_fission = sum(
+                h[k] * np.abs(np.einsum("pqgj,pq->", self.M_fission[cm[k]], psi[k]))
+                for k in range(K)
+            )
         N_correction = 0
-        if size_scatter + size_fission > 0.0:
+        if corrections and size_scatter + size_fission > 0.0:
             N_correction = N_total - int(self.collision_fraction * N_total)
         N_collision = N_total - N_correction
         N_fission = int(
@@ -438,9 +536,7 @@ class RMCSolver:
             residual.c,
             mass,
             residual.jump,
-            self.xs_offsets,
-            self.xs_energy,
-            self.xs_total,
+            *xs_arrays,
             cm,
             program,
         )
@@ -449,6 +545,26 @@ class RMCSolver:
             (N_scatter, self.M_scatter, self.emission_scatter, self.tables_scatter, 1),
             (N_fission, self.M_fission, self.emission_fission, self.tables_fission, 2),
         ):
+            if integrated:
+                S_bar, mass = terms[salt - 1]
+                sample_correction_integrated(
+                    *local_range(offset, N_term),
+                    N_term,
+                    N_total,
+                    np.uint64(seed_iteration * 7 + salt),
+                    self.z_edges,
+                    self.E_edges,
+                    self.mu_edges,
+                    psi,
+                    S_bar,
+                    mass,
+                    cm,
+                    *tables,
+                    program,
+                    data,
+                )
+                offset += N_term
+                continue
             sample_correction(
                 *local_range(offset, N_term),
                 N_term,
@@ -494,19 +610,31 @@ def run(
     cell_materials,
     N_iteration,
     N_per_bin,
+    N_correction=0,
     collision_fraction=0.9,
     proposal="defensive",
     defensive_fraction=0.5,
     quadrature_tol=1e-8,
-    quadrature_tol_low=1e-10,
+    quadrature_tol_low=1e-8,
     stop="fixed",
-    tol=1e-6,
+    tol=1e-10,
     boundary=("reflective", "reflective"),
     cache_dir=None,
     seed=1,
+    collision_xs="binned",
+    correction_sampler="integrated",
 ):
     """
-    Solve a fixed-source CE problem with Residual Monte Carlo.
+    Solve a fixed-source CE problem with Residual Monte Carlo, in two phases:
+
+    1. Collision-only iterations: the residual uses the binned in-scatter (no
+       scattering/fission correction) and, by default, the bin-averaged Sigma_t
+       (piecewise-constant cross sections, as in the dissertation). Its fixed point is
+       the flat-flux-weighted multigroup solution, reached exponentially.
+    2. N_correction passes with the full residual (collision, edge, scattering and
+       fission corrections) at that fixed point. Each pass is an unbiased estimate of
+       the remaining difference to the true bin averages; the passes are averaged
+       (not accumulated) and added to the fixed point. See mcdc/rmc/NOTES.md.
 
     Parameters
     ----------
@@ -521,18 +649,35 @@ def run(
     cell_materials : sequence of mcdc.Material
         Material of each trial-space z cell.
     N_iteration : int
-        Maximum number of RMC iterations.
-    N_per_bin : int
-        Histories per trial-space bin per iteration.
+        Maximum number of collision-only iterations.
+    N_per_bin : float
+        Histories per trial-space bin per iteration (and per correction pass); the
+        total, N_per_bin * K * G * J, is rounded to an integer.
+    N_correction : int
+        Number of final full-residual correction passes (0: none; the result is the
+        collision-only fixed point, as in the NSE article).
     collision_fraction : float
-        Fraction of histories assigned to r_c + r_e; the rest go to the scattering
-        and fission corrections in proportion to their binned source magnitudes.
+        In correction passes, the fraction of histories assigned to r_c + r_e; the
+        rest go to the scattering and fission corrections in proportion to their
+        binned source magnitudes.
     proposal : {"defensive", "uniform-linear", "uniform-lethargy"}
         Proposal for the scattering/fission corrections.
     stop : {"fixed", "tol"}
-        Run N_iteration iterations, or stop when ||eps~||_2 / ||psi~||_2 < tol.
+        Run N_iteration collision-only iterations, or stop once
+        ||eps~||_2 / ||psi~||_2 < tol.
     boundary : (str, str)
         Boundary conditions at z_low and z_high: "reflective" or "vacuum".
+    collision_xs : {"binned", "pointwise"}
+        Sigma_t in the collision-only iterations: bin-averaged, or pointwise Sigma_t(E).
+        Pointwise keeps the in-bin shape of Sigma_t(E) psi~ in every iteration; that
+        part of the residual never vanishes, so the iteration stalls at the noise of
+        one iteration (see mcdc/rmc/NOTES.md). Correction passes always use the
+        pointwise Sigma_t(E).
+    correction_sampler : {"integrated", "pointwise"}
+        Scattering/fission correction in the correction passes: "integrated" samples
+        (z, E_out, mu_out) per bin and integrates the incident energy
+        deterministically (weights ~ |T - S_bar|); "pointwise" samples (E_in, E_out,
+        mu_out) with `proposal` (weights ~ the in-scatter density, much noisier).
 
     Returns
     -------
@@ -540,6 +685,7 @@ def run(
     """
     if stop not in ("fixed", "tol"):
         print_error(f"RMC: unknown stop {stop}")
+    time_start = MPI.Wtime()
     solver = RMCSolver(
         simulation,
         z_edges,
@@ -556,15 +702,32 @@ def run(
         boundary,
         cache_dir,
         seed,
+        collision_xs,
+        correction_sampler,
     )
     result = RMCResult(solver.z_edges, solver.E_edges, solver.mu_edges)
+    result.N_history = solver.N_total
+    result.time_precompute = MPI.Wtime() - time_start
+
+    # Phase 1: collision-only iterations
     psi = np.zeros(solver.shape)
     for n in range(N_iteration):
-        epsilon = solver.iterate(psi, n)
+        time_start = MPI.Wtime()
+        epsilon = solver.iterate(psi, n, corrections=False)
+        result.time_iteration.append(MPI.Wtime() - time_start)
         psi = psi + epsilon
         result.psi_history.append(psi.copy())
         result.epsilon_norm.append(np.linalg.norm(epsilon))
         if stop == "tol" and np.linalg.norm(epsilon) < tol * np.linalg.norm(psi):
             break
+    result.psi_fixed_point = psi
+
+    # Phase 2: averaged full-residual corrections at the fixed point
+    for m in range(N_correction):
+        time_start = MPI.Wtime()
+        result.corrections.append(solver.iterate(psi, N_iteration + m))
+        result.time_correction.append(MPI.Wtime() - time_start)
     result.psi = psi
+    if result.corrections:
+        result.psi = psi + np.mean(result.corrections, axis=0)
     return result

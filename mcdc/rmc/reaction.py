@@ -27,7 +27,10 @@ import mcdc.mcdc_get as mcdc_get
 from mcdc.constant import (
     ANGLE_ENERGY_CORRELATED,
     ANGLE_ISOTROPIC,
+    BOLTZMANN_K,
     DISTRIBUTION_LEVEL_SCATTERING,
+    PI,
+    THERMAL_THRESHOLD_FACTOR,
     NEUTRON_REACTION_ELASTIC_SCATTERING,
     NEUTRON_REACTION_FISSION,
     NEUTRON_REACTION_INELASTIC_SCATTERING,
@@ -56,6 +59,7 @@ from mcdc.transport.physics.neutron.native import (
     neutron_fission_prompt_multiplicity,
 )
 from mcdc.transport.data import evaluate_data
+import mcdc.transport.rng as rng
 from mcdc.transport.util import find_bin
 
 KERNEL_CONTINUOUS = 0
@@ -77,8 +81,6 @@ def kernel_type(reaction, simulation, data):
         inelastic = simulation["neutron_inelastic_scattering_reactions"][
             reaction["sub_ID"]
         ]
-        if inelastic["multiplicity_tabulated"] and inelastic["N_spectrum"] != 1:
-            raise ValueError("RMC: unsupported multi-spectrum tabulated-yield reaction")
         spectrum = _inelastic_spectrum(inelastic, 0, simulation, data)
         if spectrum["sub_type"] == DISTRIBUTION_LEVEL_SCATTERING:
             if inelastic["N_spectrum"] != 1 or (
@@ -110,16 +112,11 @@ def inelastic_yield(E_in, inelastic, simulation, data):
 
 
 @njit
-def _spectrum_weight(E_in, inelastic, n, simulation, data):
+def _secondaries_through(N, E_in, inelastic, n, data):
     """
-    Expected number of secondaries emitted through spectrum n, mirroring
-    `sample_inelastic_scattering`: one per spectrum if multiplicity == N_spectrum,
-    otherwise multiplicity times the tabulated spectrum probability. A tabulated
-    yield (single spectrum only) emits yield(E) through spectrum 0.
+    Secondaries emitted through spectrum n when N are emitted: one per spectrum if
+    N == N_spectrum, otherwise each picks a spectrum by its tabulated probability.
     """
-    if inelastic["multiplicity_tabulated"]:
-        return inelastic_yield(E_in, inelastic, simulation, data)
-    N = inelastic["multiplicity"]
     if N == inelastic["N_spectrum"]:
         return 1.0
     grid = mcdc_get.neutron_inelastic_scattering_reaction.spectrum_probability_grid_all(
@@ -132,12 +129,185 @@ def _spectrum_weight(E_in, inelastic, n, simulation, data):
 
 
 @njit
+def _spectrum_weight(E_in, inelastic, n, simulation, data):
+    """
+    Expected number of secondaries emitted through spectrum n, mirroring
+    `sample_inelastic_scattering`. With a tabulated yield nu(E) the sampler emits
+    N = floor(nu + xi), i.e. m = floor(nu) or m + 1 with probability nu - m, and
+    then applies the integer-multiplicity rule to that N.
+    """
+    if not inelastic["multiplicity_tabulated"]:
+        return _secondaries_through(inelastic["multiplicity"], E_in, inelastic, n, data)
+    nu = inelastic_yield(E_in, inelastic, simulation, data)
+    m = math.floor(nu)
+    f = nu - m
+    weight = 0.0
+    if f < 1.0:
+        weight += (1.0 - f) * _secondaries_through(int(m), E_in, inelastic, n, data)
+    if f > 0.0:
+        weight += f * _secondaries_through(int(m) + 1, E_in, inelastic, n, data)
+    return weight
+
+
+@njit
 def fission_yield(E_in, nuclide, simulation, data):
     """Expected fission neutrons per fission (all prompt), as in `sample_fission`."""
     nu = neutron_fission_prompt_multiplicity(
         E_in, nuclide, simulation, data
     ) + neutron_fission_delayed_multiplicity(E_in, nuclide, simulation, data)
     return nu / simulation["k_eff"]
+
+
+# ======================================================================================
+# Free-gas elastic scattering (thermal target motion)
+# ======================================================================================
+#
+# Below E = 400 kT MC/DC samples the target velocity from a Maxwellian weighted by the
+# relative speed (constant cross section) and scatters isotropically in the COM frame
+# (`sample_elastic_scattering`, `sample_nucleus_velocity`). The induced lab kernel is
+# the free-gas law (derivation in writeups/free_gas.tex):
+#
+#   f(E', mu0 | E) = ((A + 1)/A)^2 / (2 kT) sqrt(E'/E) S(alpha, beta) / D(a),
+#   S = exp(-(alpha + beta)^2 / (4 alpha)) / sqrt(4 pi alpha),
+#   alpha = (E' + E - 2 mu0 sqrt(E E')) / (A kT),  beta = (E' - E) / kT,
+#   D(a) = (1 + 1/(2 a^2)) erf(a) + exp(-a^2) / (a sqrt(pi)),  a = sqrt(A E / kT).
+#
+# It requires isotropic COM scattering below the threshold (checked by the driver).
+
+FREE_GAS_EXPONENT_CUTOFF = 50.0
+
+
+@njit
+def free_gas_threshold(nuclide):
+    """MC/DC samples target motion for E <= 400 kT (none at T = 0)."""
+    return THERMAL_THRESHOLD_FACTOR * BOLTZMANN_K * nuclide["temperature"]
+
+
+@njit
+def is_free_gas(E_in, reaction, nuclide):
+    if reaction["sub_type"] != NEUTRON_REACTION_ELASTIC_SCATTERING:
+        return False
+    return nuclide["temperature"] > 0.0 and E_in <= free_gas_threshold(nuclide)
+
+
+@njit
+def free_gas_density(E_in, E_out, mu0, A, kT):
+    """Free-gas lab density per unit E_out and lab cosine mu0 (normalized to 1)."""
+    if E_out <= 0.0 or E_in <= 0.0 or mu0 < -1.0 or mu0 > 1.0:
+        return 0.0
+    alpha = (E_out + E_in - 2.0 * mu0 * math.sqrt(E_in * E_out)) / (A * kT)
+    if alpha <= 0.0:
+        return 0.0
+    beta = (E_out - E_in) / kT
+    exponent = (alpha + beta) ** 2 / (4.0 * alpha)
+    if exponent > FREE_GAS_EXPONENT_CUTOFF:
+        return 0.0
+    S = math.exp(-exponent) / math.sqrt(4.0 * PI * alpha)
+    a = math.sqrt(A * E_in / kT)
+    D = (1.0 + 0.5 / (a * a)) * math.erf(a) + math.exp(-a * a) / (a * math.sqrt(PI))
+    return ((A + 1.0) / A) ** 2 / (2.0 * kT) * math.sqrt(E_out / E_in) * S / D
+
+
+@njit
+def _free_gas_min_exponent(E_in, E_out, A, kT):
+    """min over mu0 of (alpha + beta)^2 / (4 alpha) at fixed E_out <= E_in."""
+    beta = (E_out - E_in) / kT
+    root = math.sqrt(E_in)
+    a_min = (math.sqrt(E_out) - root) ** 2 / (A * kT)
+    a_max = (math.sqrt(E_out) + root) ** 2 / (A * kT)
+    if a_min <= -beta <= a_max:
+        return 0.0
+    a = a_max if -beta > a_max else a_min
+    if a <= 0.0:
+        return math.inf
+    return (a + beta) ** 2 / (4.0 * a)
+
+
+@njit
+def free_gas_support(E_in, A, kT):
+    """
+    [E_low, E_high] outside which the free-gas exponent exceeds the cutoff for every
+    mu0: (alpha + beta)^2/(4 alpha) >= beta gives E_high = E + cutoff kT; E_low by
+    bisection on the minimum exponent over mu0 (monotone below E).
+    """
+    cutoff = FREE_GAS_EXPONENT_CUTOFF
+    E_high = E_in + cutoff * kT
+    if _free_gas_min_exponent(E_in, 0.0, A, kT) <= cutoff:
+        return 0.0, E_high
+    low, high = 0.0, E_in
+    for _ in range(80):
+        mid = 0.5 * (low + high)
+        if _free_gas_min_exponent(E_in, mid, A, kT) > cutoff:
+            low = mid
+        else:
+            high = mid
+    return low, E_high
+
+
+@njit
+def sample_free_gas(E_in, A, kT, container):
+    """
+    (E_out, mu0) of one free-gas collision: the target-velocity rejection scheme of
+    `sample_nucleus_velocity` (relative-speed acceptance) and isotropic COM
+    scattering, in units with E = v^2 (neutron along +z).
+    """
+    v = math.sqrt(E_in)
+    beta = math.sqrt(A / kT)
+    y = beta * v
+    while True:
+        if rng.lcg(container) < 2.0 / (2.0 + math.sqrt(PI) * y):
+            x = math.sqrt(-math.log(rng.lcg(container) * rng.lcg(container)))
+        else:
+            c = math.cos(0.5 * PI * rng.lcg(container))
+            x = math.sqrt(
+                -math.log(rng.lcg(container)) - math.log(rng.lcg(container)) * c * c
+            )
+        V = x / beta
+        mu_t = 2.0 * rng.lcg(container) - 1.0
+        if rng.lcg(container) < math.sqrt(v * v + V * V - 2.0 * v * V * mu_t) / (v + V):
+            break
+    phi = 2.0 * PI * rng.lcg(container)
+    s = math.sqrt(max(0.0, 1.0 - mu_t * mu_t))
+    Vx, Vy, Vz = V * s * math.cos(phi), V * s * math.sin(phi), V * mu_t
+    # COM velocity and the neutron's COM speed
+    cx, cy, cz = A * Vx / (A + 1.0), A * Vy / (A + 1.0), (v + A * Vz) / (A + 1.0)
+    w = math.sqrt(cx * cx + cy * cy + (v - cz) ** 2)
+    # Isotropic COM direction
+    mu = 2.0 * rng.lcg(container) - 1.0
+    phi = 2.0 * PI * rng.lcg(container)
+    s = math.sqrt(max(0.0, 1.0 - mu * mu))
+    ox = cx + w * s * math.cos(phi)
+    oy = cy + w * s * math.sin(phi)
+    oz = cz + w * mu
+    E_out = ox * ox + oy * oy + oz * oz
+    return E_out, oz / math.sqrt(E_out)
+
+
+def elastic_isotropic_below(reaction, E_limit, simulation, data, tolerance=1e-6):
+    """
+    True if the elastic COM angular tables that the sampler can use at E <= E_limit
+    (tables at or below it and the next one, for interpolation) are isotropic.
+    """
+    elastic = simulation["neutron_elastic_scattering_reactions"][reaction["sub_ID"]]
+    distribution = simulation["distributions"][elastic["mu_table_ID"]]
+    multi_table = simulation["multi_table_distributions"][distribution["sub_ID"]]
+    grid = mcdc_get.multi_table_distribution.grid_all(multi_table, data)
+    last = min(len(grid) - 1, int(np.searchsorted(grid, E_limit, side="right")))
+    for idx in range(last + 1):
+        ID = mcdc_get.multi_table_distribution.table_IDs(idx, multi_table, data)
+        table = simulation["tabulated_distributions"][
+            simulation["distributions"][ID]["sub_ID"]
+        ]
+        pdf_table = simulation["table_data"][
+            simulation["data"][table["pdf_ID"]]["sub_ID"]
+        ]
+        x = mcdc_get.table_data.x_all(pdf_table, data)
+        y = mcdc_get.table_data.y_all(pdf_table, data)
+        if abs(x[0] + 1.0) > tolerance or abs(x[-1] - 1.0) > tolerance:
+            return False
+        if np.max(np.abs(y - 0.5)) > tolerance:
+            return False
+    return True
 
 
 # ======================================================================================
@@ -178,9 +348,16 @@ def _emission_density(
 
 @njit
 def continuous_lab_density(E_in, E_out, mu_lab, reaction, nuclide, simulation, data):
-    """Emitted-neutron density f_L(E_out, mu_lab | E_in) of a continuous reaction."""
+    """
+    Emitted-neutron density f_L(E_out, mu_lab | E_in) of a continuous reaction, or of
+    elastic scattering in the free-gas range.
+    """
     A = nuclide["atomic_weight_ratio"]
     frame = reaction["reference_frame"]
+
+    if reaction["sub_type"] == NEUTRON_REACTION_ELASTIC_SCATTERING:
+        kT = BOLTZMANN_K * nuclide["temperature"]
+        return free_gas_density(E_in, E_out, mu_lab, A, kT)
 
     if reaction["sub_type"] == NEUTRON_REACTION_FISSION:
         fission = simulation["neutron_fission_reactions"][reaction["sub_ID"]]
@@ -289,6 +466,8 @@ def lab_energy_support(E_in, reaction, nuclide, simulation, data):
     frame = reaction["reference_frame"]
 
     if reaction_type == NEUTRON_REACTION_ELASTIC_SCATTERING:
+        if is_free_gas(E_in, reaction, nuclide):
+            return free_gas_support(E_in, A, BOLTZMANN_K * nuclide["temperature"])
         return elastic_E_out_range(E_in, A)
 
     if reaction_type == NEUTRON_REACTION_FISSION:
@@ -410,7 +589,8 @@ def emission_kernel_bin(
     if E_out < low or E_out > high:
         return 0.0
 
-    if ktype != KERNEL_CONTINUOUS:
+    free_gas = is_free_gas(E_in, reaction, nuclide)
+    if ktype != KERNEL_CONTINUOUS and not free_gas:
         g, mu0 = delta_lab_line(E_in, E_out, reaction, nuclide, simulation, data)
         if g == 0.0:
             return 0.0
@@ -419,7 +599,7 @@ def emission_kernel_bin(
     # Lab-cosine support: for COM laws, E_cm = E_out + s_A^2 - 2 mu0 s_A sqrt(E_out)
     #   (s_A = sqrt(E_in)/(A+1)) must lie in the spectra's E_cm range
     mu0_low, mu0_high = -1.0, 1.0
-    if reaction["reference_frame"] == REFERENCE_FRAME_COM:
+    if reaction["reference_frame"] == REFERENCE_FRAME_COM and not free_gas:
         E_cm_low, E_cm_high = _com_energy_range(E_in, reaction, simulation, data)
         s_A = math.sqrt(E_in) / (nuclide["atomic_weight_ratio"] + 1)
         denominator = 2.0 * s_A * math.sqrt(E_out)
@@ -429,10 +609,16 @@ def emission_kernel_bin(
         return 0.0
 
     # Pieces: kinks of Pi in mu0 at b mu_out +- sqrt(1 - b^2) sqrt(1 - mu_out^2)
-    points = np.empty(6)
+    points = np.empty(8)
     points[0] = mu0_low
     points[1] = mu0_high
     N = 2
+    if free_gas:
+        # The free-gas kernel peaks toward mu0 = 1 near E_out = E_in
+        for p0 in (1.0 - 1e-2, 1.0 - 1e-4):
+            if mu0_low < p0 < mu0_high:
+                points[N] = p0
+                N += 1
     s_out = math.sqrt(max(0.0, 1.0 - mu_out * mu_out))
     for edge in (mu_low, mu_high):
         s = math.sqrt(max(0.0, 1.0 - edge * edge)) * s_out

@@ -33,12 +33,14 @@ import mcdc.transport.rng as rng
 
 from mcdc.constant import (
     ANGLE_ENERGY_CORRELATED,
+    BOLTZMANN_K,
     ANGLE_ISOTROPIC,
     NEUTRON_REACTION_FISSION,
     PARTICLE_NEUTRON,
     PI,
     REFERENCE_FRAME_COM,
 )
+from mcdc.rmc.kernel import GK_WG, GK_WK, GK_X, _pieces, _support_crossings
 from mcdc.rmc.kinematics import com_to_lab, elastic_E_out, elastic_mu_lab
 from mcdc.rmc.reaction import (
     KERNEL_ELASTIC,
@@ -48,6 +50,8 @@ from mcdc.rmc.reaction import (
     emission_kernel_bin,
     fission_yield,
     inelastic_yield,
+    is_free_gas,
+    sample_free_gas,
 )
 from mcdc.transport.distribution import (
     sample_correlated_distribution_with_scale,
@@ -215,6 +219,9 @@ def sample_emission(E_in, reaction, ktype, nuclide, simulation, data, container)
     awr = nuclide["atomic_weight_ratio"]
 
     if ktype == KERNEL_ELASTIC:
+        if is_free_gas(E_in, reaction, nuclide):
+            kT = BOLTZMANN_K * nuclide["temperature"]
+            return sample_free_gas(E_in, awr, kT, container)
         elastic = simulation["neutron_elastic_scattering_reactions"][reaction["sub_ID"]]
         mu_distribution = simulation["distributions"][elastic["mu_table_ID"]]
         mu_cm = sample_distribution(E_in, mu_distribution, container, simulation, data)
@@ -603,4 +610,349 @@ def sample_correction(
             _bank_dead(container, simulation)
             continue
         w = scale * (T_bar - s_bar) / q
+        _bank(container, z, E_out, mu_out, w, simulation)
+
+
+# ======================================================================================
+# Scattering / fission residual with the incident energy integrated (low variance)
+# ======================================================================================
+#
+# The pointwise sampler above draws y = (z, E_in, E_out, mu_out) and scores
+# T_bar - s_bar per unit E_in. Here only (z, E_out, mu_out) is sampled, and the
+# incident-energy integral is done deterministically:
+#
+#   r(z, E_out, mu_out) = T(E_out, mu_out) - S_bar[k, g, j],
+#   T = sum_{g', j'} psi~[k, g', j'] int_{g'} dE_in U_j'(E_in -> E_out, mu_out),
+#   S_bar = sum_{g', j'} M[g', j', g, j] psi~[k, g', j'] / (dE_g dmu_j),
+#
+# so the weights scale with |r| instead of with the pointwise in-scatter density.
+
+INSCATTER_TOLERANCE = 1e-6
+INSCATTER_MAX_DEPTH = 16
+
+
+@njit
+def _psi_weighted_kernels(
+    E_in,
+    k,
+    E_out,
+    mu_out,
+    psi,
+    E_edges,
+    mu_edges,
+    start,
+    end,
+    rx_ID,
+    rx_nuclide,
+    rx_density,
+    rx_type,
+    simulation,
+    data,
+    U,
+):
+    """sum_j' psi~[k, g'(E_in), j'] U_j'(E_in -> E_out, mu_out)."""
+    gp = _bin(E_in, E_edges)
+    if gp < 0:
+        return 0.0
+    _bin_kernels(
+        E_in,
+        E_out,
+        mu_out,
+        mu_edges,
+        start,
+        end,
+        rx_ID,
+        rx_nuclide,
+        rx_density,
+        rx_type,
+        simulation,
+        data,
+        U,
+    )
+    value = 0.0
+    for jp in range(len(U)):
+        value += psi[k, gp, jp] * U[jp]
+    return value
+
+
+@njit
+def in_scatter_density(
+    k,
+    E_out,
+    mu_out,
+    psi,
+    E_edges,
+    mu_edges,
+    start,
+    end,
+    rx_ID,
+    rx_nuclide,
+    rx_density,
+    rx_type,
+    simulation,
+    data,
+):
+    """
+    T(E_out, mu_out): emission density (per unit z, E_out and mu_out) of a term's
+    reactions [start, end) from the piecewise-constant psi~ of cell k, integrated over
+    the incident energy with adaptive G7-K15. Pieces are split at the trial-space
+    energy edges (psi~ jumps) and where a reaction's emission support crosses E_out.
+    A piece is accepted at INSCATTER_TOLERANCE relative to itself or to its width
+    share of the total.
+    """
+    J = len(mu_edges) - 1
+    U = np.zeros(J)
+    E_low = E_edges[0]
+    E_high = E_edges[-1]
+
+    # Breakpoints
+    candidates = E_edges.copy()
+    target = np.array([E_out])
+    for i in range(start, end):
+        reaction = simulation["neutron_reactions"][rx_ID[i]]
+        nuclide = simulation["nuclides"][rx_nuclide[i]]
+        crossings = _support_crossings(
+            E_edges, reaction, nuclide, simulation, data, target
+        )
+        candidates = np.concatenate((candidates, crossings))
+    points = _pieces(E_low, E_high, candidates)
+    N_piece = len(points) - 1
+
+    # Coarse pass: total magnitude
+    S = 0.0
+    for p in range(N_piece):
+        half = 0.5 * (points[p + 1] - points[p])
+        center = 0.5 * (points[p + 1] + points[p])
+        for q in range(15):
+            f = _psi_weighted_kernels(
+                center + half * GK_X[q],
+                k,
+                E_out,
+                mu_out,
+                psi,
+                E_edges,
+                mu_edges,
+                start,
+                end,
+                rx_ID,
+                rx_nuclide,
+                rx_density,
+                rx_type,
+                simulation,
+                data,
+                U,
+            )
+            S += abs(half * GK_WK[q] * f)
+    if S == 0.0:
+        return 0.0
+    width = E_high - E_low
+
+    total = 0.0
+    stack_a = np.empty(INSCATTER_MAX_DEPTH + 2)
+    stack_b = np.empty(INSCATTER_MAX_DEPTH + 2)
+    stack_d = np.empty(INSCATTER_MAX_DEPTH + 2, dtype=np.int64)
+    for p in range(N_piece):
+        stack_a[0] = points[p]
+        stack_b[0] = points[p + 1]
+        stack_d[0] = 0
+        top = 1
+        while top > 0:
+            top -= 1
+            a = stack_a[top]
+            b = stack_b[top]
+            depth = stack_d[top]
+            half = 0.5 * (b - a)
+            center = 0.5 * (b + a)
+            K = 0.0
+            Gs = 0.0
+            for q in range(15):
+                f = _psi_weighted_kernels(
+                    center + half * GK_X[q],
+                    k,
+                    E_out,
+                    mu_out,
+                    psi,
+                    E_edges,
+                    mu_edges,
+                    start,
+                    end,
+                    rx_ID,
+                    rx_nuclide,
+                    rx_density,
+                    rx_type,
+                    simulation,
+                    data,
+                    U,
+                )
+                K += half * GK_WK[q] * f
+                Gs += half * GK_WG[q] * f
+            error = abs(K - Gs)
+            if (
+                error <= INSCATTER_TOLERANCE * abs(K)
+                or error <= INSCATTER_TOLERANCE * S * (b - a) / width
+                or depth >= INSCATTER_MAX_DEPTH
+                or K == 0.0
+            ):
+                total += K
+            else:
+                stack_a[top] = a
+                stack_b[top] = center
+                stack_d[top] = depth + 1
+                stack_a[top + 1] = center
+                stack_b[top + 1] = b
+                stack_d[top + 1] = depth + 1
+                top += 2
+    return total
+
+
+@njit
+def binned_in_scatter(psi, M, cell_material, E_edges, mu_edges):
+    """S_bar[k, g, j] = sum_{g', j'} M[m_k, g', j', g, j] psi~[k, g', j'] / (dE dmu)."""
+    K, G, J = psi.shape
+    out = np.zeros((K, G, J))
+    for k in range(K):
+        Mk = M[cell_material[k]]
+        for gp in range(G):
+            for jp in range(J):
+                if psi[k, gp, jp] != 0.0:
+                    out[k] += Mk[gp, jp] * psi[k, gp, jp]
+    for g in range(G):
+        for j in range(J):
+            out[:, g, j] /= (E_edges[g + 1] - E_edges[g]) * (
+                mu_edges[j + 1] - mu_edges[j]
+            )
+    return out
+
+
+@njit
+def correction_masses(
+    psi,
+    S_bar,
+    z_edges,
+    E_edges,
+    mu_edges,
+    cell_material,
+    rx_offsets,
+    rx_ID,
+    rx_nuclide,
+    rx_density,
+    rx_type,
+    simulation,
+    data,
+):
+    """
+    Sampling masses A[k, g, j] ~ int_bin |T - S_bar| from 2 x 2 Gauss points per bin,
+    plus 0.1 h dE dmu |S_bar| so every bin that receives in-scatter (where r can be
+    nonzero) has positive probability. Only the proposal depends on these.
+    """
+    K, G, J = psi.shape
+    A = np.zeros((K, G, J))
+    x = np.array([-0.5773502691896258, 0.5773502691896258])
+    for k in range(K):
+        m = cell_material[k]
+        start = rx_offsets[m]
+        end = rx_offsets[m + 1]
+        h = z_edges[k + 1] - z_edges[k]
+        for g in range(G):
+            dE = E_edges[g + 1] - E_edges[g]
+            for j in range(J):
+                if S_bar[k, g, j] == 0.0:
+                    continue
+                dmu = mu_edges[j + 1] - mu_edges[j]
+                mean = 0.0
+                for a in range(2):
+                    E_out = E_edges[g] + 0.5 * dE * (1.0 + x[a])
+                    for b in range(2):
+                        mu_out = mu_edges[j] + 0.5 * dmu * (1.0 + x[b])
+                        T = in_scatter_density(
+                            k,
+                            E_out,
+                            mu_out,
+                            psi,
+                            E_edges,
+                            mu_edges,
+                            start,
+                            end,
+                            rx_ID,
+                            rx_nuclide,
+                            rx_density,
+                            rx_type,
+                            simulation,
+                            data,
+                        )
+                        mean += 0.25 * abs(T - S_bar[k, g, j])
+                A[k, g, j] = h * dE * dmu * (mean + 0.1 * abs(S_bar[k, g, j]))
+    return A
+
+
+@njit
+def sample_correction_integrated(
+    i_start,
+    i_end,
+    N_term,
+    N_total,
+    seed,
+    z_edges,
+    E_edges,
+    mu_edges,
+    psi,
+    S_bar,
+    mass,
+    cell_material,
+    rx_offsets,
+    rx_ID,
+    rx_nuclide,
+    rx_density,
+    rx_type,
+    simulation,
+    data,
+):
+    """
+    Bank sample indices [i_start, i_end) of N_term particles for one correction term:
+    bin (k, g, j) with probability P ~ mass, (z, E_out, mu_out) uniform in the bin,
+    weight (N_total / N_term) (T - S_bar) / q with q = P / (h dE dmu).
+    """
+    K, G, J = psi.shape
+    if N_term == 0:
+        return
+    scale = N_total / N_term
+    total = np.sum(mass)
+    if total == 0.0:
+        for i in range(i_start, i_end):
+            _bank_dead(_new_container(rng.split_seed(uint64(i), seed)), simulation)
+        return
+    cdf = np.zeros(K * G * J + 1)
+    cdf[1:] = np.cumsum(mass.ravel()) / total
+
+    for i in range(i_start, i_end):
+        container = _new_container(rng.split_seed(uint64(i), seed))
+        idx = _sample_cdf(cdf, rng.lcg(container))
+        k = idx // (G * J)
+        g = (idx // J) % G
+        j = idx % J
+        h = z_edges[k + 1] - z_edges[k]
+        dE = E_edges[g + 1] - E_edges[g]
+        dmu = mu_edges[j + 1] - mu_edges[j]
+        z = z_edges[k] + rng.lcg(container) * h
+        E_out = E_edges[g] + rng.lcg(container) * dE
+        mu_out = mu_edges[j] + rng.lcg(container) * dmu
+        m = cell_material[k]
+        T = in_scatter_density(
+            k,
+            E_out,
+            mu_out,
+            psi,
+            E_edges,
+            mu_edges,
+            rx_offsets[m],
+            rx_offsets[m + 1],
+            rx_ID,
+            rx_nuclide,
+            rx_density,
+            rx_type,
+            simulation,
+            data,
+        )
+        q = mass[k, g, j] / total / (h * dE * dmu)
+        w = scale * (T - S_bar[k, g, j]) / q
         _bank(container, z, E_out, mu_out, w, simulation)

@@ -18,8 +18,12 @@ from mcdc.rmc.source import (
     FACE_NUDGE,
     PROPOSAL_DEFENSIVE,
     PROPOSAL_UNIFORM_LETHARGY,
+    binned_in_scatter,
+    correction_masses,
+    in_scatter_density,
     sample_collision_edge,
     sample_correction,
+    sample_correction_integrated,
 )
 
 from .conftest import DATA_DIR, numba_only, requires_nuclide
@@ -211,3 +215,106 @@ def test_scattering_correction_unbiased(prepare_simulation, monkeypatch, proposa
     w = particles["w"]
     std_total = np.sqrt(max(np.sum(w**2) / N - (np.sum(w) / N) ** 2, 0.0) / N)
     assert abs(mean.sum() - expected.sum()) < 5 * std_total
+
+
+@numba_only
+@requires_nuclide("O16")
+def test_scattering_correction_integrated(prepare_simulation, monkeypatch):
+    """
+    Integrated-E_in sampler: (1) int_bin T dE dmu = sum M psi~ (the transfer moments),
+    (2) with M deliberately halved, E[r_s] per bin = h sum psi (M_true - M_used).
+    """
+    N = 4000
+    monkeypatch.setenv("MCDC_LIB", DATA_DIR)
+    material = mcdc.Material(nuclide_composition={"O16": 0.05})
+
+    def configure(simulation):
+        simulation.settings.N_particle = N
+        simulation.settings.use_source_bank = True
+
+    container, data = prepare_simulation(
+        cells=(mcdc.Cell(fill=material),), configure=configure
+    )
+    simulation = container[0]
+    nuclide = simulation["nuclides"][0]
+
+    z_edges = np.array([0.0, 1.0])
+    E_edges = np.logspace(6.0, np.log10(6.0e6), 5)  # elastic only (below thresholds)
+    mu_edges = np.array([-1.0, 0.0, 1.0])
+    G, J = 4, 2
+    table = build_angular_transfer_table(mu_edges, 2049)
+    M_true, _ = nuclide_transfer_moments(
+        simulation, data, nuclide, E_edges, mu_edges, table
+    )
+    M_true *= 0.05  # atom density
+    psi = np.random.default_rng(2).uniform(0.5, 1.5, (1, G, J))
+    tables = _reaction_tables(simulation, data, [material.ID], False)
+    cell_material = np.array([0])
+
+    # (1) Bin integrals of T: composite Gauss-Legendre in E_out (T has kinks where the
+    #     kinematic limits of incident-bin edges cross E_out), Gauss in mu_out
+    S_true = binned_in_scatter(psi, M_true[None], cell_material, E_edges, mu_edges)
+    x, w = np.polynomial.legendre.leggauss(8)
+    for g in range(G):
+        for j in range(J):
+            sub = np.linspace(E_edges[g], E_edges[g + 1], 33)
+            integral = 0.0
+            for a, b in zip(sub[:-1], sub[1:]):
+                for xe, we in zip(x, w):
+                    E_out = 0.5 * (a + b) + 0.5 * (b - a) * xe
+                    for xm, wm in zip(x, w):
+                        mu_out = 0.5 * (mu_edges[j] + mu_edges[j + 1]) + 0.5 * xm
+                        T = in_scatter_density(
+                            0,
+                            E_out,
+                            mu_out,
+                            psi,
+                            E_edges,
+                            mu_edges,
+                            0,
+                            tables[0][1],
+                            *tables[1:],
+                            simulation,
+                            data,
+                        )
+                        integral += 0.25 * (b - a) * we * wm * T
+            average = integral / ((E_edges[g + 1] - E_edges[g]) * 1.0)
+            # The test quadrature converges as O(h^2) across those kinks (1e-6 with
+            #   128 panels); 32 panels give a few 1e-4
+            assert average == pytest.approx(S_true[0, g, j], rel=5e-4)
+
+    # (2) Unbiased with M halved
+    S_used = 0.5 * S_true
+    mass = correction_masses(
+        psi,
+        S_used,
+        z_edges,
+        E_edges,
+        mu_edges,
+        cell_material,
+        *tables,
+        simulation,
+        data,
+    )
+    particle_bank_module.set_bank_size(simulation["bank_source"], 0)
+    sample_correction_integrated(
+        0,
+        N,
+        N,
+        N,
+        np.uint64(3),
+        z_edges,
+        E_edges,
+        mu_edges,
+        psi,
+        S_used,
+        mass,
+        cell_material,
+        *tables,
+        simulation,
+        data,
+    )
+    particles = banked(simulation)
+    mean, std = tally_bins(particles, z_edges, E_edges, mu_edges, N)
+    expected = 0.5 * np.einsum("pqgj,pq->gj", M_true, psi[0])[None]
+    assert np.all(np.abs(mean - expected) < 5 * std + 1e-12 * expected.max())

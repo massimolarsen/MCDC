@@ -7,11 +7,14 @@ factor, unit-base scaling, linear inversion of tabulated PDFs, ...). Residual Mo
 Carlo needs these "inverted" scattering laws: given incident energy E and an outgoing
 point (E_out[, mu]), return the probability density of producing it.
 
-Supported (laws present in H-1, O-16, Al-27, U-235, U-238 data):
-  - Multi-table (tabulated angle and energy spectra, scaled or not)
+Supported:
+  - Multi-table (tabulated angle and energy spectra, scaled or not; ENDF Law 1/4)
+  - Evaporation (ENDF Law 9) and simple Maxwellian fission spectrum (ENDF Law 7)
   - Kalbach-Mann (ENDF Law 44)
   - Tabulated energy-angle (ENDF Law 61)
-Level scattering (Law 3) is a delta in E_cm and is handled at the reaction level.
+  - N-body phase space (ENDF Law 6, ACE Law 66)
+Level scattering (Law 3), elastic scattering and the free-gas thermal kernel are
+handled at the reaction level. The derivations are in mcdc/rmc/writeups.
 """
 
 import math
@@ -25,12 +28,16 @@ from numba import njit
 import mcdc.mcdc_get as mcdc_get
 
 from mcdc.constant import (
+    DISTRIBUTION_EVAPORATION,
     DISTRIBUTION_KALBACH_MANN,
+    DISTRIBUTION_MAXWELLIAN,
     DISTRIBUTION_MULTITABLE,
+    DISTRIBUTION_N_BODY,
     DISTRIBUTION_TABULATED,
     DISTRIBUTION_TABULATED_ENERGY_ANGLE,
     INTERPOLATION_HISTOGRAM,
 )
+from mcdc.transport.data import evaluate_data
 from mcdc.transport.util import find_bin
 
 # ======================================================================================
@@ -52,6 +59,14 @@ def evaluate_distribution(E, x, distribution, simulation, data, scale):
         multi_table = simulation["multi_table_distributions"][ID]
         return evaluate_multi_table(E, x, multi_table, simulation, data, scale)
 
+    elif distribution_type == DISTRIBUTION_EVAPORATION:
+        evaporation = simulation["evaporation_distributions"][ID]
+        return evaluate_evaporation(E, x, evaporation, simulation, data)
+
+    elif distribution_type == DISTRIBUTION_MAXWELLIAN:
+        maxwellian = simulation["maxwellian_distributions"][ID]
+        return evaluate_maxwellian(E, x, maxwellian, simulation, data)
+
     else:
         raise ValueError("RMC: unsupported distribution type for evaluation")
 
@@ -70,6 +85,14 @@ def distribution_support(E, distribution, simulation, data, scale):
         multi_table = simulation["multi_table_distributions"][ID]
         return multi_table_support(E, multi_table, simulation, data, scale)
 
+    elif distribution_type == DISTRIBUTION_EVAPORATION:
+        evaporation = simulation["evaporation_distributions"][ID]
+        return 0.0, max(0.0, E - evaporation["restriction_energy"])
+
+    elif distribution_type == DISTRIBUTION_MAXWELLIAN:
+        maxwellian = simulation["maxwellian_distributions"][ID]
+        return 0.0, max(0.0, E - maxwellian["restriction_energy"])
+
     else:
         raise ValueError("RMC: unsupported distribution type for evaluation")
 
@@ -87,6 +110,10 @@ def evaluate_correlated_distribution(E, E_out, mu, distribution, simulation, dat
     elif distribution_type == DISTRIBUTION_TABULATED_ENERGY_ANGLE:
         table = simulation["tabulated_energy_angle_distributions"][ID]
         return evaluate_tabulated_energy_angle(E, E_out, mu, table, data)
+
+    elif distribution_type == DISTRIBUTION_N_BODY:
+        nbody = simulation["nbody_distributions"][ID]
+        return evaluate_nbody(E, E_out, mu, nbody, simulation, data)
 
     else:
         raise ValueError("RMC: unsupported correlated distribution for evaluation")
@@ -115,6 +142,10 @@ def correlated_distribution_support(E, distribution, simulation, data):
             table, data
         )
         return _correlated_energy_range(E, grid, offsets, energy_out)
+
+    elif distribution_type == DISTRIBUTION_N_BODY:
+        nbody = simulation["nbody_distributions"][ID]
+        return 0.0, max(0.0, nbody_energy_max(E, nbody))
 
     else:
         raise ValueError("RMC: unsupported correlated distribution for evaluation")
@@ -429,6 +460,87 @@ def evaluate_tabulated_energy_angle(E, E_out, mu, table, data):
 
 
 # ======================================================================================
+# Evaporation (Law 9) and simple Maxwellian (Law 7)
+# ======================================================================================
+#
+# Both samplers draw from the untruncated law and reject samples outside
+# [0, E - U] (U: restriction energy), so the density is the law renormalized on
+# [0, E - U], with the nuclear temperature theta(E) interpolated as the sampler does.
+
+
+@njit
+def _nuclear_temperature(E, distribution, simulation, data):
+    table = simulation["data"][distribution["nuclear_temperature_ID"]]
+    return evaluate_data(E, table, simulation, data)
+
+
+@njit
+def evaporation_normalization(w):
+    """int_0^w s e^{-s} ds = 1 - e^{-w} (1 + w), cancellation-free for small w."""
+    if w < 1e-3:
+        return w * w * (0.5 - w / 3.0 + w * w / 8.0 - w * w * w / 30.0)
+    return -math.expm1(-w) - w * math.exp(-w)
+
+
+@njit
+def maxwellian_normalization(w):
+    """int_0^w sqrt(s) e^{-s} ds = sqrt(pi)/2 erf(sqrt(w)) - sqrt(w) e^{-w}."""
+    if w < 1e-3:
+        return w * math.sqrt(w) * (2.0 / 3.0 - 0.4 * w + w * w / 7.0)
+    r = math.sqrt(w)
+    return 0.5 * math.sqrt(math.pi) * math.erf(r) - r * math.exp(-w)
+
+
+@njit
+def evaluate_evaporation(E, E_out, evaporation, simulation, data):
+    """f(E_out | E) = E_out e^{-E_out/theta} / (theta^2 I(w)), 0 <= E_out <= E - U."""
+    limit = E - evaporation["restriction_energy"]
+    if limit <= 0.0 or E_out < 0.0 or E_out > limit:
+        return 0.0
+    theta = _nuclear_temperature(E, evaporation, simulation, data)
+    if theta <= 0.0:
+        return 0.0
+    norm = theta * theta * evaporation_normalization(limit / theta)
+    return E_out * math.exp(-E_out / theta) / norm
+
+
+@njit
+def evaluate_maxwellian(E, E_out, maxwellian, simulation, data):
+    """f(E_out | E) = sqrt(E_out) e^{-E_out/theta} / (theta^{3/2} I(w)), 0 <= E_out <= E - U."""
+    limit = E - maxwellian["restriction_energy"]
+    if limit <= 0.0 or E_out < 0.0 or E_out > limit:
+        return 0.0
+    theta = _nuclear_temperature(E, maxwellian, simulation, data)
+    if theta <= 0.0:
+        return 0.0
+    norm = theta * math.sqrt(theta) * maxwellian_normalization(limit / theta)
+    return math.sqrt(E_out) * math.exp(-E_out / theta) / norm
+
+
+# ======================================================================================
+# N-body phase space (ENDF Law 6, ACE Law 66)
+# ======================================================================================
+
+
+@njit
+def nbody_energy_max(E, nbody):
+    """E_max(E) = (Ap - 1)/Ap (A/(A + 1) E + Q), stored as slope and offset."""
+    return nbody["energy_max_slope"] * E + nbody["energy_max_offset"]
+
+
+@njit
+def evaluate_nbody(E, E_cm, mu_cm, nbody, simulation, data):
+    """
+    f(E_cm, mu_cm | E) = p(T) / E_max / 2 with T = E_cm / E_max: the sampler draws T
+    from the tabulated reduced distribution and an isotropic COM cosine.
+    """
+    E_max = nbody_energy_max(E, nbody)
+    if E_max <= 0.0 or E_cm < 0.0 or E_cm > E_max or abs(mu_cm) > 1.0:
+        return 0.0
+    return 0.5 * evaluate_tabulated(E_cm / E_max, nbody, simulation, data) / E_max
+
+
+# ======================================================================================
 # Breakpoints (kinks of the sampled densities), for piecewise-smooth quadrature
 # ======================================================================================
 
@@ -452,6 +564,13 @@ def distribution_breakpoints(E, distribution, simulation, data, scale):
         return mcdc_get.table_data.x_all(
             _pdf_table(table, simulation, data), data
         ).copy()
+
+    if (
+        distribution_type == DISTRIBUTION_EVAPORATION
+        or distribution_type == DISTRIBUTION_MAXWELLIAN
+    ):
+        # Smooth on the support; its end points come from distribution_support
+        return np.empty(0)
 
     multi_table = simulation["multi_table_distributions"][ID]
     grid = mcdc_get.multi_table_distribution.grid_all(multi_table, data)
@@ -484,6 +603,12 @@ def distribution_breakpoints(E, distribution, simulation, data, scale):
 @njit
 def correlated_energy_breakpoints(E, distribution, simulation, data):
     """Outgoing energies where a correlated distribution's energy density has kinks."""
+    if distribution["sub_type"] == DISTRIBUTION_N_BODY:
+        # Table points of the reduced variable, scaled by E_max(E)
+        nbody = simulation["nbody_distributions"][distribution["sub_ID"]]
+        values = mcdc_get.table_data.x_all(_pdf_table(nbody, simulation, data), data)
+        return values * nbody_energy_max(E, nbody)
+
     if distribution["sub_type"] == DISTRIBUTION_KALBACH_MANN:
         kalbach_mann = simulation["kalbach_mann_distributions"][distribution["sub_ID"]]
         grid = mcdc_get.kalbach_mann_distribution.energy_all(kalbach_mann, data)
