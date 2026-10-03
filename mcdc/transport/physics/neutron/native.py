@@ -471,7 +471,7 @@ def sample_elastic_scattering(
         Vy = 0.0
         Vz = 0.0
     else:
-        Vx, Vy, Vz = sample_nucleus_velocity(A, particle_container)
+        Vx, Vy, Vz = sample_nucleus_velocity(A, temperature, particle_container)
 
     # =========================================================================
     # COM kinematics
@@ -539,16 +539,15 @@ def sample_elastic_scattering(
 
 
 @njit
-def sample_nucleus_velocity(A, particle_container):
+def sample_nucleus_velocity(A, temperature, particle_container):
     particle = particle_container[0]
 
     # Particle speed
     speed = particle_speed(particle_container)
 
-    # Maxwellian parameter
-    beta = math.sqrt(2.0659834e-11 * A)
-    # The constant above is
-    #   (1.674927471e-27 kg) / (1.38064852e-19 cm^2 kg s^-2 K^-1) / (293.6 K)/2
+    # Maxwellian parameter beta = sqrt(M / (2 k T)) [s/cm] of the target nucleus,
+    #   M = A m_n, at the nuclide's temperature
+    beta = math.sqrt(A * NEUTRON_MASS / (2.0 * BOLTZMANN_K * temperature)) / LIGHT_SPEED
 
     # Sample nuclide speed candidate V_tilda and
     #   nuclide-neutron polar cosine candidate mu_tilda via
@@ -568,8 +567,8 @@ def sample_nucleus_velocity(A, particle_container):
         V_tilda = x / beta
         mu_tilda = 2.0 * rng.lcg(particle_container) - 1.0
 
-        # Accept candidate V_tilda and mu_tilda?
-        if rng.lcg(particle_container) > math.sqrt(
+        # Accept candidate V_tilda and mu_tilda with probability |v - V| / (v + V)
+        if rng.lcg(particle_container) < math.sqrt(
             speed * speed + V_tilda * V_tilda - 2.0 * speed * V_tilda * mu_tilda
         ) / (speed + V_tilda):
             break

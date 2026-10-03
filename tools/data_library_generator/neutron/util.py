@@ -347,9 +347,12 @@ def load_energy_distribution(data, h5_group: h5py.Group):
         if data.interpolation != 2:
             print_error("Non-linearly-interpolable N-body energy distribution")
 
-        dataset = h5_group.create_dataset("value", data=data.values)
-        dataset.attrs["unit"] = "MeV"
+        # Reduced outgoing energy T in [0, 1]: E_cm = T E_max(E), with
+        #   E_max = (Ap - 1) / Ap * (A / (A + 1) E + Q)
+        h5_group.create_dataset("value", data=data.values)
         h5_group.create_dataset("pdf", data=data.pdf)
+        h5_group.create_dataset("number_of_particles", data=data.number_particles)
+        h5_group.create_dataset("total_mass_ratio", data=data.total_mass_ratio)
 
     else:
         print_error(f"Unsupported energy distribution: {data}")

@@ -101,7 +101,8 @@ def _sample_correlated_distribution(
 
     elif distribution_type == DISTRIBUTION_N_BODY:
         nbody = simulation["nbody_distributions"][ID]
-        E_out = sample_tabulated(nbody, rng_state, simulation, data)
+        E_max = nbody["energy_max_slope"] * E + nbody["energy_max_offset"]
+        E_out = sample_tabulated(nbody, rng_state, simulation, data) * E_max
         mu = sample_isotropic_cosine(rng_state)
         return E_out, mu
 

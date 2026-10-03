@@ -29,7 +29,7 @@ from mcdc.object_.distribution import (
     DistributionTabulatedEnergyAngle,
     DistributionNBody,
 )
-from mcdc.print_ import print_1d_array, print_error
+from mcdc.print_ import print_1d_array, print_error, print_warning
 
 # ======================================================================================
 # Neutron reaction base class
@@ -424,10 +424,23 @@ def set_energy_distribution(h5_group):
         )
 
     elif spectrum_type == "N-body":
-        value = h5_group["value"][()] * 1e6  # MeV to eV
-        pdf = h5_group["pdf"][()] / 1e6  # MeV to eV
-
-        energy_spectrum = DistributionNBody(value, pdf)
+        # Reduced outgoing energy T in [0, 1]; E_cm = T E_max(E)
+        value = h5_group["value"][()]
+        pdf = h5_group["pdf"][()]
+        if "total_mass_ratio" in h5_group:
+            Ap = float(h5_group["total_mass_ratio"][()])
+            A = float(h5_group.file["atomic_weight_ratio"][()])
+            Q = float(h5_group.parent["Q-value"][()]) * 1e6  # MeV to eV
+            factor = (Ap - 1.0) / Ap
+            energy_spectrum = DistributionNBody(
+                value, pdf, factor * A / (A + 1.0), factor * Q
+            )
+        else:
+            print_warning(
+                "N-body spectrum without total_mass_ratio: outgoing energies are not"
+                " scaled by E_max(E); regenerate the nuclear data library."
+            )
+            energy_spectrum = DistributionNBody(value, pdf, 0.0, 1.0e6)
 
     else:
         print_error(f"Unsupported energy spectrum of type {spectrum_type}")
