@@ -2,6 +2,11 @@
 End-to-end RMC on analytic 0D slowing-down problems (synthetic nuclides).
 """
 
+import os
+import shutil
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 
@@ -149,3 +154,54 @@ def test_reproducible(tmp_path, monkeypatch):
         )
         results.append(result.psi)
     np.testing.assert_array_equal(results[0], results[1])
+
+
+def test_moment_cache(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    results = []
+    for _ in range(2):
+        simulation, material, E_edges, mu_edges, Q = small_problem(
+            tmp_path, monkeypatch
+        )
+        result = run(
+            simulation,
+            [0.0, 1.0],
+            E_edges,
+            mu_edges,
+            Q,
+            [material],
+            2,
+            50,
+            seed=3,
+            cache_dir=str(cache),
+        )
+        results.append(result.psi)
+    assert len(list(cache.iterdir())) == 1
+    np.testing.assert_array_equal(results[0], results[1])
+
+
+@pytest.mark.skipif(
+    shutil.which("mpiexec", path=os.path.dirname(sys.executable)) is None,
+    reason="mpiexec not available",
+)
+def test_mpi_rank_independence(tmp_path):
+    script = os.path.join(os.path.dirname(__file__), "scripts", "mpi_small_problem.py")
+    mpiexec = shutil.which("mpiexec", path=os.path.dirname(sys.executable))
+    psi = []
+    for N_rank in (1, 2):
+        out = tmp_path / f"psi_{N_rank}.npy"
+        subprocess.run(
+            [
+                mpiexec,
+                "-n",
+                str(N_rank),
+                sys.executable,
+                script,
+                str(tmp_path),
+                str(out),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        psi.append(np.load(out))
+    np.testing.assert_allclose(psi[0], psi[1], rtol=1e-12)

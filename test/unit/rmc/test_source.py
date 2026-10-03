@@ -98,6 +98,8 @@ def test_collision_edge_unbiased(prepare_simulation):
     mass = np.concatenate((mass_c.ravel(), mass_e.ravel()))
     particle_bank_module.set_bank_size(simulation["bank_source"], 0)
     sample_collision_edge(
+        0,
+        N,
         N,
         N,
         np.uint64(9),
@@ -184,6 +186,8 @@ def test_scattering_correction_unbiased(prepare_simulation, monkeypatch, proposa
     emission = _emission_integrals(simulation, data, tables, xs, E_edges)
     particle_bank_module.set_bank_size(simulation["bank_source"], 0)
     sample_correction(
+        0,
+        N,
         N,
         N,
         np.uint64(3),

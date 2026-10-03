@@ -703,16 +703,25 @@ def nuclide_transfer_moments(
     """
     Transfer moments M[g', j', g, j] of one nuclide (per unit atom density), split into
     scattering (elastic + inelastic) and fission. The lowest energy decade of the
-    grid uses the tighter tolerance tol_low.
+    grid uses the tighter tolerance tol_low. Rows are computed in parallel over MPI
+    ranks and summed on all of them.
     """
+    from mpi4py import MPI
+
+    comm = MPI.COMM_WORLD
     G = len(E_edges) - 1
     J = len(mu_edges) - 1
     M_scatter = np.zeros((G, J, G, J))
     M_fission = np.zeros((G, J, G, J))
     row = np.zeros((G, J, J))
+    task = -1
     for reaction, is_fission in nuclide_reactions(simulation, data, nuclide):
         target = M_fission if is_fission else M_scatter
         for gp in range(G):
+            # Rows are distributed round-robin over MPI ranks
+            task += 1
+            if task % comm.Get_size() != comm.Get_rank():
+                continue
             row[:] = 0.0
             tolerance = tol_low if E_edges[gp + 1] <= 10.0 * E_edges[0] else tol
             reaction_transfer_row(
@@ -729,4 +738,6 @@ def nuclide_transfer_moments(
                 row,
             )
             target[gp] += np.transpose(row, (2, 0, 1))
+    for M in (M_scatter, M_fission):
+        comm.Allreduce(MPI.IN_PLACE, M, op=MPI.SUM)
     return M_scatter, M_fission

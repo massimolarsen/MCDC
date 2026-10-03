@@ -32,9 +32,12 @@ import os
 import h5py
 import numpy as np
 
+from mpi4py import MPI
+
 ####
 
 import mcdc
+import mcdc.transport.mpi as mpi
 import mcdc.transport.particle_bank as particle_bank_module
 import mcdc.transport.simulation as simulation_module
 import mcdc.transport.tally as tally_module
@@ -108,13 +111,17 @@ def nuclide_moments(
     if cache_dir is not None:
         key = _cache_key(nuclide, E_edges, mu_edges, tol, tol_low)
         path = os.path.join(cache_dir, f"{nuclide['name']}-{key}.h5")
-        if os.path.exists(path):
+        # Rank 0 decides, so all ranks agree on entering the collective computation
+        exists = MPI.COMM_WORLD.bcast(
+            os.path.exists(path) if MPI.COMM_WORLD.Get_rank() == 0 else None, root=0
+        )
+        if exists:
             with h5py.File(path, "r") as f:
                 return f["M_scatter"][()], f["M_fission"][()]
     M_scatter, M_fission = nuclide_transfer_moments(
         simulation, data, nuclide, E_edges, mu_edges, table, tol, tol_low
     )
-    if cache_dir is not None:
+    if cache_dir is not None and MPI.COMM_WORLD.Get_rank() == 0:
         os.makedirs(cache_dir, exist_ok=True)
         with h5py.File(path, "w") as f:
             f.create_dataset("M_scatter", data=M_scatter)
@@ -371,8 +378,8 @@ class RMCSolver:
             *self.boundary,
         )
 
-    def iterate(self, psi, n, terms=("collision", "scatter", "fission")):
-        """One residual solve from psi~; returns eps~ (None if the residual is empty)."""
+    def iterate(self, psi, n):
+        """One residual solve from psi~; returns eps~."""
         K = self.shape[0]
         h = np.diff(self.z_edges)
         program, data = self.program, self.data
@@ -400,52 +407,50 @@ class RMCSolver:
         )
         N_scatter = N_correction - N_fission
 
-        # Fill the source bank
+        # Fill the source bank: this rank's slice of the global sample indices
+        #   (collision/edge, then scattering, then fission); seeds depend only on the
+        #   global index, so the result does not depend on the number of ranks
         bank = program["bank_source"]
         particle_bank_module.set_bank_size(bank, 0)
+        program["settings"]["N_particle"] = N_total
+        mpi.distribute_work(N_total, program)
+        work_start = program["mpi_work_start"]
+        work_end = work_start + program["mpi_work_size"]
+
+        def local_range(offset, N_term):
+            start = min(max(work_start - offset, 0), N_term)
+            end = min(max(work_end - offset, 0), N_term)
+            return start, end
+
         seed_iteration = np.uint64(self.seed * 1000003 + n)
-        if "collision" in terms:
-            mass = np.concatenate(
-                (residual.collision_mass.ravel(), residual.edge_mass.ravel())
-            )
-            sample_collision_edge(
-                N_collision,
-                N_total,
-                seed_iteration,
-                self.z_edges,
-                self.E_edges,
-                self.mu_edges,
-                psi,
-                residual.c,
-                mass,
-                residual.jump,
-                self.xs_offsets,
-                self.xs_energy,
-                self.xs_total,
-                cm,
-                program,
-            )
-        for name, N_term, M_term, emission, tables, salt in (
-            (
-                "scatter",
-                N_scatter,
-                self.M_scatter,
-                self.emission_scatter,
-                self.tables_scatter,
-                1,
-            ),
-            (
-                "fission",
-                N_fission,
-                self.M_fission,
-                self.emission_fission,
-                self.tables_fission,
-                2,
-            ),
+        mass = np.concatenate(
+            (residual.collision_mass.ravel(), residual.edge_mass.ravel())
+        )
+        sample_collision_edge(
+            *local_range(0, N_collision),
+            N_collision,
+            N_total,
+            seed_iteration,
+            self.z_edges,
+            self.E_edges,
+            self.mu_edges,
+            psi,
+            residual.c,
+            mass,
+            residual.jump,
+            self.xs_offsets,
+            self.xs_energy,
+            self.xs_total,
+            cm,
+            program,
+        )
+        offset = N_collision
+        for N_term, M_term, emission, tables, salt in (
+            (N_scatter, self.M_scatter, self.emission_scatter, self.tables_scatter, 1),
+            (N_fission, self.M_fission, self.emission_fission, self.tables_fission, 2),
         ):
-            if name not in terms:
-                continue
             sample_correction(
+                *local_range(offset, N_term),
                 N_term,
                 N_total,
                 np.uint64(seed_iteration * 7 + salt),
@@ -462,15 +467,9 @@ class RMCSolver:
                 program,
                 data,
             )
+            offset += N_term
 
-        # Rescale to the number of banked histories (skipped samples carry no weight)
-        N_bank = particle_bank_module.get_bank_size(bank)
-        if N_bank == 0:
-            return None
-        bank["particle_data"][:N_bank]["w"] *= N_bank / N_total
-        program["settings"]["N_particle"] = N_bank
-
-        # Transport the residual source and read eps~
+        # Transport the residual source and read eps~ (reduced on the master rank)
         tally_module.closeout.reset_statistics(program, data)
         simulation_module.fixed_source_simulation(self.simulation_container, data)
         record = program["tallies"][self.epsilon_tally.ID]
@@ -479,7 +478,11 @@ class RMCSolver:
             self.epsilon_tally.bin_shape
         )
         # bin shape: (mu, azi, energy, time, x, y, z, score)
-        return np.transpose(mean[:, 0, :, 0, 0, 0, :, 0], (2, 1, 0)) / self.volume
+        epsilon = np.ascontiguousarray(
+            np.transpose(mean[:, 0, :, 0, 0, 0, :, 0], (2, 1, 0)) / self.volume
+        )
+        MPI.COMM_WORLD.Bcast(epsilon, root=0)
+        return epsilon
 
 
 def run(
@@ -558,8 +561,6 @@ def run(
     psi = np.zeros(solver.shape)
     for n in range(N_iteration):
         epsilon = solver.iterate(psi, n)
-        if epsilon is None:
-            break
         psi = psi + epsilon
         result.psi_history.append(psi.copy())
         result.epsilon_norm.append(np.linalg.norm(epsilon))

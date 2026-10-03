@@ -110,6 +110,13 @@ def _bank(container, z, E, mu, w, simulation):
     particle_bank_module.bank_source_particle(container, simulation)
 
 
+@njit
+def _bank_dead(container, simulation):
+    """A zero-weight placeholder outside the energy window (killed at birth), so that
+    every sample index banks exactly one history (MPI work slices stay aligned)."""
+    _bank(container, 0.0, -1.0, 0.0, 0.0, simulation)
+
+
 # ======================================================================================
 # Collision and edge residual (r_c + r_e)
 # ======================================================================================
@@ -117,6 +124,8 @@ def _bank(container, z, E, mu, w, simulation):
 
 @njit
 def sample_collision_edge(
+    i_start,
+    i_end,
     N_term,
     N_total,
     seed,
@@ -134,7 +143,8 @@ def sample_collision_edge(
     simulation,
 ):
     """
-    Bank N_term particles from r_c (mass[:K*G*J]) and r_e (mass[K*G*J:]).
+    Bank sample indices [i_start, i_end) of the N_term particles drawn from r_c
+    (mass[:K*G*J]) and r_e (mass[K*G*J:]).
 
     mass is the flattened concatenation of the collision masses (k, g, j) and edge
     masses (f, g, j); xs_* hold each material's union energy grid and Sigma_t.
@@ -144,12 +154,15 @@ def sample_collision_edge(
     cdf = np.zeros(len(mass) + 1)
     cdf[1:] = np.cumsum(mass)
     total = cdf[-1]
-    if total == 0.0 or N_term == 0:
+    if N_term == 0:
         return
     scale = N_total / N_term
 
-    for i in range(N_term):
+    for i in range(i_start, i_end):
         container = _new_container(rng.split_seed(uint64(i), seed))
+        if total == 0.0:
+            _bank_dead(container, simulation)
+            continue
         idx = _sample_cdf(cdf, rng.lcg(container))
 
         if idx < N_collision:
@@ -343,6 +356,8 @@ def _bin_kernels(
 
 @njit
 def sample_correction(
+    i_start,
+    i_end,
     N_term,
     N_total,
     seed,
@@ -364,7 +379,8 @@ def sample_correction(
     data,
 ):
     """
-    Bank N_term particles estimating one correction term (scattering or fission),
+    Bank sample indices [i_start, i_end) of the N_term particles estimating one
+    correction term (scattering or fission),
 
         r(z, E_out, mu_out) = int dE_in [T_bar - s_bar](E_in, E_out, mu_out),
         T_bar = sum_j' psi~[g', j'] U_j',   U_j' = sum_r N_n sigma_r tau_bar_{r, j'},
@@ -419,12 +435,14 @@ def sample_correction(
         Z_T = np.sum(cdf_T)
         Z_S = np.sum(cdf_S)
         if Z_T == 0.0:
+            for i in range(i_start, i_end):
+                _bank_dead(_new_container(rng.split_seed(uint64(i), seed)), simulation)
             return
         P_T = cdf_T[1:] / Z_T
         cdf_T = np.cumsum(cdf_T)
         cdf_S = np.cumsum(cdf_S)
 
-    for i in range(N_term):
+    for i in range(i_start, i_end):
         container = _new_container(rng.split_seed(uint64(i), seed))
 
         # ==============================================================================
@@ -472,6 +490,7 @@ def sample_correction(
                     data,
                 )
                 if rate == 0.0:
+                    _bank_dead(container, simulation)
                     continue
                 xi = rng.lcg(container) * rate
                 cumulative = 0.0
@@ -524,6 +543,7 @@ def sample_correction(
 
         # Outside the energy grid: killed at birth by the energy window
         if g == -1:
+            _bank_dead(container, simulation)
             continue
 
         # ==============================================================================
@@ -580,6 +600,7 @@ def sample_correction(
             q = 1.0 / (H * 2.0 * L * L * E_in * E_out)
 
         if q <= 0.0:
+            _bank_dead(container, simulation)
             continue
         w = scale * (T_bar - s_bar) / q
         _bank(container, z, E_out, mu_out, w, simulation)
