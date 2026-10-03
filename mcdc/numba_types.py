@@ -524,6 +524,7 @@ settings = into_dtype([
     ('gyration_radius_type', int64),
     ('use_source_file', bool_),
     ('source_file_name', 'U32'),
+    ('use_source_bank', bool_),
     ('time_boundary', float64),
     ('output_name', 'U32'),
     ('use_progress_bar', bool_),

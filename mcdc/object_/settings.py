@@ -45,6 +45,10 @@ class Settings(MCDCBase):
     # Particle source
     use_source_file: bool = False
     source_file_name: str = ""
+    #: Whether fixed-source histories are read from a source bank filled by the
+    #: caller (e.g. Residual Monte Carlo) instead of sampled from the sources.
+    #: The default is ``False``.
+    use_source_bank: bool = False
 
     # Misc.
     #: Time in seconds at which particle transport terminates. The default is

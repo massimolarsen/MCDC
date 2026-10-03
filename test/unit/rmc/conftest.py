@@ -87,6 +87,14 @@ def spectrum_distribution(simulation, data, inelastic, n=0):
     return simulation["distributions"][ID]
 
 
+def hashed_seed(i, base=20261002):
+    """Per-history seed hashed like MC/DC's split_seed (sequential raw seeds give
+    lattice-correlated LCG draws)."""
+    import mcdc.transport.rng as rng
+
+    return rng.split_seed(np.uint64(i), np.uint64(base))
+
+
 def rng_container(seed):
     particles = np.zeros(1, type_.particle)
     particles[0]["rng_seed"] = seed
@@ -150,3 +158,48 @@ def chi_square_pvalue(observed, probability):
         obs, exp = obs[:-1], exp[:-1]
     chi2 = np.sum((obs - exp) ** 2 / exp)
     return stats.chi2.sf(chi2, len(obs) - 1)
+
+
+def write_synthetic_nuclide(directory, name, A, energy, sigma_s, sigma_c):
+    """
+    Minimal nuclide in the MC/DC library format: elastic (isotropic COM) and capture
+    with tabulated cross sections on `energy` [eV], at 0.1 K (no free-gas region in
+    practice). Written as <name>-0.1K.h5.
+    """
+    import h5py
+
+    energy_MeV = np.asarray(energy, dtype=float) * 1e-6
+    path = os.path.join(directory, f"{name}-0.1K.h5")
+    with h5py.File(path, "w") as f:
+        f.create_dataset("nuclide_name", data=name)
+        f.create_dataset("excitation_level", data=0)
+        f.create_dataset("temperature", data=0.1).attrs["unit"] = "K"
+        f.create_dataset("atomic_number", data=1)
+        f.create_dataset("mass_number", data=1)
+        f.create_dataset("atomic_weight_ratio", data=float(A))
+        f.create_dataset("fissionable", data=False)
+        reactions = f.create_group("neutron_reactions")
+        reactions.create_dataset("xs_energy_grid", data=energy_MeV).attrs["unit"] = (
+            "MeV"
+        )
+
+        elastic = reactions.create_group("elastic_scattering/MT-002")
+        elastic.attrs["MT"] = 2
+        xs = elastic.create_dataset("xs", data=np.asarray(sigma_s, dtype=float))
+        xs.attrs["offset"] = 0
+        elastic.create_dataset("reference_frame", data="COM")
+        elastic.create_dataset("Q-value", data=0.0)
+        angle = elastic.create_group("angular_cosine_distribution")
+        angle.attrs["type"] = "tabulated"
+        angle.create_dataset("energy", data=energy_MeV[[0, -1]])
+        angle.create_dataset("offset", data=np.array([0, 2]))
+        angle.create_dataset("value", data=np.array([-1.0, 1.0, -1.0, 1.0]))
+        angle.create_dataset("pdf", data=np.array([0.5, 0.5, 0.5, 0.5]))
+
+        capture = reactions.create_group("capture/MT-102")
+        capture.attrs["MT"] = 102
+        xs = capture.create_dataset("xs", data=np.asarray(sigma_c, dtype=float))
+        xs.attrs["offset"] = 0
+        capture.create_dataset("reference_frame", data="LAB")
+        capture.create_dataset("Q-value", data=0.0)
+    return path

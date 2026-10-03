@@ -16,6 +16,8 @@ threshold). Fission is all prompt, with yield nu_total(E_in) / k_eff.
 
 import math
 
+import numpy as np
+
 from numba import njit
 
 ####
@@ -38,6 +40,7 @@ from mcdc.rmc.evaluate import (
     evaluate_distribution,
 )
 from mcdc.rmc.kinematics import (
+    azimuthal_bin_probability,
     com_to_lab_jacobian,
     elastic_dmu_cm_dE_out,
     elastic_E_out_range,
@@ -325,3 +328,188 @@ def _spectrum_support(E_in, angle_type, spectrum, simulation, data):
     if angle_type == ANGLE_ENERGY_CORRELATED:
         return correlated_distribution_support(E_in, spectrum, simulation, data)
     return distribution_support(E_in, spectrum, simulation, data, True)
+
+
+# ======================================================================================
+# Emission kernel about the slab axis, integrated over an incident polar bin
+# ======================================================================================
+
+# Gauss-Kronrod 15 / Gauss 7 on [-1, 1] (as in mcdc.rmc.kernel)
+_XK = (
+    -0.991455371120812639206854697526329,
+    -0.949107912342758524526189684047851,
+    -0.864864423359769072789712788640926,
+    -0.741531185599394439863864773280788,
+    -0.586087235467691130294144845693013,
+    -0.405845151377397166906606412076961,
+    -0.207784955007898467600689403773245,
+    0.0,
+    0.207784955007898467600689403773245,
+    0.405845151377397166906606412076961,
+    0.586087235467691130294144845693013,
+    0.741531185599394439863864773280788,
+    0.864864423359769072789712788640926,
+    0.949107912342758524526189684047851,
+    0.991455371120812639206854697526329,
+)
+_WK = (
+    0.022935322010529224963732008058970,
+    0.063092092629978553290700663189204,
+    0.104790010322250183839876322541518,
+    0.140653259715525918745189590510238,
+    0.169004726639267902826583426598550,
+    0.190350578064785409913256402421014,
+    0.204432940075298892414161999234649,
+    0.209482141084727828012999174891714,
+    0.204432940075298892414161999234649,
+    0.190350578064785409913256402421014,
+    0.169004726639267902826583426598550,
+    0.140653259715525918745189590510238,
+    0.104790010322250183839876322541518,
+    0.063092092629978553290700663189204,
+    0.022935322010529224963732008058970,
+)
+_WG = (
+    0.0,
+    0.129484966168869693270611432679082,
+    0.0,
+    0.279705391489276667901467771423780,
+    0.0,
+    0.381830050505118944950369775488975,
+    0.0,
+    0.417959183673469387755102040816327,
+    0.0,
+    0.381830050505118944950369775488975,
+    0.0,
+    0.279705391489276667901467771423780,
+    0.0,
+    0.129484966168869693270611432679082,
+    0.0,
+)
+
+TAU_TOLERANCE = 1e-10
+TAU_MAX_DEPTH = 40
+
+
+@njit
+def emission_kernel_bin(
+    E_in, E_out, mu_out, mu_low, mu_high, reaction, ktype, nuclide, simulation, data
+):
+    """
+    tau_bar_r: emitted neutrons per reaction per unit E_out and per unit outgoing polar
+    cosine mu_out, integrated over incident polar cosines mu_in in [mu_low, mu_high]
+    (azimuths integrated). The azimuthal kernel is symmetric in (mu_in, mu_out), so
+
+        tau_bar = int dmu0 f_L(E_out, mu0 | E_in) Pi(mu_out, mu0; mu_low, mu_high),
+
+    with Pi the analytic bin probability (bounded). Delta laws: g(E_out) Pi(mu0*).
+    Continuous laws: adaptive Gauss-Kronrod over the supported mu0 range, split at the
+    kinks of Pi and cosine-mapped on each piece.
+    """
+    low, high = lab_energy_support(E_in, reaction, nuclide, simulation, data)
+    if E_out < low or E_out > high:
+        return 0.0
+
+    if ktype != KERNEL_CONTINUOUS:
+        g, mu0 = delta_lab_line(E_in, E_out, reaction, nuclide, simulation, data)
+        if g == 0.0:
+            return 0.0
+        return g * azimuthal_bin_probability(mu_out, mu0, mu_low, mu_high)
+
+    # Lab-cosine support: for COM laws, E_cm = E_out + s_A^2 - 2 mu0 s_A sqrt(E_out)
+    #   (s_A = sqrt(E_in)/(A+1)) must lie in the spectra's E_cm range
+    mu0_low, mu0_high = -1.0, 1.0
+    if reaction["reference_frame"] == REFERENCE_FRAME_COM:
+        E_cm_low, E_cm_high = _com_energy_range(E_in, reaction, simulation, data)
+        s_A = math.sqrt(E_in) / (nuclide["atomic_weight_ratio"] + 1)
+        denominator = 2.0 * s_A * math.sqrt(E_out)
+        mu0_low = max(mu0_low, (E_out + s_A * s_A - E_cm_high) / denominator)
+        mu0_high = min(mu0_high, (E_out + s_A * s_A - E_cm_low) / denominator)
+    if mu0_high <= mu0_low:
+        return 0.0
+
+    # Pieces: kinks of Pi in mu0 at b mu_out +- sqrt(1 - b^2) sqrt(1 - mu_out^2)
+    points = np.empty(6)
+    points[0] = mu0_low
+    points[1] = mu0_high
+    N = 2
+    s_out = math.sqrt(max(0.0, 1.0 - mu_out * mu_out))
+    for edge in (mu_low, mu_high):
+        s = math.sqrt(max(0.0, 1.0 - edge * edge)) * s_out
+        for kink in (edge * mu_out - s, edge * mu_out + s):
+            if mu0_low < kink < mu0_high:
+                points[N] = kink
+                N += 1
+    points = np.sort(points[:N])
+
+    total = 0.0
+    stack_a = np.empty(TAU_MAX_DEPTH + 2)
+    stack_b = np.empty(TAU_MAX_DEPTH + 2)
+    stack_d = np.empty(TAU_MAX_DEPTH + 2, dtype=np.int64)
+    for p in range(N - 1):
+        c = points[p]
+        d = points[p + 1]
+        if d <= c:
+            continue
+        # Adaptive G7-K15 in t on [0, 1], mu0 = c + (d - c)(1 - cos(pi t)) / 2
+        stack_a[0] = 0.0
+        stack_b[0] = 1.0
+        stack_d[0] = 0
+        top = 1
+        while top > 0:
+            top -= 1
+            a = stack_a[top]
+            b = stack_b[top]
+            depth = stack_d[top]
+            half = 0.5 * (b - a)
+            center = 0.5 * (b + a)
+            K = 0.0
+            Gs = 0.0
+            for q in range(15):
+                t = center + half * _XK[q]
+                mu0 = c + 0.5 * (d - c) * (1.0 - math.cos(math.pi * t))
+                dmu0 = 0.5 * (d - c) * math.pi * math.sin(math.pi * t)
+                f = continuous_lab_density(
+                    E_in, E_out, mu0, reaction, nuclide, simulation, data
+                )
+                if f != 0.0:
+                    f *= dmu0 * azimuthal_bin_probability(mu_out, mu0, mu_low, mu_high)
+                K += half * _WK[q] * f
+                Gs += half * _WG[q] * f
+            if (
+                (K != 0.0 and abs(K - Gs) <= TAU_TOLERANCE * abs(K))
+                or depth >= TAU_MAX_DEPTH
+                or (K == 0.0 and depth >= 3)
+            ):
+                total += K
+            else:
+                stack_a[top] = a
+                stack_b[top] = center
+                stack_d[top] = depth + 1
+                stack_a[top + 1] = center
+                stack_b[top + 1] = b
+                stack_d[top + 1] = depth + 1
+                top += 2
+    return total
+
+
+@njit
+def _com_energy_range(E_in, reaction, simulation, data):
+    """Union of the COM outgoing-energy ranges of a continuous reaction's spectra."""
+    if reaction["sub_type"] == NEUTRON_REACTION_FISSION:
+        fission = simulation["neutron_fission_reactions"][reaction["sub_ID"]]
+        spectrum = simulation["distributions"][fission["spectrum_ID"]]
+        return _spectrum_support(
+            E_in, fission["angle_type"], spectrum, simulation, data
+        )
+    inelastic = simulation["neutron_inelastic_scattering_reactions"][reaction["sub_ID"]]
+    low = math.inf
+    high = -math.inf
+    for n in range(inelastic["N_spectrum"]):
+        spectrum = _inelastic_spectrum(inelastic, n, simulation, data)
+        lo, hi = _spectrum_support(
+            E_in, inelastic["angle_type"], spectrum, simulation, data
+        )
+        low = min(low, lo)
+        high = max(high, hi)
+    return low, high

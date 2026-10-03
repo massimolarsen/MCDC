@@ -468,7 +468,8 @@ class Simulation(MCDCBase):
             settings.future_bank_buffer_ratio = 0.0
         if not settings.neutron_eigenvalue_mode and N_census == 1:
             settings.census_bank_buffer_ratio = 0.0
-            settings.source_bank_buffer_ratio = 0.0
+            if not settings.use_source_bank:
+                settings.source_bank_buffer_ratio = 0.0
 
         self.bank_active.size[0] = settings.active_bank_buffer
         self.bank_census.size[0] = int(settings.census_bank_buffer_ratio * N_work)

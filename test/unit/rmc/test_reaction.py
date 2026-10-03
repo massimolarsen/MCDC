@@ -21,6 +21,7 @@ from mcdc.rmc.reaction import (
     KERNEL_LEVEL,
     continuous_lab_density,
     delta_lab_line,
+    emission_kernel_bin,
     fission_yield,
     inelastic_yield,
     kernel_type,
@@ -33,6 +34,7 @@ from mcdc.transport.physics.neutron.native import (
 )
 
 from .conftest import (
+    hashed_seed,
     numba_only,
     bin_integral_1d,
     interior_energy,
@@ -60,7 +62,7 @@ def sample_emissions(sampler, reaction, nuclide, simulation, data, E_in):
         particles[0]["alive"] = True
         particles[0]["uz"] = 1.0
         particles[0]["particle_type"] = PARTICLE_NEUTRON
-        particles[0]["rng_seed"] = seed
+        particles[0]["rng_seed"] = hashed_seed(seed)
         collision_data = np.zeros(1, type_.collision_data)
         sampler(reaction, particles, collision_data, nuclide, simulation, data)
 
@@ -239,4 +241,106 @@ def test_tabulated_yield(tabulated_yield_simulation):
         E_in,
         sample_inelastic_scattering,
         yield_,
+    )
+
+
+# ======================================================================================
+# Pointwise emission kernel tau about the slab axis
+# ======================================================================================
+
+
+def sample_emissions_polar(
+    sampler, reaction, nuclide, simulation, data, E_in, mu_low, mu_high, N
+):
+    """Lab (E_out, u_z) of emitted neutrons for incident mu_in ~ U[mu_low, mu_high]."""
+    import math
+
+    emissions = []
+    generator = np.random.default_rng(5)
+    for seed in range(1, N + 1):
+        mu_in = mu_low + (mu_high - mu_low) * generator.random()
+        s = math.sqrt(1.0 - mu_in * mu_in)
+        phi = 2.0 * math.pi * generator.random()
+        particle_bank_module.set_bank_size(simulation["bank_active"], 0)
+        particles = np.zeros(1, type_.particle)
+        particles[0]["E"] = E_in
+        particles[0]["w"] = 1.0
+        particles[0]["alive"] = True
+        particles[0]["ux"] = s * math.cos(phi)
+        particles[0]["uy"] = s * math.sin(phi)
+        particles[0]["uz"] = mu_in
+        particles[0]["particle_type"] = PARTICLE_NEUTRON
+        particles[0]["rng_seed"] = hashed_seed(seed)
+        collision_data = np.zeros(1, type_.collision_data)
+        sampler(reaction, particles, collision_data, nuclide, simulation, data)
+        size = particle_bank_module.get_bank_size(simulation["bank_active"])
+        for P in simulation["bank_active"]["particle_data"][:size]:
+            emissions.append((P["E"], P["uz"]))
+        if particles[0]["alive"]:
+            emissions.append((particles[0]["E"], particles[0]["uz"]))
+    return np.array(emissions)
+
+
+def check_emission_kernel(sampler, reaction, nuclide, simulation, data, E_in, yield_):
+    """tau_bar_{j'} / dmu_j' is the emission density for mu_in uniform in bin j'."""
+    ktype = kernel_type(reaction, simulation, data)
+    mu_low, mu_high = 0.0, 1.0
+    emissions = sample_emissions_polar(
+        sampler, reaction, nuclide, simulation, data, E_in, mu_low, mu_high, N_COLLISION
+    )
+    E_low, E_high = lab_energy_support(E_in, reaction, nuclide, simulation, data)
+    edges_E = np.linspace(E_low, E_high, 7)
+    edges_mu = np.linspace(-1.0, 1.0, 5)
+    observed, _, _ = np.histogram2d(
+        emissions[:, 0], emissions[:, 1], [edges_E, edges_mu]
+    )
+    integral = bin_integral_2d(
+        lambda e, mu: emission_kernel_bin(
+            E_in, e, mu, mu_low, mu_high, reaction, ktype, nuclide, simulation, data
+        )
+        / (mu_high - mu_low),
+        edges_E,
+        edges_mu,
+        N_panel_x=12,
+        N_panel_y=6,
+        N_point=4,
+    )
+    assert integral.sum() == pytest.approx(yield_, rel=1e-2)
+    assert chi_square_pvalue(observed, integral / integral.sum()) > P_MIN
+
+
+@requires_nuclide("O16")
+def test_emission_kernel_elastic(nuclide_simulation):
+    simulation, data, nuclide = nuclide_simulation("O16")
+    reaction = base_reaction(simulation, data, nuclide, "elastic")
+    check_emission_kernel(
+        sample_elastic_scattering, reaction, nuclide, simulation, data, 3.7e6, 1.0
+    )
+
+
+@requires_nuclide("O16")
+def test_emission_kernel_kalbach(nuclide_simulation):
+    simulation, data, nuclide = nuclide_simulation("O16")
+    reaction = find_inelastic(
+        simulation,
+        data,
+        nuclide,
+        lambda base, inelastic: inelastic["multiplicity"] == 1
+        and spectrum_distribution(simulation, data, inelastic)["sub_type"]
+        == DISTRIBUTION_KALBACH_MANN,
+    )
+    spectrum = spectrum_distribution(
+        simulation,
+        data,
+        simulation["neutron_inelastic_scattering_reactions"][reaction["sub_ID"]],
+    )
+    E_in = interior_energy(correlated_grid(simulation, data, spectrum), None)
+    check_emission_kernel(
+        sample_inelastic_scattering,
+        reaction,
+        nuclide,
+        simulation,
+        data,
+        E_in,
+        1.0,
     )

@@ -16,6 +16,8 @@ Level scattering (Law 3) is a delta in E_cm and is handled at the reaction level
 
 import math
 
+import numpy as np
+
 from numba import njit
 
 ####
@@ -424,3 +426,158 @@ def evaluate_tabulated_energy_angle(E, E_out, mu, table, data):
         p_mu = _piecewise_pdf(mu, cosine[start:end], cosine_pdf[start:end], False)
         density += p_E * p_mu
     return density
+
+
+# ======================================================================================
+# Breakpoints (kinks of the sampled densities), for piecewise-smooth quadrature
+# ======================================================================================
+
+
+@njit
+def _append_points(out, N, values):
+    for v in values:
+        out[N] = v
+        N += 1
+    return N
+
+
+@njit
+def distribution_breakpoints(E, distribution, simulation, data, scale):
+    """Values x where the density of `evaluate_distribution` has kinks (unsorted)."""
+    distribution_type = distribution["sub_type"]
+    ID = distribution["sub_ID"]
+
+    if distribution_type == DISTRIBUTION_TABULATED:
+        table = simulation["tabulated_distributions"][ID]
+        return mcdc_get.table_data.x_all(
+            _pdf_table(table, simulation, data), data
+        ).copy()
+
+    multi_table = simulation["multi_table_distributions"][ID]
+    grid = mcdc_get.multi_table_distribution.grid_all(multi_table, data)
+    idx, f, in_grid = _multi_table_interval(E, grid)
+    table0 = _multi_table_tabulated(idx, multi_table, simulation, data)
+    x0 = mcdc_get.table_data.x_all(_pdf_table(table0, simulation, data), data)
+    if not in_grid:
+        return x0.copy()
+
+    table1 = _multi_table_tabulated(idx + 1, multi_table, simulation, data)
+    x1 = mcdc_get.table_data.x_all(_pdf_table(table1, simulation, data), data)
+    out = np.empty(len(x0) + len(x1))
+    if not scale:
+        N = _append_points(out, 0, x0)
+        _append_points(out, N, x1)
+        return out
+
+    # Map each table's points through the unit-base scaling
+    val_min = x0[0] + f * (x1[0] - x0[0])
+    val_max = x0[-1] + f * (x1[-1] - x0[-1])
+    N = 0
+    for x_table in (x0, x1):
+        span = x_table[-1] - x_table[0]
+        for v in x_table:
+            out[N] = val_min + (v - x_table[0]) * (val_max - val_min) / span
+            N += 1
+    return out
+
+
+@njit
+def correlated_energy_breakpoints(E, distribution, simulation, data):
+    """Outgoing energies where a correlated distribution's energy density has kinks."""
+    if distribution["sub_type"] == DISTRIBUTION_KALBACH_MANN:
+        kalbach_mann = simulation["kalbach_mann_distributions"][distribution["sub_ID"]]
+        grid = mcdc_get.kalbach_mann_distribution.energy_all(kalbach_mann, data)
+        offsets = mcdc_get.kalbach_mann_distribution.offset_all(kalbach_mann, data)
+        energy_out = mcdc_get.kalbach_mann_distribution.energy_out_all(
+            kalbach_mann, data
+        )
+    else:
+        table = simulation["tabulated_energy_angle_distributions"][
+            distribution["sub_ID"]
+        ]
+        grid = mcdc_get.tabulated_energy_angle_distribution.energy_all(table, data)
+        offsets = mcdc_get.tabulated_energy_angle_distribution.offset_all(table, data)
+        energy_out = mcdc_get.tabulated_energy_angle_distribution.energy_out_all(
+            table, data
+        )
+
+    law61 = distribution["sub_type"] == DISTRIBUTION_TABULATED_ENERGY_ANGLE
+    pdf = energy_out  # placeholders (only used for Law 61)
+    cdf = energy_out
+    if law61:
+        table = simulation["tabulated_energy_angle_distributions"][
+            distribution["sub_ID"]
+        ]
+        pdf = mcdc_get.tabulated_energy_angle_distribution.pdf_all(table, data)
+        cdf = mcdc_get.tabulated_energy_angle_distribution.cdf_all(table, data)
+
+    idx = find_bin(E, grid)
+    if idx == -1:
+        return np.empty(0)
+    E_min, E_max = _correlated_energy_range(E, grid, offsets, energy_out)
+    N_out = len(energy_out)
+    start0, end0 = _outgoing_table_range(idx, grid, offsets, N_out)
+    start1, end1 = _outgoing_table_range(idx + 1, grid, offsets, N_out)
+    out = np.empty(2 * ((end0 - start0) + (end1 - start1)))
+    N = 0
+    for start, end in ((start0, end0), (start1, end1)):
+        E_low = energy_out[start]
+        E_high = energy_out[end - 1]
+        scale = (E_max - E_min) / (E_high - E_low)
+        for k in range(start, end):
+            out[N] = E_min + (energy_out[k] - E_low) * scale
+            N += 1
+            # Law 61: the angular table switches where the CDF crosses the
+            #   midpoint of the outgoing bin (a jump in the angular density)
+            if law61 and k < end - 1:
+                target = 0.5 * (cdf[k + 1] - cdf[k])
+                m = (pdf[k + 1] - pdf[k]) / (energy_out[k + 1] - energy_out[k])
+                if abs(m) < 1e-300:
+                    dE = target / pdf[k] if pdf[k] > 0.0 else 0.0
+                else:
+                    dE = (
+                        math.sqrt(max(0.0, pdf[k] ** 2 + 2.0 * m * target)) - pdf[k]
+                    ) / m
+                out[N] = E_min + (energy_out[k] + dE - E_low) * scale
+                N += 1
+    return out[:N]
+
+
+@njit
+def tabulated_energy_angle_cosine_breakpoints(E, E_out, distribution, simulation, data):
+    """Cosine-grid points of the Law-61 angular tables selected at (E, E_out)."""
+    table = simulation["tabulated_energy_angle_distributions"][distribution["sub_ID"]]
+    grid = mcdc_get.tabulated_energy_angle_distribution.energy_all(table, data)
+    offsets = mcdc_get.tabulated_energy_angle_distribution.offset_all(table, data)
+    energy_out = mcdc_get.tabulated_energy_angle_distribution.energy_out_all(
+        table, data
+    )
+    pdf = mcdc_get.tabulated_energy_angle_distribution.pdf_all(table, data)
+    cdf = mcdc_get.tabulated_energy_angle_distribution.cdf_all(table, data)
+    cosine_offsets = mcdc_get.tabulated_energy_angle_distribution.cosine_offset__all(
+        table, data
+    )
+    cosine = mcdc_get.tabulated_energy_angle_distribution.cosine_all(table, data)
+    N_out = len(energy_out)
+
+    out = np.empty(2 * len(cosine))
+    N = 0
+    idx = find_bin(E, grid)
+    if idx == -1:
+        return out[:0]
+    f = (E - grid[idx]) / (grid[idx + 1] - grid[idx])
+    E_min, E_max = _correlated_energy_range(E, grid, offsets, energy_out)
+    for l, weight in ((idx, 1.0 - f), (idx + 1, f)):
+        p_E, k, E_hat = _correlated_energy_component(
+            E_out, l, weight, E_min, E_max, grid, offsets, energy_out, pdf
+        )
+        if p_E == 0.0:
+            continue
+        dE = E_hat - energy_out[k]
+        m = (pdf[k + 1] - pdf[k]) / (energy_out[k + 1] - energy_out[k])
+        c_hat = cdf[k] + pdf[k] * dE + 0.5 * m * dE * dE
+        j = k + 1 if c_hat - cdf[k] > cdf[k + 1] - c_hat else k
+        start = int(cosine_offsets[j])
+        end = len(cosine) if j + 1 == N_out else int(cosine_offsets[j + 1])
+        N = _append_points(out, N, cosine[start:end])
+    return out[:N]
