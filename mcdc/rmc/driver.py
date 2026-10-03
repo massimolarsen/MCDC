@@ -14,6 +14,16 @@ on a trial space (z_edges, E_edges, mu_edges):
 Units: psi~ is per unit z (cm), energy (eV), and polar cosine about z, per unit x-y
 area; Q uses the same units. MC/DC tallies are per source history, so residual
 weights carry the residual's absolute normalization.
+
+Known limitation (to revisit): the scattering/fission correction r_s = T_bar - s_bar
+carries the in-bin shape of the in-scatter source of the piecewise-constant psi~ and
+does not shrink with iterations. It is dominated by diagonal (g' = g) transfer blocks,
+where T_bar has a kinematic edge (e.g. E_out < E_in) while s_bar is flat, so its
+sampled weights are of the order of the full in-scatter norm. With ~10% of histories
+on r_s, the iteration stagnates near plain-SMC accuracy (A = 1 slowing down, G = 100:
+||r_s||_1 ~ 1.7% of the in-scatter source, ~60x ||r_c||_1). Averaging stagnated
+iterates is unbiased. Candidate fixes: a sub-bin representation of s~ (tabulated
+in-scatter shape, exact diagonal triangles), or allocating histories by L1 norms.
 """
 
 import hashlib
