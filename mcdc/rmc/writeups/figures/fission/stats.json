@@ -1,0 +1,29 @@
+{
+  "title": "Prompt fission spectrum (U-235 MT-18, all prompt)",
+  "rows": [
+    {
+      "E": 1000.0,
+      "N_collision": 1000000,
+      "N_emitted": 2419601,
+      "chi2": 630.8241631915004,
+      "dof": 673,
+      "p_value": 0.8762101609367928,
+      "yield_sampled": 2.419601,
+      "yield_inverted": 2.418863700213815,
+      "quadrature_error": 6.9085205566458775e-06,
+      "max_abs_z": 3.13888964415587
+    },
+    {
+      "E": 2000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 2647658,
+      "chi2": 632.6005196228448,
+      "dof": 697,
+      "p_value": 0.9610525966174385,
+      "yield_sampled": 2.647658,
+      "yield_inverted": 2.6470892684681844,
+      "quadrature_error": 1.9760514407949885e-05,
+      "max_abs_z": 3.349773912112584
+    }
+  ]
+}

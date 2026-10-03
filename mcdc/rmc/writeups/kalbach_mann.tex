@@ -1,0 +1,66 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: Kalbach--Mann correlated energy--angle (ENDF Law 44)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{evaluate\_kalbach\_mann},
+\texttt{\_correlated\_energy\_component}, \texttt{kalbach\_density} in
+\texttt{mcdc/rmc/evaluate.py}.
+
+\section{What MC/DC samples}
+
+\texttt{sample\_kalbach\_mann}: an incident grid $E_l$ with outgoing tables
+$\{E'_{l,k}, p_{l,k}, c_{l,k}, R_{l,k}, A_{l,k}\}$ (linear PDFs).
+\begin{enumerate}
+  \item Interpolation factor $f = (\Ein - E_i)/(E_{i+1} - E_i)$ and interpolated bounds
+  $E'_{\min} = E'_{i,1} + f(E'_{i+1,1} - E'_{i,1})$,
+  $E'_{\max} = E'_{i,K_i} + f(E'_{i+1,K_{i+1}} - E'_{i,K_i})$.
+  \item Table $l = i$ with probability $1-f$, else $i+1$.
+  \item $\hat E$ from table $l$ by exact inversion of its linear PDF on the interval
+  $k$ with $c_{l,k} \le \xi < c_{l,k+1}$.
+  \item $R$ and $A$ interpolated linearly in $\hat E$ on that interval (the
+  \emph{unscaled} outgoing energy).
+  \item $\mu$ from the Kalbach density
+  $p(\mu \mid R, A) = \frac{A}{2\sinh A}\left[\cosh(A\mu) + R\sinh(A\mu)\right]$.
+  \item Unit-base scaling $\Eout = E'_{\min} + (\hat E - E'_{l,1})
+  (E'_{\max} - E'_{\min})/(E'_{l,K_l} - E'_{l,1})$.
+\end{enumerate}
+The pair $(\Eout, \mu)$ is in the reaction's frame (COM for the data used here).
+
+\section{Inverted kernel}
+
+For an outgoing energy $\Eout$, each table $l$ contributes through the unscaled energy
+$\hat E_l(\Eout) = E'_{l,1} + (\Eout - E'_{\min})(E'_{l,K_l} - E'_{l,1})/(E'_{\max} -
+E'_{\min})$ (zero if outside table $l$). With $k_l$ its interval,
+$m_l = (\hat E_l - E'_{l,k})/(E'_{l,k+1} - E'_{l,k})$,
+\begin{equation}
+  f(\Eout, \mu \mid \Ein) = \sum_{l \in \{i, i+1\}} w_l\;
+  p_{l}(\hat E_l)\,\frac{E'_{l,K_l} - E'_{l,1}}{E'_{\max} - E'_{\min}}\;
+  \frac{A_l}{2\sinh A_l}\left[\cosh(A_l\mu) + R_l\sinh(A_l\mu)\right],
+\end{equation}
+$w_i = 1-f$, $w_{i+1} = f$, $p_l$ the linear PDF at $\hat E_l$,
+$R_l = R_{l,k} + m_l(R_{l,k+1} - R_{l,k})$ and likewise $A_l$. The energy marginal is
+exactly the scaled-table density; the angular factor integrates to 1 for each $l$. In
+the COM frame $f_L = Y f(\Ecm, \mucm)\sqrt{\Eout/\Ecm}$. Kinks of the energy density
+(table points mapped by the scaling) are quadrature breakpoints.
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+\input{figures/kalbach_mann/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/kalbach_mann/kalbach_mann_E1p2e07.png}
+  \includegraphics[width=\textwidth]{figures/kalbach_mann/kalbach_mann_E1p8e07.png}
+  \caption{Al-27 MT-22 $(n,n\alpha)$, Kalbach--Mann in the COM frame, at 12 and
+  18\,MeV.}
+\end{figure}
+
+\end{document}

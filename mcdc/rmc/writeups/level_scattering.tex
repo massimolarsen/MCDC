@@ -1,0 +1,63 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: discrete-level inelastic scattering (ENDF Law 3)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{delta\_lab\_line} (level branch) in
+\texttt{mcdc/rmc/reaction.py}, \texttt{level\_*} in \texttt{mcdc/rmc/kinematics.py},
+\texttt{\_delta\_inner} in \texttt{mcdc/rmc/kernel.py}.
+
+\section{What MC/DC samples}
+
+\texttt{sample\_inelastic\_scattering} with a level-scattering spectrum in the COM
+frame: the COM outgoing energy is fixed,
+\begin{equation}
+  \Ecm = C_2\,(\Ein - C_1),\qquad C_1 = \frac{A+1}{A}|Q|,\quad C_2 = \left(\frac{A}{A+1}\right)^2 ,
+\end{equation}
+$\mucm$ is isotropic or drawn from the reaction's angular multi-table (unscaled,
+table $i$ or $i+1$ with probabilities $1-f$, $f$ as for elastic scattering), and the
+classical COM-to-lab relations of \texttt{frames\_and\_azimuth.tex} give
+$(\Eout, \mulab)$. Below threshold, $\Ecm \le 0$ and nothing is emitted. The yield $Y$
+is the reaction multiplicity (or a tabulated yield, see
+\texttt{multi\_spectrum\_yield.tex}).
+
+\section{Inverted kernel}
+
+For fixed $\Ecm$, $\Eout = \Ecm + s^2 + 2\mucm s\sqrt{\Ecm}$ with $s = \sqrt{\Ein}/(A+1)$
+is affine in $\mucm$, so
+\begin{equation}
+  \mucm^*(\Eout) = \frac{(A+1)^2(\Eout - \Ecm) - \Ein}{2(A+1)\sqrt{\Ein\Ecm}},\qquad
+  \left|\frac{\dd\mucm}{\dd\Eout}\right| = \frac{A+1}{2\sqrt{\Ein\Ecm}},
+\end{equation}
+\begin{equation}
+  \mulab^*(\Eout) = \mucm^*\sqrt{\frac{\Ecm}{\Eout}} + \frac{1}{A+1}\sqrt{\frac{\Ein}{\Eout}},
+\end{equation}
+and the lab kernel is the line
+\begin{equation}
+  f_L(\Eout, \mulab \mid \Ein) = Y\,p_c(\mucm^*; \Ein)\,\frac{A+1}{2\sqrt{\Ein\Ecm}}\;
+  \delta\big(\mulab - \mulab^*(\Eout)\big),
+\end{equation}
+on the support $\Eout \in [(\sqrt{\Ecm} - s)^2, (\sqrt{\Ecm} + s)^2]$ ($\mucm = \mp1$).
+In the transfer moments the $\Eout$ integral over an outgoing bin becomes a closed-form
+$\mucm$ interval, so only bins inside the support are visited.
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+\input{figures/level/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/level/level_E8e06.png}
+  \includegraphics[width=\textwidth]{figures/level/level_E1p4e07.png}
+  \caption{O-16 MT-51 (first excited level, tabulated COM angular data) at 8 and
+  14\,MeV.}
+\end{figure}
+
+\end{document}

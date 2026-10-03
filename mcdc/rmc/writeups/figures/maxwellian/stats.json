@@ -1,0 +1,29 @@
+{
+  "title": "Simple Maxwellian spectrum, Law 7 (synthetic, from C-12 MT-91)",
+  "rows": [
+    {
+      "E": 12000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 768.522605066619,
+      "dof": 769,
+      "p_value": 0.49807485255030065,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999994044665711,
+      "quadrature_error": 2.1469615830366652e-05,
+      "max_abs_z": 3.287988513406716
+    },
+    {
+      "E": 18000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 730.013924551943,
+      "dof": 745,
+      "p_value": 0.6456371591475071,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999959017845778,
+      "quadrature_error": 2.1580972763627482e-05,
+      "max_abs_z": 3.1797272088528743
+    }
+  ]
+}

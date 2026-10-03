@@ -1,0 +1,29 @@
+{
+  "title": "Free-gas elastic scattering (H-1, 293.6 K)",
+  "rows": [
+    {
+      "E": 0.05,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 723.1549190631775,
+      "dof": 687,
+      "p_value": 0.16436242579009744,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999811969454299,
+      "quadrature_error": 0.00048138158745605024,
+      "max_abs_z": 4.320257731370871
+    },
+    {
+      "E": 1.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 547.6150769146197,
+      "dof": 551,
+      "p_value": 0.5327090928452646,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999972671603904,
+      "quadrature_error": 0.0002514280629172791,
+      "max_abs_z": 3.5250869443921613
+    }
+  ]
+}

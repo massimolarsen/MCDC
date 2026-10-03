@@ -1,0 +1,29 @@
+{
+  "title": "Elastic scattering, target at rest (O-16, anisotropic COM data)",
+  "rows": [
+    {
+      "E": 1000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 74.8504034335907,
+      "dof": 71,
+      "p_value": 0.35450326055356285,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999982297831588,
+      "quadrature_error": 3.8405308472573065e-07,
+      "max_abs_z": 2.225489120387555
+    },
+    {
+      "E": 5000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 59.26081723229442,
+      "dof": 71,
+      "p_value": 0.8385598667533916,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999982309751086,
+      "quadrature_error": 4.2861561218096483e-07,
+      "max_abs_z": 2.35840477863557
+    }
+  ]
+}

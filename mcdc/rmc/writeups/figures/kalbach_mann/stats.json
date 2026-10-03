@@ -1,0 +1,29 @@
+{
+  "title": "Kalbach-Mann correlated energy-angle, Law 44 (Al-27 MT-22)",
+  "rows": [
+    {
+      "E": 12000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 843.8050329045979,
+      "dof": 841,
+      "p_value": 0.4663012479094541,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999960595831434,
+      "quadrature_error": 0.0004196099548714535,
+      "max_abs_z": 3.1543959438181393
+    },
+    {
+      "E": 18000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 1021.0716498737788,
+      "dof": 998,
+      "p_value": 0.2989641609966246,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999987361581206,
+      "quadrature_error": 4.929804138331974e-05,
+      "max_abs_z": 3.092631644848735
+    }
+  ]
+}

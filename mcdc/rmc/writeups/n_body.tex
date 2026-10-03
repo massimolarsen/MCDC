@@ -1,0 +1,68 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: N-body phase-space distribution (ENDF Law 6 / ACE Law 66)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{evaluate\_nbody}, \texttt{nbody\_energy\_max} in
+\texttt{mcdc/rmc/evaluate.py}; MC/DC: \texttt{DistributionNBody},
+\texttt{\_sample\_correlated\_distribution}.
+
+\section{The law}
+
+For $n$ emitted particles of total mass ratio $A_p$ (to the neutron), the COM energy
+of one emitted neutron follows the phase-space density
+\begin{equation}
+  P(\Ecm \mid \Ein) = C_n\,\sqrt{\Ecm}\,\big(E_{\max} - \Ecm\big)^{3n/2 - 4},\qquad
+  E_{\max}(\Ein) = \frac{A_p - 1}{A_p}\left(\frac{A}{A+1}\Ein + Q\right),
+\end{equation}
+with an isotropic COM cosine. ACE stores the distribution of the reduced variable
+$T = \Ecm/E_{\max} \in [0, 1]$ as a linear table $\{T_k, p_k\}$ together with $n$
+(NPSX) and $A_p$.
+
+\section{What MC/DC samples (after the fix)}
+
+The data generator previously dropped $n$ and $A_p$ and stored $T$ as an energy in MeV,
+so MC/DC returned $T\times 1$\,MeV whatever the incident energy. With
+\texttt{fix/free-gas-temperature-nbody-scaling} the generator stores
+\texttt{number\_of\_particles} and \texttt{total\_mass\_ratio}, the distribution
+carries $E_{\max}(\Ein) = s\,\Ein + o$ with $s = (A_p - 1)A/(A_p(A+1))$ and
+$o = (A_p - 1)Q/A_p$, and the sampler returns
+\begin{equation}
+  T \sim p(T)\ \text{(exact inversion of the linear table)},\qquad
+  \Ecm = T\,E_{\max}(\Ein),\qquad \mucm \sim U(-1, 1).
+\end{equation}
+
+\section{Inverted kernel}
+
+Changing variables from $T$ to $\Ecm$,
+\begin{equation}
+  f_C(\Ecm, \mucm \mid \Ein) = \frac{p\big(\Ecm/E_{\max}\big)}{E_{\max}}\cdot\frac12,
+  \qquad 0 \le \Ecm \le E_{\max}(\Ein),
+\end{equation}
+zero for $E_{\max} \le 0$ (below threshold), and $f_L = Y f_C\sqrt{\Eout/\Ecm}$. The
+table points $T_k E_{\max}$ are the breakpoints of the energy density. For H-2 MT-16,
+$n = 3$ and $A_p = 2.9986$, so the exact law is
+$\sqrt{\Ecm}\,(E_{\max} - \Ecm)^{1/2}$; its square-root endpoints make the bin
+quadrature converge more slowly than for the other laws (the quadrature column in the
+table), still far below the statistical error.
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+\input{figures/n_body/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/n_body/n_body_E8e06.png}
+  \includegraphics[width=\textwidth]{figures/n_body/n_body_E1p8e07.png}
+  \caption{H-2 MT-16 $(n,2n)$, regenerated data, at 8 and 18\,MeV: two neutrons per
+  collision, $E_{\max}$ growing with the incident energy.}
+\end{figure}
+
+\end{document}

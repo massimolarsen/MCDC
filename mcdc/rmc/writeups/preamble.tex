@@ -1,0 +1,30 @@
+% Shared preamble of the RMC kernel write-ups (\input{preamble} after \documentclass).
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\Ein}{E}
+\newcommand{\Eout}{E'}
+\newcommand{\Ecm}{E_{c}}
+\newcommand{\mucm}{\mu_{c}}
+\newcommand{\mulab}{\mu_0}
+
+% Common closing section: how the verification figures are produced
+\newcommand{\verificationmethod}{%
+Each figure is produced by \texttt{verification/verify\_laws.py}. For an incident
+energy $\Ein$ along $+z$, $10^6$ collisions are sampled with MC/DC's own reaction
+sampler (\texttt{sample\_elastic\_scattering}, \texttt{sample\_inelastic\_scattering}
+or \texttt{sample\_fission}), and every emitted neutron is histogrammed in
+$48 \times 24$ bins of $(\Eout, \mulab)$, with $\mulab$ the lab cosine to $+z$. The
+inverted kernel used by RMC is integrated over the same bins (Gauss--Legendre panels;
+two-body lines are split where $\mulab^*(\Eout)$ crosses a cosine edge), multiplied by
+the number of collisions, and compared with a $\chi^2$ test over bins with at least 5
+expected counts (the rest pooled into one bin). The tables list $\chi^2/\mathrm{dof}$,
+its $p$-value, the emitted neutrons per collision (sampled vs.\ the integral of the
+inverted kernel), and the largest relative change of a bin integral when the
+quadrature panels are doubled. Left panels: outgoing-energy marginal; middle:
+lab-cosine marginal; right: per-bin $z = (\text{sampled} - \text{inverted}) /
+\sqrt{\text{inverted}}$.}

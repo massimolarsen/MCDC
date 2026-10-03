@@ -1,0 +1,69 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: evaporation spectrum (ENDF Law 9)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{evaluate\_evaporation}, \texttt{evaporation\_normalization} in
+\texttt{mcdc/rmc/evaluate.py}.
+
+\section{What MC/DC samples}
+
+\texttt{sample\_evaporation}: with the nuclear temperature $\theta(\Ein)$ (tabulated,
+interpolated by \texttt{evaluate\_data} with the ENDF interpolation laws of the data;
+none listed means linear-linear), restriction energy $U$, $L = \Ein - U$,
+$w = L/\theta$ and $g = 1 - e^{-w}$,
+\begin{equation}
+  x = -\theta\ln\big[(1 - g\xi_1)(1 - g\xi_2)\big],\qquad \text{accepted if } 0 \le x \le L .
+\end{equation}
+
+\section{Density of the sampled value}
+
+Each term $Y_j = -\theta\ln(1 - g\xi_j)$ is an exponential with mean $\theta$
+truncated to $[0, L]$: $P(Y_j \le y) = (1 - e^{-y/\theta})/g$, density
+$e^{-y/\theta}/(\theta g)$ on $[0, L]$. For $0 \le x \le L$ the density of the sum is
+the convolution
+\begin{equation}
+  \int_0^{x}\frac{e^{-y/\theta}}{\theta g}\,\frac{e^{-(x-y)/\theta}}{\theta g}\dd y
+  = \frac{x\,e^{-x/\theta}}{\theta^2 g^2} ,
+\end{equation}
+(sums above $L$ are rejected), so the accepted value has the Law 9 density
+\begin{equation}
+  p(x \mid \Ein) = \frac{x\,e^{-x/\theta}}{\theta^2 I(w)},\qquad
+  I(w) = \int_0^w s e^{-s}\dd s = 1 - e^{-w}(1 + w),\qquad 0 \le x \le \Ein - U .
+\end{equation}
+For $w < 10^{-3}$, $I(w) = w^2\left(\tfrac12 - \tfrac w3 + \tfrac{w^2}{8} -
+\tfrac{w^3}{30}\right)$ avoids cancellation. The support is $[0, \Ein - U]$ (empty below
+$U$); the density is smooth on it, so its end points are the only breakpoints.
+
+\section{Reaction kernel}
+
+The data used here (C-12 MT-28, MT-91) are in the lab frame with isotropic angles:
+$f_L(\Eout, \mulab \mid \Ein) = Y\,p(\Eout \mid \Ein)/2$. In the COM frame the product
+is $f_C$ and $f_L = f_C\sqrt{\Eout/\Ecm}$.
+
+\paragraph{Data loading fix.} C-12's evaporation temperature tables have no
+interpolation regions (ACE $NR = 0$, meaning linear-linear). The generator wrote empty
+interpolation arrays, which MC/DC's \texttt{DataTable} rejected, so C-12 could not be
+loaded at all; \texttt{fix/evaporation-maxwellian-loading} defaults them to
+linear-linear.
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+\input{figures/evaporation/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/evaporation/evaporation_E1p2e07.png}
+  \includegraphics[width=\textwidth]{figures/evaporation/evaporation_E1p8e07.png}
+  \caption{C-12 MT-91 (continuum inelastic, evaporation spectrum with
+  $\theta = 0.3$\,MeV, $U = 7.89$\,MeV, lab frame, isotropic) at 12 and 18\,MeV.}
+\end{figure}
+
+\end{document}

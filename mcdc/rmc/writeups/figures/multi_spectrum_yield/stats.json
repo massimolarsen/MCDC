@@ -1,0 +1,17 @@
+{
+  "title": "Two spectra with a tabulated yield (synthetic, from Li-7 MT-16)",
+  "rows": [
+    {
+      "E": 12000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1600407,
+      "chi2": 1075.847030949924,
+      "dof": 1117,
+      "p_value": 0.8071553632329166,
+      "yield_sampled": 1.600407,
+      "yield_inverted": 1.5999972059610374,
+      "quadrature_error": 2.110614880113403e-05,
+      "max_abs_z": 3.450424296784253
+    }
+  ]
+}

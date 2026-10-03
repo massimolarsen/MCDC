@@ -1,0 +1,113 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: free-gas elastic scattering (thermal target motion)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Applies to elastic scattering at $\Ein \le 400\,kT$ ($T$: nuclide
+temperature), where MC/DC samples the motion of the target nucleus. Code:
+\texttt{free\_gas\_density}, \texttt{free\_gas\_support}, \texttt{sample\_free\_gas}
+in \texttt{mcdc/rmc/reaction.py}; \texttt{\_free\_gas\_inner} in
+\texttt{mcdc/rmc/kernel.py}.
+
+\section{What MC/DC samples}
+
+\texttt{sample\_elastic\_scattering} with \texttt{sample\_nucleus\_velocity}
+(constant-cross-section free gas, after the fixes of
+\texttt{fix/free-gas-temperature-nbody-scaling}):
+\begin{enumerate}
+  \item the target velocity $\bm V$ from the Maxwellian
+  $M(\bm V) = (\beta^3/\pi^{3/2})\,e^{-\beta^2 V^2}$, $\beta^2 = A m_n/(2kT)$, weighted
+  by the relative speed $|\bm v - \bm V|$: candidates $(V, \mu_t)$ are drawn from a
+  density $\propto (v + V)\,V^2 e^{-\beta^2V^2}$ ($\mu_t$ uniform) and accepted with
+  probability $|\bm v - \bm V|/(v + V)$;
+  \item $\mucm$ from the elastic angular table at the lab energy $\Ein$, a rotation in
+  the frame of the centre of mass $\bm V_c = (\bm v + A\bm V)/(1+A)$, and back to the
+  lab.
+\end{enumerate}
+Two bugs were fixed before this kernel was derived: $\beta$ used a hard-coded
+$T = 293.6$\,K, and the acceptance test was inverted ($\xi >$ instead of
+$\xi < |\bm v - \bm V|/(v+V)$), which samples an unweighted Maxwellian. The unit test
+\texttt{test\_free\_gas\_temperature.py} checks $\langle V^2\rangle\beta^2 = 2$ for
+$v \to 0$ (the inverted test gives $3/2$).
+
+\section{Inverted kernel}
+
+With constant $\sigma_{\rm free}$ and isotropic COM scattering this is the ideal-gas
+law. In terms of the dimensionless momentum and energy transfer
+\begin{equation}
+  \alpha = \frac{\Eout + \Ein - 2\mulab\sqrt{\Ein\Eout}}{A\,kT},\qquad
+  \beta = \frac{\Eout - \Ein}{kT},
+\end{equation}
+the double-differential cross section per unit $\Eout$ and lab cosine (azimuth
+integrated) is
+\begin{equation}
+  \frac{\dd^2\sigma}{\dd\Eout\dd\mulab} = \frac{\sigma_b}{2kT}\sqrt{\frac{\Eout}{\Ein}}\,
+  S(\alpha,\beta),\qquad
+  S(\alpha,\beta) = \frac{1}{\sqrt{4\pi\alpha}}\exp\!\left(-\frac{(\alpha+\beta)^2}{4\alpha}\right),
+  \qquad \sigma_b = \sigma_{\rm free}\left(\frac{A+1}{A}\right)^2 ,
+\end{equation}
+($S$ is the scattering law of a free gas of mass $A m_n$: the Gaussian intermediate
+scattering function of free motion, Fourier transformed in time). Its integral over
+$(\Eout, \mulab)$ is the effective cross section
+\begin{equation}
+  \sigma_{\rm eff}(\Ein) = \sigma_{\rm free}\,D(a),\qquad
+  D(a) = \frac{\langle|\bm v - \bm V|\rangle}{v}
+  = \left(1 + \frac{1}{2a^2}\right)\operatorname{erf}(a) + \frac{e^{-a^2}}{a\sqrt\pi},
+  \qquad a^2 = \frac{A\Ein}{kT}.
+\end{equation}
+Given an elastic collision (chosen by MC/DC with the tabulated, Doppler-broadened
+$\sigma_s(\Ein)$), the emitted neutron's density is the ratio:
+\begin{equation}
+  f_L(\Eout, \mulab \mid \Ein) = \left(\frac{A+1}{A}\right)^2
+  \frac{1}{2kT}\sqrt{\frac{\Eout}{\Ein}}\;\frac{S(\alpha,\beta)}{D(a)} ,
+  \qquad \int_0^\infty\!\!\int_{-1}^1 f_L\,\dd\mulab\,\dd\Eout = 1 .
+\end{equation}
+It requires isotropic COM scattering at $\Ein \le 400\,kT$; the RMC driver checks the
+angular tables that the sampler can use there and stops otherwise (anisotropic free
+gas has no closed form and is not supported).
+
+\paragraph{Support.} The exponent $h = (\alpha+\beta)^2/(4\alpha)$ satisfies
+$h \ge \beta$ (since $(\alpha+\beta)^2 \ge 4\alpha\beta$), so up-scatter is bounded by
+$\Eout \le \Ein + h_{\max} kT$ with the cutoff $h_{\max} = 50$ ($e^{-50} \approx
+2\times10^{-22}$). For $\Eout < \Ein$, $\alpha$ ranges over
+$[(\sqrt{\Eout}\mp\sqrt{\Ein})^2/(AkT)]$ as $\mulab$ runs over $[1,-1]$, and the
+minimum of $h$ over $\mulab$ is $0$ if $-\beta$ lies in that range and
+$h(\alpha_{\rm edge})$ otherwise; it increases monotonically as $\Eout$ decreases, so
+the lower limit is found by bisection. Outgoing bins outside
+$[\Eout_{\rm low}, \Ein + 50kT]$ are never evaluated.
+
+\paragraph{Quadrature.} $f_L$ peaks sharply toward $\alpha \to 0$, i.e.\ $\mulab \to 1$
+and $\Eout \to \Ein$, with width $\sqrt{4\Ein kT/A}$ in $\Eout$ (narrow for heavy
+nuclides). The transfer moments split $\Eout$ at $\Ein \pm 2^k w/4$ and $\mulab$ at
+$1 - 10^{-k}$; the incident-energy quadrature has a breakpoint at $400\,kT$, where MC/DC
+switches discontinuously to target-at-rest kinematics.
+
+\paragraph{Sampling for RMC's pointwise proposal.} \texttt{sample\_free\_gas} repeats
+MC/DC's scheme in units with $E = v^2$: $\beta = \sqrt{A/kT}$, the same mixture and
+(correct) acceptance, isotropic COM direction, $\Eout = |\bm v'|^2$,
+$\mulab = v'_z/|\bm v'|$.
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+H-1:\quad\input{figures/free_gas_h1/stats.tex}
+
+\medskip
+U-238:\quad\input{figures/free_gas_u238/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/free_gas_h1/free_gas_h1_E0p05.png}
+  \includegraphics[width=\textwidth]{figures/free_gas_h1/free_gas_h1_E1.png}
+  \includegraphics[width=\textwidth]{figures/free_gas_u238/free_gas_u238_E1.png}
+  \caption{Free-gas elastic scattering at 293.6\,K: H-1 at 0.05\,eV and 1\,eV
+  (broad kernel, strong up-scatter at 0.05\,eV), U-238 at 1\,eV (narrow kernel).}
+\end{figure}
+
+\end{document}

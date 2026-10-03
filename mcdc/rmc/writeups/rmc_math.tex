@@ -1,0 +1,386 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+
+\title{Continuous-Energy Residual Monte Carlo in MC/DC:\\
+the mathematics of \texttt{mcdc/rmc}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent This note documents the equations implemented in \texttt{mcdc/rmc}: the
+trial space, the residual and its pieces, the inverted (evaluated) scattering kernels,
+the transfer moments, the signed-weight residual sources, the two-phase iteration
+schedule, the bias of the binned iteration near resonances, and the low-variance
+scattering-correction sampler. The running log of findings is \texttt{NOTES.md}.
+The inversion of each scattering law, with its sampling-vs-inverted verification, has
+its own write-up in this directory: \texttt{frames\_and\_azimuth.tex},
+\texttt{elastic.tex}, \texttt{free\_gas.tex}, \texttt{level\_scattering.tex},
+\texttt{tabulated\_spectra.tex}, \texttt{kalbach\_mann.tex},
+\texttt{energy\_angle\_tabulated.tex}, \texttt{evaporation.tex},
+\texttt{maxwellian.tex}, \texttt{n\_body.tex} and \texttt{multi\_spectrum\_yield.tex}.
+
+\tableofcontents
+
+%======================================================================================
+\section{Problem and notation}
+%======================================================================================
+
+We solve the steady, fixed-source, continuous-energy transport equation on a slab
+$z\in[z_0,z_K]$ (unit width and reflective in $x$ and $y$; a single reflective cell is
+an infinite medium):
+\begin{equation}
+  L\psi \equiv \mu\,\partial_z\psi + \Sigt(z,E)\,\psi - \mathcal S\psi - \mathcal F\psi = q,
+  \label{eq:transport}
+\end{equation}
+where $\psi(z,E,\mu)=\int_0^{2\pi}\psi(z,E,\bm\Omega)\dd\varphi$ is the angular flux
+integrated over azimuth, $\mu=\bm\Omega\cdot\hat z$, and the scattering and fission
+operators are
+\begin{equation}
+  (\mathcal S\psi)(z,E,\mu)=\sum_r N_r\int_0^\infty\!\dd E'\,\sigma_r(E')\int_{-1}^{1}\!\dd\mu'\;
+  \tau_r(E'\!\to E,\mu'\!\to\mu)\,\psi(z,E',\mu'),
+  \label{eq:scatter}
+\end{equation}
+with $\tau_r$ the azimuthally integrated emission kernel of reaction $r$ (yield
+included) and $N_r$ the atom density of its nuclide. $\mathcal F$ is the same with the
+fission reactions (all prompt). Neutrons leaving the energy window
+$[E_{\min},E_{\max}]$ are killed; this is part of $L$ for both RMC and standard Monte
+Carlo (SMC).
+
+\paragraph{Trial space.} Bins $(k,g,j)$ of widths $h_k$, $\Delta E_g$, $\Delta\mu_j$
+($\mu=0$ is an edge). The trial function is piecewise constant,
+\begin{equation}
+  \tpsi(z,E,\mu)=\sum_{k,g,j}\tpsi_{kgj}\,\chi_{kgj}(z,E,\mu),
+\end{equation}
+and $P$ denotes the projection onto bin averages,
+$(Pf)_{kgj}=\frac{1}{h_k\Delta E_g\Delta\mu_j}\int_{kgj}f$.
+
+%======================================================================================
+\section{The RMC iteration}
+%======================================================================================
+
+Given $\tpsi^{(n)}$, the residual $r=q-L\tpsi^{(n)}$ defines the error equation
+\begin{equation}
+  L\epsilon = r,\qquad \psi=\tpsi^{(n)}+\epsilon .
+\end{equation}
+RMC samples particles from $r$ (signed weights), transports them with the
+\emph{unmodified} MC/DC transport operator (the same $L$ as SMC), and tallies the
+projection $\teps=P\epsilon$ with a track-length estimator on the trial-space mesh;
+then $\tpsi^{(n+1)}=\tpsi^{(n)}+\teps$.
+
+\begin{proposition}[Unbiased iterates]
+If the sampled source is an unbiased estimate of the exact residual $r=q-L\tpsi$, then
+$\E[\teps]=P L^{-1} r = P\psi-\tpsi$, hence $\E[\tpsi^{(n+1)}]=P\psi$ for every
+$\tpsi^{(n)}$ (since $P\tpsi=\tpsi$).
+\end{proposition}
+
+The iterates then fluctuate about the exact bin averages, with a noise proportional to
+the residual norm $\|r\|_1$ (the weights are $\propto |r|/q$). The exponential
+convergence of RMC comes from $\|r\|\to 0$; any part of $r$ that cannot vanish sets a
+noise floor (Section~\ref{sec:schedule}).
+
+\paragraph{Normalization.} MC/DC tallies are per source history, so a residual term
+$r_i$ sampled with $N_i$ of the $N$ histories from a density $q_i$ carries the weight
+\begin{equation}
+  w = \frac{N}{N_i}\,\frac{r_i(y)}{q_i(y)} ,
+  \label{eq:weight}
+\end{equation}
+and the tally divided by $h_k\Delta E_g\Delta\mu_j$ is $\teps_{kgj}$.
+
+%======================================================================================
+\section{Decomposition of the residual}
+%======================================================================================
+
+For piecewise-constant $\tpsi$, $\mu\partial_z\tpsi$ is a sum of delta functions at
+the cell faces, and the residual splits as
+\begin{equation}
+  r = r_c + r_e + r_s + r_f .
+\end{equation}
+
+\paragraph{Binned in- and fission sources.} The \emph{transfer moments}
+\begin{equation}
+  M^{r}_{g'j'gj}=\int_{g'}\!\dd E'\,\sigma_r(E')\int_{j'}\!\dd\mu'\int_g\!\dd E\int_j\!\dd\mu\;
+  \tau_r(E'\!\to E,\mu'\!\to\mu)
+  \label{eq:moments}
+\end{equation}
+depend only on data and grids, are cached per nuclide, and combine as
+$M_m=\sum_{r\in m}N_r M^r$ per material. With them,
+\begin{equation}
+  \Sbar_{kgj}=\frac{1}{\Delta E_g\Delta\mu_j}\sum_{g'j'}M_{m_k,g'j'gj}\,\tpsi_{kg'j'}
+  =\big(P\mathcal S\tpsi\big)_{kgj}
+\end{equation}
+exactly (up to quadrature), because $\tpsi$ is constant on each incident bin. $\bar F$
+is the same with the fission moments.
+
+\paragraph{Collision residual.}
+\begin{equation}
+  r_c(z,E,\mu)=Q_{kgj}+\Sbar_{kgj}+\bar F_{kgj}-\Sigt(z,E)\,\tpsi_{kgj},
+  \qquad (z,E,\mu)\in(k,g,j).
+  \label{eq:rc}
+\end{equation}
+$\Sigt(E)$ is pointwise (linear between data points), so $r_c$ varies within a bin.
+
+\paragraph{Edge (face) residual.} With the jump $D_{fgj}=\tpsi_{R}-\tpsi_{L}$ across
+face $z_f$,
+\begin{equation}
+  r_e=-\mu\,D_{fgj}\,\delta(z-z_f).
+\end{equation}
+At a vacuum boundary only incoming directions carry a jump ($\psi_{\rm in}=0$); at a
+reflective boundary the incoming value is the mirrored $\tpsi(-\mu)$.
+
+\paragraph{Scattering and fission corrections.} The remainder of $q-L\tpsi$ is
+\begin{equation}
+  r_s(z,E,\mu)=T(z,E,\mu)-\Sbar_{kgj},\qquad T=\mathcal S\tpsi ,
+  \label{eq:rs}
+\end{equation}
+and $r_f$ likewise. By construction $\int_{kgj} r_s=0$: $r_s$ carries only the in-bin
+shape of the in-scatter source. It does \emph{not} vanish as $\tpsi\to P\psi$.
+
+%======================================================================================
+\section{Inverted scattering kernels}
+%======================================================================================
+
+MC/DC \emph{samples} $(E,\mu_0)$ given $E'$; RMC needs the \emph{density}
+$\tau_r(E'\to E,\mu'\to\mu)$ evaluated at given points. Every evaluator in
+\texttt{evaluate.py} and \texttt{reaction.py} mirrors the corresponding MC/DC sampler
+(including its table interpolation), so that $\mathcal S$ in the residual is exactly
+the operator transport applies.
+
+\paragraph{Lab density.} For a law giving $f_C(E_{cm},\mu_{cm}\,|\,E')$ in the
+centre-of-mass frame, with $s_A=\sqrt{E'}/(A+1)$,
+\begin{equation}
+  E=E_{cm}+s_A^2+2\mu_{cm}s_A\sqrt{E_{cm}},\qquad
+  f_L(E,\mu_0\,|\,E')=f_C(E_{cm},\mu_{cm}\,|\,E')\sqrt{E/E_{cm}} ,
+\end{equation}
+where the Jacobian follows from $\dd^3v\propto\sqrt{E}\dd E\dd\mu\dd\varphi$ in both
+frames. Lab-frame laws use $f_L=f$ directly. Two-body reactions (elastic, discrete
+levels) are delta lines in $(E,\mu_0)$: for each $E$ there is one $\mu_0^*(E',E)$ and
+\begin{equation}
+  f_L=g(E\,|\,E')\,\delta(\mu_0-\mu_0^*),\qquad
+  g(E\,|\,E')=p(\mu_{cm}^*)\left|\frac{\dd\mu_{cm}}{\dd E}\right|,
+\end{equation}
+with $p$ the real (anisotropic) COM angular distribution; for isotropic elastic,
+$g=1/((1-\alpha)E')$.
+
+\paragraph{Azimuthal kernel.} With $\mu_0=\mu\mu'+\sqrt{1-\mu^2}\sqrt{1-\mu'^2}\cos\phi$,
+integrating over the relative azimuth gives
+\begin{equation}
+  K(\mu',\mu,\mu_0)=\frac{1}{\pi\sqrt{1-\mu'^2-\mu^2-\mu_0^2+2\mu'\mu\mu_0}},
+  \qquad
+  \tau_r(E'\!\to E,\mu'\!\to\mu)=\int_{-1}^{1}\!\dd\mu_0\,f_L(E,\mu_0|E')\,K(\mu',\mu,\mu_0).
+\end{equation}
+$K$ is symmetric in $(\mu',\mu)$, and its integral over an incident bin is analytic:
+\begin{equation}
+  \Pi_{j'}(\mu,\mu_0)=\int_{j'}K\dd\mu'
+  =\frac1\pi\Big[\arcsin t\Big]_{t(\mu'_{j'-1/2})}^{t(\mu'_{j'+1/2})},\quad
+  t(\mu')=\operatorname{clip}\!\Big(\frac{\mu'-\mu\mu_0}{\sqrt{1-\mu^2}\sqrt{1-\mu_0^2}}\Big).
+\end{equation}
+The code works with the bounded, bin-integrated kernel
+\begin{equation}
+  \bar\tau_{r,j'}(E'\!\to E,\mu)=\int_{j'}\tau_r\dd\mu'=\int\dd\mu_0\,f_L(E,\mu_0|E')\,\Pi_{j'}(\mu,\mu_0),
+\end{equation}
+integrated adaptively over $\mu_0$ (split at the kinks of $\Pi$, cosine-mapped) for
+continuous laws, and in closed form, $g\,\Pi_{j'}(\mu,\mu_0^*)$, for delta lines.
+
+%======================================================================================
+\section{Transfer moments}
+%======================================================================================
+
+Equation~\eqref{eq:moments} is evaluated in data-native variables. For two-body
+reactions the set $\{\mu_{cm}:E\in g\}$ is a closed-form interval, so the $E$ and
+$\mu_0$ integrals reduce to an integral over $\mu_{cm}$ of $p(\mu_{cm})$ times the
+angular transfer $A_{jj'}(\mu_0)=\int_j\!\int_{j'}K$ (tabulated in
+$\theta_0=\arccos\mu_0$). The outer integral over $E'$ uses adaptive Gauss--Kronrod
+(G7--K15) on pieces split at the cross-section grid and at the incident energies where
+the kinematic support crosses an outgoing bin edge (pruning: unreachable
+$(g',g)$ pairs are skipped). A piece $[a,b]$ of a row is accepted when its
+Kronrod--Gauss difference $e$ satisfies
+\begin{equation}
+  e\le \mathrm{tol}\cdot|K_{[a,b]}| \quad\text{or}\quad
+  e\le \mathrm{tol}\cdot S_{\rm row}\,\frac{b-a}{E_b-E_a},
+\end{equation}
+so the row error is at most $\mathrm{tol}\cdot S_{\rm row}$. The tolerance is clamped
+at $10^{-8}$: the angular table is linear in $\theta_0$ between 8193 nodes, and below
+$\sim10^{-8}$ every node is an unlisted kink (an O-16 elastic row costs 6\,ms at
+$10^{-8}$ and 134\,s at $10^{-9}$ for the same seven digits).
+
+%======================================================================================
+\section{Sampling the residual}
+%======================================================================================
+
+\paragraph{Collision and edge terms.} The bin masses are exact:
+$A_{kgj}=h_k\Delta\mu_j\int_g|r_c|\dd E$ (piecewise linear integrand on the union
+cross-section grid) and $B=\Delta E_g|D|\,|\mu_b^2-\mu_a^2|/2$ for faces. A bin is
+chosen with probability $\propto$ mass, then $(z,E,\mu)$ uniformly (faces: $\mu^2$
+uniform, $z=z_f$ nudged into the cell), with the weight~\eqref{eq:weight}. The
+variance per history is then of order $(\|r_c\|_1+\|r_e\|_1)^2$.
+
+\paragraph{Importance sampling and the best proposal.} For a term $r$ sampled from
+$q$, $\E[w]=\frac{N}{N_i}\int r$ and
+\begin{equation}
+  \Var\Big[\frac{r}{q}\Big]=\int\frac{r^2}{q}-\Big(\int r\Big)^2
+  \;\ge\;\Big(\int|r|\Big)^2-\Big(\int r\Big)^2,
+  \label{eq:variance}
+\end{equation}
+with equality for $q^*\propto|r|$ (Cauchy--Schwarz). The minimal second moment is
+$\|r\|_1^2$.
+
+%======================================================================================
+\section{Two-phase schedule}
+\label{sec:schedule}
+%======================================================================================
+
+Sampling $r_s$ in every iteration stalls RMC near SMC accuracy: $r_s$ never vanishes,
+so the per-iteration noise stays $\propto\|r_s\|_1$. The same holds for the in-bin
+part of $\Sigt(E)\tpsi$ in $r_c$:
+\begin{equation}
+  \Sigt(E)\tpsi_{kgj}=\bar\Sigma_{t,g}\tpsi_{kgj}+\big(\Sigt(E)-\bar\Sigma_{t,g}\big)\tpsi_{kgj},
+  \qquad \bar\Sigma_{t,g}=\frac{1}{\Delta E_g}\int_g\Sigt\dd E,
+\end{equation}
+whose second term has zero bin integral and never vanishes. The schedule is:
+
+\begin{enumerate}
+\item \textbf{Collision-only iterations} with the binned residual
+  \begin{equation}
+    r^{(1)}=Q+\Sbar+\bar F-\bar\Sigma_t\tpsi \;(+\,r_e),
+  \end{equation}
+  which is constant in $E$ within each bin. In 0D, $r^{(1)}=0$ is the multigroup system
+  $\bar\Sigma_{t,g}\tpsi_{gj}=Q_{gj}+\Sbar_{gj}+\bar F_{gj}$ with flat-flux-weighted
+  cross sections and moments; the iteration converges to its solution $\tpsi^*$
+  (the flat-weighted multigroup solution), not to $P\psi$.
+\item \textbf{Correction passes} at $\tpsi^*$ with the exact residual
+  ($r_c$ with pointwise $\Sigt(E)$, $r_e$, $r_s$, $r_f$). Each pass is an unbiased
+  estimate of $P\psi-\tpsi^*$; the passes are averaged (not accumulated), so the
+  correction noise falls as $1/\sqrt{\text{passes}}$:
+  \begin{equation}
+    \tpsi_{\rm final}=\tpsi^*+\frac1{N_c}\sum_{m=1}^{N_c}\teps^{(m)},\qquad
+    \E[\tpsi_{\rm final}]=P\psi .
+  \end{equation}
+\end{enumerate}
+
+\paragraph{Convergence rate of phase 1.} Write the phase-1 operator as $L_h$
+($r^{(1)}=q_h-L_h\tpsi$). Then
+\begin{equation}
+  \E[\tpsi^{(n+1)}]-\tpsi^*=\big(I-PL^{-1}L_h\big)\big(\tpsi^{(n)}-\tpsi^*\big),
+\end{equation}
+so the rate is the spectral radius of $I-PL^{-1}L_h$, the mismatch between the binned
+operator and transport. For cross sections constant within bins, $L^{-1}L_h\approx I$
+and the contraction is very fast (A\,=\,1: about $0.03$ per iteration). In bins where
+$\Sigt$ varies by a large factor (an O-16 resonance window), the mismatch is $O(1)$ and
+the iteration contracts slowly there; in the 1--10 MeV O-16 run, 77\% of the
+remaining $\|\teps\|^2$ after iteration 7 sits in five resonance bins.
+
+%======================================================================================
+\section{Why the binned fixed point underestimates resonances}
+%======================================================================================
+
+Near a resonance the slowing-down source $S$ is smooth over a bin, so locally
+$\psi(E)\approx S/\Sigt(E)$ (narrow-resonance approximation). The exact and binned bin
+averages are then
+\begin{equation}
+  \bar\psi_{\rm true}\approx S\,\Big\langle\frac{1}{\Sigt}\Big\rangle_g,\qquad
+  \bar\psi_{\rm binned}\approx\frac{S}{\langle\Sigt\rangle_g},
+  \qquad \langle f\rangle_g=\frac1{\Delta E_g}\int_g f\dd E .
+\end{equation}
+Since $x\mapsto1/x$ is convex for $x>0$, Jensen's inequality gives
+$\langle1/\Sigt\rangle_g\ge 1/\langle\Sigt\rangle_g$, with equality only when $\Sigt$
+is constant on the bin:
+\begin{equation}
+  \bar\psi_{\rm binned}\le\bar\psi_{\rm true}.
+\end{equation}
+The flat average weights the high-$\Sigt$ part of a bin, where the true flux is small,
+so it overcounts collisions. The bias is one-signed, largest for deep windows (O-16 at
+2.35\,MeV: $-26\%$ with $G=100$ on 1--10\,MeV), and local: the emission out of the bin,
+$\approx(\bar\sigma_s/\bar\sigma_t)\,S\,\Delta E_g$, is nearly correct, so bins
+downstream are hardly affected. The correction passes remove it; a narrow-resonance
+weighting $\bar\Sigma_{t,g}=\Delta E_g/\int_g\Sigt^{-1}\dd E$ (and $1/\Sigt$-weighted
+moments) would remove it at leading order in phase 1.
+
+%======================================================================================
+\section{Low-variance scattering correction}
+%======================================================================================
+
+\paragraph{Pointwise sampler.} The original sampler draws $y=(z,E',E,\mu)$ and scores
+\begin{equation}
+  t(E',E,\mu)-\bar s(E,\mu),\qquad
+  t=\sum_{j'}\tpsi_{kg'j'}U_{j'}(E'\!\to E,\mu),\quad
+  U_{j'}=\sum_r N_r\sigma_r(E')\,\bar\tau_{r,j'},
+\end{equation}
+with $\bar s=\Sbar_{kgj}/\Delta E_{g'}$ per unit incident energy. Its best second moment
+is $\big(\int\!\!\int|t-\bar s|\dd E'\dd E\dd\mu\big)^2$: for $\mu_0$-correlated
+two-body kernels, $t$ is a triangle in $(E',E)$ on diagonal blocks while $\bar s$ is
+flat, so $|t-\bar s|$ is of the size of $t$ itself, whatever $\|r_s\|_1$ is
+(measured: $E[w^2]$ about $485\times$ the ideal at $G=100$, $A=1$).
+
+\paragraph{Integrated sampler (\texttt{correction\_sampler="integrated"}).} Integrate
+the incident energy deterministically:
+\begin{equation}
+  r_s(z,E,\mu)=T(E,\mu)-\Sbar_{kgj},\qquad
+  T(E,\mu)=\sum_{g'}\int_{g'}\!\dd E'\,\sum_{j'}\tpsi_{kg'j'}\,U_{j'}(E'\!\to E,\mu),
+\end{equation}
+and sample only $(k,g,j)$ with probability $P_{kgj}\propto A_{kgj}$ and $(z,E,\mu)$
+uniformly in the bin, with
+\begin{equation}
+  w=\frac{N}{N_s}\,\frac{T(E,\mu)-\Sbar_{kgj}}{q},\qquad
+  q=\frac{P_{kgj}}{h_k\Delta E_g\Delta\mu_j}.
+\end{equation}
+The pilot masses $A_{kgj}=h_k\Delta E_g\Delta\mu_j\big(\overline{|T-\Sbar|}+0.1|\Sbar_{kgj}|\big)$
+use $2\times2$ Gauss points per bin; the floor $0.1|\Sbar|$ keeps $q>0$ wherever $r_s$
+can be nonzero, so the estimator is unbiased for any pilot accuracy. $T$ is evaluated
+by adaptive G7--K15 in $E'$, split at the trial-space edges (where $\tpsi$ jumps) and at
+the incident energies where a reaction's emission support crosses $E$, to relative
+tolerance $10^{-6}$ (an absolute bias of at most $10^{-6}T$ per evaluation).
+
+\begin{proposition}[Rao--Blackwell]
+For the same marginal proposal in $(z,E,\mu)$, the integrated estimator is the
+conditional expectation of the pointwise one given $(z,E,\mu)$, so its variance is never
+larger; its best second moment is $\|r_s\|_1^2$ instead of
+$\big(\int\!\!\int|t-\bar s|\big)^2$, by the triangle inequality
+$\big|\int(t-\bar s)\dd E'\big|\le\int|t-\bar s|\dd E'$.
+\end{proposition}
+
+\noindent The price is the cost of evaluating $T$ (one adaptive $E'$ integral per
+sample and $4GJ$ per pass for the pilot), which is deterministic work outside the
+transport loop.
+
+%======================================================================================
+\appendix
+\section{Reference solutions used by the examples}
+%======================================================================================
+
+\paragraph{Infinite-medium slowing down.} For target-at-rest elastic scattering
+isotropic in the COM frame (the synthetic nuclides of \texttt{examples/rmc}), the
+collision density $F=\Sigt\phi$ satisfies
+\begin{equation}
+  F(E)=q(E)+\sum_n\int_E^{\min(E/\alpha_n,E_{\max})}
+  \frac{c_n(E')F(E')}{(1-\alpha_n)E'}\dd E',\qquad c_n=\frac{N_n\sigma_{s,n}}{\Sigt}.
+\end{equation}
+In lethargy $u=\ln(E_{\max}/E)$ with $\tilde F=EF$ the kernel factorizes,
+$E/E'=e^{-(u-u')}$, so
+\begin{equation}
+  \tilde F(u)=\tilde q(u)+\sum_n\frac{e^{-u}}{1-\alpha_n}
+  \Big[H_n(u)-H_n(u-\ln\tfrac{1}{\alpha_n})\Big],\qquad
+  H_n(u)=\int_0^u c_n\tilde F e^{u'}\dd u',
+\end{equation}
+which is marched with the trapezoid rule, implicit in the current node, on a lethargy
+grid that contains every bin edge, source edge, and data point. It reproduces the
+closed forms ($A=1$ with absorption; $A=4$ above $\alpha E_0$) to $\sim10^{-10}$.
+
+\paragraph{Energy scaling.} Target-at-rest slowing down with energy-independent
+angular laws is invariant under $E\to sE$, $\sigma(E)\to\sigma(E/s)$: the examples
+below MC/DC's free-gas threshold ($400\,kT$) are run with all energies scaled by
+$s=10^4$ and mapped back ($\phi\to s\,\phi$).
+
+\end{document}

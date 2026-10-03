@@ -1,0 +1,29 @@
+{
+  "title": "Discrete-level inelastic scattering, Law 3 (O-16 MT-51)",
+  "rows": [
+    {
+      "E": 8000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 74.57999623701048,
+      "dof": 71,
+      "p_value": 0.3626918525170512,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999969323883029,
+      "quadrature_error": 6.726274745168199e-09,
+      "max_abs_z": 2.345457597708774
+    },
+    {
+      "E": 14000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 67.13104968969382,
+      "dof": 71,
+      "p_value": 0.6081601372217432,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999969330437568,
+      "quadrature_error": 8.080226716272239e-08,
+      "max_abs_z": 2.408249480149823
+    }
+  ]
+}

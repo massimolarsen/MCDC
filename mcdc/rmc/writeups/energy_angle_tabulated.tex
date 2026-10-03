@@ -1,0 +1,69 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: tabulated energy--angle distribution (ENDF Law 61)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{evaluate\_tabulated\_energy\_angle},
+\texttt{correlated\_energy\_breakpoints},
+\texttt{tabulated\_energy\_angle\_cosine\_breakpoints} in \texttt{mcdc/rmc/evaluate.py}.
+
+\section{What MC/DC samples}
+
+\texttt{sample\_tabulated\_energy\_angle}: incident grid $E_l$, outgoing tables
+$\{E'_{l,k}, p_{l,k}, c_{l,k}\}$ (linear PDFs), and for every outgoing point $k$ an
+angular table $\{\mu_{k,n}, q_{k,n}\}$ (linear PDF).
+\begin{enumerate}
+  \item The outgoing energy exactly as for Kalbach--Mann
+  (\texttt{kalbach\_mann.tex}): table $l = i$ or $i+1$ with probabilities $1-f$, $f$,
+  $\hat E$ by inversion of the linear PDF on interval $k$ for a random number $\xi_2$,
+  and unit-base scaling to $\Eout$.
+  \item The angular table of the outgoing point \emph{nearest in CDF}: table $k+1$ if
+  $\xi_2 - c_{l,k} > c_{l,k+1} - \xi_2$, otherwise table $k$; then $\mu$ from that
+  table by exact inversion.
+\end{enumerate}
+
+\section{Inverted kernel}
+
+With $\hat E_l(\Eout)$, its interval $k$, $\Delta = \hat E_l - E'_{l,k}$ and slope
+$m = (p_{l,k+1} - p_{l,k})/(E'_{l,k+1} - E'_{l,k})$, the random number that produced
+$\hat E_l$ is its CDF value
+\begin{equation}
+  \hat c = c_{l,k} + p_{l,k}\Delta + \tfrac12 m\Delta^2 ,
+\end{equation}
+so the angular table is $n(\hat E_l) = k+1$ if $\hat c - c_{l,k} > c_{l,k+1} - \hat c$
+and $k$ otherwise. The joint density is
+\begin{equation}
+  f(\Eout, \mu \mid \Ein) = \sum_{l \in \{i, i+1\}} w_l\;
+  p_l(\hat E_l)\,\frac{E'_{l,K_l} - E'_{l,1}}{E'_{\max} - E'_{\min}}\;
+  q_{n(\hat E_l)}(\mu),
+\end{equation}
+with $q_n$ the linear angular PDF of table $n$. The table switch makes the angular
+density jump where $\hat c$ crosses the CDF midpoint of an interval; solving
+$c_{l,k} + p_{l,k}\Delta + \tfrac12 m\Delta^2 = c_{l,k} + \tfrac12(c_{l,k+1} - c_{l,k})$,
+\begin{equation}
+  \Delta_{1/2} = \frac{\sqrt{p_{l,k}^2 + m\,(c_{l,k+1} - c_{l,k})} - p_{l,k}}{m}
+  \quad (m \ne 0),\qquad \Delta_{1/2} = \frac{c_{l,k+1}-c_{l,k}}{2p_{l,k}}\quad (m = 0),
+\end{equation}
+and these points (scaled to $\Eout$) are quadrature breakpoints, as are the cosine
+grid points of the selected angular tables. In the COM frame
+$f_L = Y f(\Ecm, \mucm)\sqrt{\Eout/\Ecm}$.
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+\input{figures/energy_angle/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/energy_angle/energy_angle_E1e07.png}
+  \includegraphics[width=\textwidth]{figures/energy_angle/energy_angle_E1p8e07.png}
+  \caption{Co-59 MT-22 $(n,n\alpha)$, Law 61 in the COM frame, at 10 and 18\,MeV.}
+\end{figure}
+
+\end{document}

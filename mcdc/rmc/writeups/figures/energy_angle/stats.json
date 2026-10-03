@@ -1,0 +1,29 @@
+{
+  "title": "Tabulated energy-angle, Law 61 (Co-59 MT-22)",
+  "rows": [
+    {
+      "E": 10000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 787.5670553526911,
+      "dof": 795,
+      "p_value": 0.5675964262295379,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999998319712285,
+      "quadrature_error": 0.000134816115541213,
+      "max_abs_z": 4.113033795992942
+    },
+    {
+      "E": 18000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 757.7827612193643,
+      "dof": 723,
+      "p_value": 0.17933661823900113,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999969031223612,
+      "quadrature_error": 0.00016380014468116928,
+      "max_abs_z": 4.212551109530351
+    }
+  ]
+}

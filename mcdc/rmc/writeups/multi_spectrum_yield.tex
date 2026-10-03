@@ -1,0 +1,67 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: reactions with several spectra and an energy-dependent yield}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{\_spectrum\_weight}, \texttt{\_secondaries\_through},
+\texttt{continuous\_lab\_density} in \texttt{mcdc/rmc/reaction.py}.
+
+\section{What MC/DC samples}
+
+\texttt{sample\_inelastic\_scattering} for a reaction with $N_s$ energy spectra
+(probabilities $p_n(\Ein)$ tabulated on a grid, histogram in $\Ein$) and multiplicity
+$N$:
+\begin{itemize}
+  \item integer multiplicity: $N$ fixed; tabulated yield $\nu(\Ein)$ (ACE
+  $|TY| > 100$): $N = \lfloor \nu(\Ein) + \xi\rfloor$;
+  \item if $N = N_s$, secondary $n$ uses spectrum $n$ (each spectrum exactly once);
+  \item otherwise every secondary picks spectrum $n$ with probability $p_n(\Ein)$.
+\end{itemize}
+
+\section{Expected emission per spectrum}
+
+The kernel needs the expected number of neutrons emitted through spectrum $n$. For a
+given $N$,
+\begin{equation}
+  s_n(N) = \begin{cases} 1 & N = N_s,\\ N\,p_n(\Ein) & \text{otherwise}.\end{cases}
+\end{equation}
+With $m = \lfloor\nu\rfloor$ and $\phi = \nu - m$, $N = m$ with probability $1 - \phi$
+and $m+1$ with probability $\phi$, so
+\begin{equation}
+  w_n(\Ein) = (1-\phi)\,s_n(m) + \phi\,s_n(m+1),
+\end{equation}
+and for an integer multiplicity simply $w_n = s_n(N)$. Since $\sum_n s_n(N) = N$ in
+both cases, $\sum_n w_n = \mathbb{E}[N] = \nu$. The reaction kernel is
+\begin{equation}
+  f_L(\Eout, \mulab \mid \Ein) = \sum_{n=1}^{N_s} w_n(\Ein)\,
+  f_{L,n}(\Eout, \mulab \mid \Ein),
+\end{equation}
+with $f_{L,n}$ the per-neutron lab density of spectrum $n$ (and the reaction's angular
+law). Note the rule at $N = N_s$: with a non-integer yield the mixture weights are not
+simply $\nu p_n$. This replaces RMC's earlier rejection of multi-spectrum reactions
+with a tabulated yield.
+
+\paragraph{Data.} No reaction in the 293.6\,K library combines several spectra with a
+tabulated yield, so the verification uses Li-7 MT-16 with a second spectrum (the data's
+table compressed to half the outgoing energies), probabilities $0.3/0.7$, and
+$\nu = 1.6$: $N \in \{1, 2\}$, and when $N = 2 = N_s$ each spectrum is used once.
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+\input{figures/multi_spectrum_yield/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/multi_spectrum_yield/multi_spectrum_yield_E1p2e07.png}
+  \caption{Synthetic two-spectrum reaction with $\nu = 1.6$ at 12\,MeV. The yield
+  column checks $\sum_n w_n = \nu$ against the sampled neutrons per collision.}
+\end{figure}
+
+\end{document}

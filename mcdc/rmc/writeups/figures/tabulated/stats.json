@@ -1,0 +1,29 @@
+{
+  "title": "Tabulated lab spectrum and angle, Law 4 (Li-7 MT-16, yield 2)",
+  "rows": [
+    {
+      "E": 10000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 2000000,
+      "chi2": 1116.6645485137688,
+      "dof": 1084,
+      "p_value": 0.23919668318094645,
+      "yield_sampled": 2.0,
+      "yield_inverted": 1.999997708766371,
+      "quadrature_error": 0.0002731283542161788,
+      "max_abs_z": 3.10202723575273
+    },
+    {
+      "E": 16000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 2000000,
+      "chi2": 1081.9043048196577,
+      "dof": 1131,
+      "p_value": 0.8493235797790581,
+      "yield_sampled": 2.0,
+      "yield_inverted": 1.9999982321899048,
+      "quadrature_error": 0.0003329791230839549,
+      "max_abs_z": 3.3743998414164302
+    }
+  ]
+}

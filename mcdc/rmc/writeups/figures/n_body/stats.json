@@ -1,0 +1,29 @@
+{
+  "title": "N-body phase space, Law 66 (H-2 MT-16)",
+  "rows": [
+    {
+      "E": 8000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 2000000,
+      "chi2": 418.6606796047745,
+      "dof": 394,
+      "p_value": 0.18822840410368885,
+      "yield_sampled": 2.0,
+      "yield_inverted": 1.9999983799014989,
+      "quadrature_error": 0.004735205467160657,
+      "max_abs_z": 3.2470191995072986
+    },
+    {
+      "E": 18000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 2000000,
+      "chi2": 425.3220402763551,
+      "dof": 458,
+      "p_value": 0.8608952541560848,
+      "yield_sampled": 2.0,
+      "yield_inverted": 1.999997785270891,
+      "quadrature_error": 0.0019247913617743873,
+      "max_abs_z": 4.057870504387719
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted emission kernels: frames, Jacobians, and azimuthal integration}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Every RMC kernel write-up in this directory evaluates the \emph{lab-frame}
+density $f_L(\Eout, \mulab \mid \Ein)$ of one emitted neutron per unit outgoing energy
+and lab scattering cosine (azimuth integrated), times the reaction yield. This note
+collects the transformations they share. Code: \texttt{mcdc/rmc/kinematics.py},
+\texttt{mcdc/rmc/reaction.py}.
+
+\section{Center-of-mass to lab, inelastic and fission}
+
+MC/DC's inelastic and fission samplers draw $(\Ecm, \mucm)$ in the COM frame and
+convert with the classical relations (MCNP Eqs.~2.43--2.44), with $A$ the target
+atomic-weight ratio:
+\begin{equation}
+  \Eout = \Ecm + \frac{\Ein + 2\mucm (A+1)\sqrt{\Ein\Ecm}}{(A+1)^2},\qquad
+  \mulab = \mucm\sqrt{\frac{\Ecm}{\Eout}} + \frac{1}{A+1}\sqrt{\frac{\Ein}{\Eout}} .
+\end{equation}
+The inverse used by the evaluators is
+\begin{equation}
+  \Ecm = \Eout + \frac{\Ein}{(A+1)^2} - \frac{2\mulab\sqrt{\Ein\Eout}}{A+1},\qquad
+  \mucm = \frac{\mulab\sqrt{\Eout} - \sqrt{\Ein}/(A+1)}{\sqrt{\Ecm}},
+\end{equation}
+and a lab point with $\Ecm \le 0$ is unreachable.
+
+\paragraph{Joint Jacobian.} The lab velocity is $\bm v = \bm V_c + \bm w$ with $\bm V_c$
+the (fixed) COM velocity, so the velocity density is translation invariant:
+$p_v(\bm v) = p_w(\bm w)$. With $E \propto v^2$, $\dd^3 v \propto \sqrt{E}\dd E \dd\mu
+\dd\phi$ in both frames, and the azimuth is uniform in both, so
+$p_v = f_L / (2\pi c\sqrt{\Eout})$ and $p_w = f_C / (2\pi c\sqrt{\Ecm})$ give
+\begin{equation}
+  f_L(\Eout, \mulab \mid \Ein) = f_C(\Ecm, \mucm \mid \Ein)\,\sqrt{\Eout/\Ecm}.
+\end{equation}
+
+\section{Two-body (line) kernels}
+
+For a fixed COM energy $\Ecm$ (elastic: $\Ecm$ set by $\Ein$; discrete levels: Law 3),
+$\Eout$ is affine in $\mucm$,
+$\left|\dd\mucm/\dd\Eout\right| = (A+1)/(2\sqrt{\Ein\Ecm})$, and each $\Eout$ fixes one
+$\mulab^*(\Eout)$. The lab density is a line,
+\begin{equation}
+  f_L = g(\Eout \mid \Ein)\,\delta\big(\mulab - \mulab^*(\Eout)\big),\qquad
+  g = Y\,p_c\big(\mucm^*(\Eout)\big)\left|\frac{\dd\mucm}{\dd\Eout}\right| ,
+\end{equation}
+with $p_c$ the COM angular density and $Y$ the yield. Elastic scattering in MC/DC adds
+velocities with the relativistic speed--energy relation; see \texttt{elastic.tex}.
+
+\section{Azimuthal integration about the slab axis}
+
+For an incident polar cosine $\mu$ (about $z$) and lab scattering cosine $\mulab$, the
+outgoing polar cosine is $\mu' = \mu\mulab + \sqrt{1-\mu^2}\sqrt{1-\mulab^2}\cos\phi$
+with $\phi$ uniform, whose density is the arcsine kernel
+\begin{equation}
+  K(\mu, \mu', \mulab) = \frac{1}{\pi\sqrt{1 - \mu^2 - \mu'^2 - \mulab^2 + 2\mu\mu'\mulab}},
+\end{equation}
+symmetric in $(\mu, \mu')$. Its integral over a cosine bin $[\mu_a, \mu_b]$ is analytic:
+\begin{equation}
+  \Pi(\mu', \mulab; \mu_a, \mu_b) = \frac{1}{\pi}\Big[\arcsin t\Big]_{t_a}^{t_b},\qquad
+  t = \operatorname{clip}_{[-1,1]}\frac{\mu - \mu'\mulab}{\sqrt{1-\mu'^2}\sqrt{1-\mulab^2}}.
+\end{equation}
+RMC uses the bounded, incident-bin integrated kernel
+\begin{equation}
+  \bar\tau_j(\Ein \to \Eout, \mu') = \int\dd\mulab\, f_L(\Eout, \mulab \mid \Ein)\,
+  \Pi(\mu', \mulab; \mu_{j-1/2}, \mu_{j+1/2}),
+\end{equation}
+in closed form ($g\,\Pi(\mu', \mulab^*)$) for lines and by adaptive Gauss--Kronrod over
+$\mulab$ (split at the kinks of $\Pi$) for continuous laws. These pieces are verified
+by the unit tests in \texttt{test/unit/rmc/test\_kinematics.py}; the lab densities
+$f_L$ of every law are verified against MC/DC's samplers in the individual write-ups.
+
+\end{document}

@@ -1,0 +1,29 @@
+{
+  "title": "Evaporation spectrum, Law 9 (C-12 MT-91)",
+  "rows": [
+    {
+      "E": 12000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 813.6819638677083,
+      "dof": 841,
+      "p_value": 0.7444567384261086,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999991737568715,
+      "quadrature_error": 1.724619115396324e-14,
+      "max_abs_z": 3.296846777173198
+    },
+    {
+      "E": 18000000.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 642.5078140077874,
+      "dof": 697,
+      "p_value": 0.9307485858411219,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.9999992174116114,
+      "quadrature_error": 2.3498192998130928e-14,
+      "max_abs_z": 3.9704573857957306
+    }
+  ]
+}

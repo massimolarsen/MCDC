@@ -1,0 +1,65 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\title{Inverted kernel: simple Maxwellian fission spectrum (ENDF Law 7)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{evaluate\_maxwellian}, \texttt{maxwellian\_normalization} in
+\texttt{mcdc/rmc/evaluate.py}.
+
+\section{What MC/DC samples}
+
+\texttt{sample\_maxwellian}: with $\theta(\Ein)$, $U$, $L = \Ein - U$ as for the
+evaporation spectrum,
+\begin{equation}
+  x = -\theta\left[\ln\xi_1 + \ln\xi_2\cos^2\!\left(\tfrac{\pi}{2}\xi_3\right)\right],
+  \qquad\text{accepted if } 0 \le x \le L .
+\end{equation}
+
+\section{Density of the sampled value}
+
+$-\ln\xi_1$ is $\mathrm{Gamma}(1)$. For $\xi_3$ uniform, $B = \cos^2(\pi\xi_3/2)$ has
+the arcsine density $1/(\pi\sqrt{b(1-b)})$, i.e.\ $B \sim \mathrm{Beta}(\tfrac12,
+\tfrac12)$, and the beta--gamma algebra
+$\mathrm{Gamma}(a+b)\cdot\mathrm{Beta}(a, b) \sim \mathrm{Gamma}(a)$ (independent
+factors) with $a = b = \tfrac12$ gives $-\ln\xi_2\,B \sim \mathrm{Gamma}(\tfrac12)$.
+The sum of independent $\mathrm{Gamma}(1)$ and $\mathrm{Gamma}(\tfrac12)$ is
+$\mathrm{Gamma}(\tfrac32)$, so $x/\theta \sim \mathrm{Gamma}(\tfrac32)$ before
+rejection, with density $\propto\sqrt{x}\,e^{-x/\theta}$. Restricting to $[0, L]$,
+\begin{equation}
+  p(x \mid \Ein) = \frac{\sqrt{x}\,e^{-x/\theta}}{\theta^{3/2} I(w)},\qquad
+  I(w) = \int_0^w\sqrt{s}\,e^{-s}\dd s
+  = \frac{\sqrt\pi}{2}\operatorname{erf}(\sqrt w) - \sqrt w\,e^{-w},
+  \qquad w = \frac{\Ein - U}{\theta},
+\end{equation}
+with $I(w) = w^{3/2}\left(\tfrac23 - \tfrac25 w + \tfrac17 w^2\right)$ for
+$w < 10^{-3}$. Support $[0, \Ein - U]$; the density is smooth inside it (its
+$\sqrt{x}$ endpoint behaviour limits Gauss--Legendre accuracy only in a bin touching
+$\Eout = 0$). Reaction kernel as for evaporation: $Y p\,p_\mu$ in the reaction's frame.
+
+\paragraph{Data.} No nuclide in the 293.6\,K library uses Law 7, so the verification
+uses C-12 MT-91 with its evaporation spectrum relabelled as Maxwellian (same
+$\theta(\Ein)$ and $U$). The generator wrote the Maxwellian interpolation laws under
+\texttt{temperature\_interpolation} while the loader read
+\texttt{temperature\_interpolations}; \texttt{fix/evaporation-maxwellian-loading}
+unifies the name (the loader accepts both).
+
+\section{Verification}
+\verificationmethod
+
+\begin{center}
+\input{figures/maxwellian/stats.tex}
+\end{center}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/maxwellian/maxwellian_E1p2e07.png}
+  \includegraphics[width=\textwidth]{figures/maxwellian/maxwellian_E1p8e07.png}
+  \caption{Maxwellian spectrum ($\theta = 0.3$\,MeV, $U = 7.89$\,MeV, lab frame,
+  isotropic) at 12 and 18\,MeV.}
+\end{figure}
+
+\end{document}

@@ -1,0 +1,17 @@
+{
+  "title": "Free-gas elastic scattering (U-238, 293.6 K)",
+  "rows": [
+    {
+      "E": 1.0,
+      "N_collision": 1000000,
+      "N_emitted": 1000000,
+      "chi2": 598.8185845694311,
+      "dof": 633,
+      "p_value": 0.8313972973368969,
+      "yield_sampled": 1.0,
+      "yield_inverted": 0.999999445827831,
+      "quadrature_error": 1.936513298824513e-06,
+      "max_abs_z": 4.270952491376896
+    }
+  ]
+}
