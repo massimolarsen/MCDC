@@ -205,3 +205,41 @@ def test_mpi_rank_independence(tmp_path):
         )
         psi.append(np.load(out))
     np.testing.assert_allclose(psi[0], psi[1], rtol=1e-12)
+
+
+def test_analytic_slowing_down_inverse_sqrt(tmp_path, monkeypatch):
+    """
+    A = 1 pure scatterer with Sigma_s = Sigma_t = E^(-1/2) (energy-dependent within
+    every trial bin): below the source, phi(E) = S0 / (Sigma_s(E) E) = S0 E^(-1/2).
+    """
+    E0, delta = 101.0, 0.1
+    energy = np.logspace(-6.0, 3.0, 2000)
+    write_synthetic_nuclide(
+        tmp_path, "HY", 1.0, energy, energy**-0.5, np.zeros_like(energy)
+    )
+    monkeypatch.setenv("MCDC_LIB", str(tmp_path))
+
+    material = mcdc.Material(nuclide_composition={"HY": 1.0}, temperature=0.1)
+    simulation = mcdc.Simulation("rmc-analytic-sqrt")
+    simulation.set_model([reflective_box(material)])
+    simulation.set_sources(
+        [mcdc.Source(position=[0.0, 0.0, 0.5], isotropic=True, energy=E0)]
+    )
+
+    E_edges = np.concatenate((np.logspace(0.0, np.log10(E0 - delta), 21), [E0]))
+    mu_edges = np.array([-1.0, 0.0, 1.0])
+    G = len(E_edges) - 1
+    Q = np.zeros((1, G, 2))
+    Q[0, -1, :] = 1.0 / (delta * 2.0)
+
+    result = run(simulation, [0.0, 1.0], E_edges, mu_edges, Q, [material], 8, 500)
+
+    a, b = E_edges[:-2], E_edges[1:-1]
+    exact = 2.0 * (np.sqrt(b) - np.sqrt(a)) / (b - a)
+    dmu = np.diff(mu_edges)
+    phi = np.array(
+        [np.einsum("kgj,j->kg", psi, dmu)[0, :-1] for psi in result.psi_history]
+    )
+    relative = phi[2:].mean(axis=0) / exact - 1.0
+    assert np.sqrt(np.mean(relative**2)) < 0.06, relative
+    assert abs(np.mean(relative)) < 0.04, relative
