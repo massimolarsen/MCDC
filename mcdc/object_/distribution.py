@@ -600,12 +600,20 @@ class DistributionTabulatedEnergyAngle(DistributionBase):
 
 
 class DistributionNBody(DistributionBase):
-    """N-body phase-space outgoing-energy distribution.
+    """N-body phase-space outgoing-energy distribution (ENDF Law 6, ACE Law 66).
+
+    The table holds the reduced variable T in [0, 1]; the outgoing COM energy is
+    T * E_max(E) with E_max(E) = energy_max_slope * E + energy_max_offset, where
+    energy_max_slope = (Ap - 1) / Ap * A / (A + 1) and
+    energy_max_offset = (Ap - 1) / Ap * Q (Ap: total mass ratio of the emitted
+    particles, A: target atomic weight ratio, Q: reaction Q-value).
 
     Parameters
     ----------
     values, probabilities : array_like
-        Outgoing values and their piecewise-linear relative density.
+        Reduced variable T and its piecewise-linear relative density.
+    energy_max_slope, energy_max_offset : float
+        Coefficients of E_max(E) [-, eV].
     """
 
     # MC/DC framework metadata
@@ -613,13 +621,20 @@ class DistributionNBody(DistributionBase):
     sub_type = DISTRIBUTION_N_BODY
 
     pdf: DataTable
+    energy_max_slope: float
+    energy_max_offset: float
 
     def __init__(
         self,
         values: ArrayLike,
         probabilities: ArrayLike,
+        energy_max_slope: float = 0.0,
+        energy_max_offset: float = 1.0,
     ) -> None:
         super().__init__()
+
+        self.energy_max_slope = float(energy_max_slope)
+        self.energy_max_offset = float(energy_max_offset)
 
         value_array = np.asarray(values, dtype=float64)
         probability_array = np.asarray(probabilities, dtype=float64)
@@ -648,4 +663,5 @@ class DistributionNBody(DistributionBase):
 
         text += f"  - value {print_1d_array(self.pdf.x)}\n"
         text += f"  - pdf {print_1d_array(self.pdf.y)}\n"
+        text += f"  - E_max(E) = {self.energy_max_slope} E + {self.energy_max_offset} [eV]\n"
         return text
