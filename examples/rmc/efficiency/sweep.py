@@ -155,12 +155,16 @@ def rmc_bases(problem, config):
             angular_basis="constant",
             N_correction=0,
         )
+    # Corrections: the pointwise sampler (one kernel evaluation per sample); the
+    # integrated one costs ~2000x more per sample. The pointwise sampler does not
+    # support linear z or angle yet, so the fuel rod keeps the integrated one.
     one_dimensional = GROUPS[problem] == "fuel"
     return dict(
         energy_basis="linear",
         spatial_basis="linear" if one_dimensional else "constant",
         angular_basis="linear" if one_dimensional else "constant",
         N_correction=N_CORRECTION,
+        correction_sampler="integrated" if one_dimensional else "pointwise",
     )
 
 
