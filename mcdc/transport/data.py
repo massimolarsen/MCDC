@@ -42,10 +42,17 @@ def evaluate_table(x, table, data):
     grid = mcdc_get.table_data.x_all(table, data)
 
     idx = find_bin(x, grid)
+    # Exact ties use the left limit. Repeated points encode a jump, so
+    # move to the preceding nonzero-width interval instead of dividing by zero.
+    while idx > 0 and grid[idx] == grid[idx + 1]:
+        idx -= 1
     x1 = grid[idx]
     x2 = grid[idx + 1]
     y1 = mcdc_get.table_data.y(idx, table, data)
     y2 = mcdc_get.table_data.y(idx + 1, table, data)
+
+    if x1 == x2:
+        return y1
 
     # Get interpolation law
     interpolation = get_table_interpolation_law(idx, table, data)
