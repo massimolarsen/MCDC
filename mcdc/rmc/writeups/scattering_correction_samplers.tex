@@ -1,0 +1,279 @@
+\documentclass[11pt]{article}
+\input{preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+
+\title{Sampling the scattering correction: pointwise and integrated estimators}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Notation as in \texttt{rmc\_math.tex}: an outgoing phase-space point
+$x=(z,E,\mu)$ lies in a trial-space bin $\beta=(k,g,j)$; $E'$ is the incident energy,
+in an incident bin $g'$. Section~6 gives the extension to the linear trial spaces.
+
+\section{The quantity to sample}
+
+At the fixed point of the collision-only iterations, each correction pass samples the
+full residual. Its scattering part (fission is identical) is
+\begin{equation}
+  r_s(x) = T(x) - \Sbar_\beta(x),\qquad
+  T(x) = \int \dd E'\, t(E',x),
+  \label{eq:rs}
+\end{equation}
+where
+\begin{equation}
+  t(E',x) = \sum_{j'} \tpsi_{kg'j'}(E')\, U_{j'}(E'\to E,\mu),\qquad
+  U_{j'} = \sum_r N_r\sigma_r(E')\,\bar\tau_{r,j'}(E'\to E,\mu),
+\end{equation}
+is the in-scatter density per unit incident energy (the incident polar cosine is
+already integrated over each bin $j'$ in closed form), and $\Sbar_\beta$ is its
+projection onto the trial space. By construction $\int_\beta r_s\dd x = 0$: $r_s$
+carries only the in-bin shape of the scattering source. Both samplers below estimate
+the transport response to $r_s$ by banking particles at sampled points with signed
+weights $w = r/q$, the standard importance-sampling identity for a signed source [1, 2].
+
+\section{The two estimators}
+
+\paragraph{Pointwise.} Sample the joint point $y=(E',x)$ from a density $q(y)$ and score
+\begin{equation}
+  w_{\rm pw}(y) = \frac{t(E',x) - \bar s(E',x)}{q(y)},
+  \qquad \int \bar s(E',x)\dd E' = \Sbar_\beta(x),
+  \label{eq:pointwise}
+\end{equation}
+with a subtracted density $\bar s$ per unit incident energy. The implementation takes
+$\bar s$ flat in $E'$ over each incident bin:
+$\bar s_{g'} = \Sbar^{(g')}_\beta/\Delta E_{g'}$, the contribution of bin $g'$ to
+$\Sbar_\beta$ spread uniformly.
+
+\paragraph{Integrated.} Sample only $x$ from $q_x(x)$ and do the $E'$ integral
+deterministically:
+\begin{equation}
+  w_{\rm int}(x) = \frac{T(x) - \Sbar_\beta(x)}{q_x(x)} = \frac{r_s(x)}{q_x(x)} .
+  \label{eq:integrated}
+\end{equation}
+
+\begin{proposition}[Unbiasedness]
+For any response function $\phi(x)$ (the transport of a particle born at $x$, in
+expectation), and proposals positive wherever the scored numerator is nonzero,
+\[
+  \E_q[w_{\rm pw}\,\phi(x)] = \iint (t - \bar s)\,\phi\dd E'\dd x
+  = \int r_s\,\phi\dd x = \E_{q_x}[w_{\rm int}\,\phi(x)] .
+\]
+\end{proposition}
+\noindent Both estimators are unbiased for the exact $T$. The pointwise one needs no
+quadrature, so it remains unbiased as implemented. The integrated one is unbiased only
+up to the accuracy of the computed $\widehat T$ (Section~4).
+
+\section{Second moments}
+
+\paragraph{Lower bounds.} By the Cauchy--Schwarz inequality, over all proposals,
+\begin{equation}
+  \E[w_{\rm pw}^2] = \iint\frac{(t-\bar s)^2}{q}
+  \;\ge\; \Big(\iint|t-\bar s|\dd E'\dd x\Big)^2 \equiv L_{\rm pw}^2,
+  \qquad
+  \E[w_{\rm int}^2] \;\ge\; \Big(\int|r_s|\dd x\Big)^2 = \|r_s\|_1^2,
+\end{equation}
+with equality for $q\propto|t-\bar s|$ and $q_x\propto|r_s|$. By the triangle
+inequality, $|r_s(x)| = |\int(t-\bar s)\dd E'| \le \int|t-\bar s|\dd E'$, so
+$\|r_s\|_1 \le L_{\rm pw}$.
+
+\begin{proposition}[Rao--Blackwell]
+Let the pointwise proposal factor as $q(y) = q_x(x)\,q(E'\mid x)$, with the same $q_x$
+as the integrated one. Then $\E[w_{\rm pw}\mid x] = w_{\rm int}(x)$ and
+\[
+  \Var(w_{\rm pw}) = \Var(w_{\rm int}) + \E\big[\Var(w_{\rm pw}\mid x)\big]
+  \;\ge\; \Var(w_{\rm int}).
+\]
+\end{proposition}
+\begin{proof}
+$\E[w_{\rm pw}\mid x] = \int \frac{t-\bar s}{q_x\,q(E'|x)}\,q(E'|x)\dd E'
+= (T-\Sbar_\beta)/q_x$; then apply the law of total variance.
+\end{proof}
+\noindent This is conditional Monte Carlo, or Rao--Blackwellization [3--5]: integrating
+out a variable analytically never increases variance. The excess,
+$\E[\Var(w_{\rm pw}\mid x)]$, is the variance of the incident-energy integrand at fixed
+$x$.
+
+\paragraph{Why the excess is large.} The incident-energy integrand $t(E',x)$ is not flat.
+For elastic scattering (a two-body law), an outgoing $E$ is reached only from
+$E'\in[E, E/\alpha]$, $\alpha = ((A-1)/(A+1))^2$. On the diagonal blocks $g'\approx g$,
+$t$ is a triangle in $(E',E)$ that vanishes at the kinematic edge, while the flat
+$\bar s_{g'}$ does not. Then $|t-\bar s|$ is of the size of $t$ itself, so
+$L_{\rm pw}$ scales with the full in-scatter source, while $\|r_s\|_1$ is only its
+in-bin shape. The ratio of the attainable second moments,
+\begin{equation}
+  R = \frac{L_{\rm pw}^2}{\|r_s\|_1^2} \;\ge\; 1,
+\end{equation}
+grows as the trial space improves, because $\|r_s\|_1\to 0$ while $L_{\rm pw}$ stays
+of the order of the scattering source. On the $A=1$ analytic problem with $G=100$
+energy bins, the pointwise sampler's measured $\E[w^2]$ was about $485\times$ the ideal
+$\|r_s\|_1^2$ (\texttt{rmc\_math.tex}). Improving the trial space shrinks the
+integrated estimator's variance and leaves the pointwise one's nearly unchanged.
+
+\section{Bias of the computed integral}
+
+The implementation evaluates $T$ by adaptive Gauss--Kronrod quadrature in $E'$, giving
+$\widehat T$. The banked source is then $\widehat T - \Sbar_\beta$, whose expectation
+differs from $r_s$ by the deterministic error $\widehat T - T$. Two conditions make that
+error controllable:
+\begin{itemize}
+  \item \emph{Breakpoints at every non-smooth point of the integrand.} These are the
+  trial-space edges (where $\tpsi$ jumps), the incident energies where a reaction's
+  emission support crosses $E$, the reaction thresholds, and the cross-section grid
+  points inside the kinematic window $W(E)=\{E' : E\in\operatorname{supp}
+  f(E'\to\cdot)\}$. Between grid points $\sigma_r(E')$ is linear, so the integrand is
+  smooth on each piece and Gauss rules converge rapidly. Without the cross-section
+  points, a narrow resonance that falls between all quadrature nodes is missed,
+  leaving a deterministic error in resonance bins. Kinematic pruning keeps the number
+  of points small: for elastic scattering $W(E)=[E, E/\alpha]$, a few percent of the
+  grid for heavy nuclides.
+  \item \emph{An absolute error scale.} $r_s$ is a small difference of two large terms,
+  so a relative tolerance on $\widehat T$ alone does not bound the error relative to
+  $\|r_s\|_1$. The tolerance should be set against $\|r_s\|_1$ (or the expected
+  statistical error of the pass), not against $|T|$.
+\end{itemize}
+The kinematic breakpoints depend only on the reaction and on $E$, not on $\tpsi$ or on
+the sample, so they can be tabulated once per outgoing bin.
+
+\section{Efficiency}
+
+The figure of merit of a correction pass is $\mathrm{FOM} = 1/(\sigma^2\tau)$, with
+$\tau$ the cost per history. Each history costs its source sampling $\tau_{\rm src}$
+plus its transport $\tau_{\rm tr}$, and the transport part is the same for both
+samplers. Their efficiency ratio is
+\begin{equation}
+  \frac{\mathrm{FOM}_{\rm int}}{\mathrm{FOM}_{\rm pw}}
+  = \frac{\E[w_{\rm pw}^2]}{\E[w_{\rm int}^2]}\cdot
+    \frac{\tau^{\rm pw}_{\rm src}+\tau_{\rm tr}}{\tau^{\rm int}_{\rm src}+\tau_{\rm tr}}
+  \;\approx\; R\cdot\frac{\tau^{\rm pw}_{\rm src}+\tau_{\rm tr}}
+  {n_{\rm eval}\,\tau_{\rm ker}+\tau_{\rm tr}},
+  \label{eq:fom}
+\end{equation}
+(both weights have the same mean, so the ratio of variances approaches that of second
+moments when, as here, the spread of the signed weights dominates their mean), where
+$n_{\rm eval}$ is the number of kernel evaluations in one adaptive $E'$ integral and
+$\tau_{\rm ker}$ the cost of one evaluation, summed over the reactions. Two limits:
+\begin{itemize}
+  \item \emph{Transport-dominated} ($\tau_{\rm tr}\gg n_{\rm eval}\tau_{\rm ker}$, e.g.\
+  thick, highly scattering media where each history makes many collisions): the ratio
+  tends to $R$, and the integrated sampler wins by the full variance ratio.
+  \item \emph{Source-dominated} ($n_{\rm eval}\tau_{\rm ker}\gg\tau_{\rm tr}$, e.g.\
+  many reactions, wide kinematic windows, short histories): the ratio tends to
+  $R/n_{\rm eval}$. The integrated sampler wins only if one integral costs fewer kernel
+  evaluations than the variance ratio $R$.
+\end{itemize}
+Since $R$ grows as the trial space improves while $n_{\rm eval}$ does not, the balance
+shifts toward the integrated estimator as the method matures. Tabulating the
+breakpoints (Section~4) reduces $n_{\rm eval}\tau_{\rm ker}$ directly.
+
+\section{Linear trial spaces}
+
+With the energy, angular and spatial trial functions of \texttt{linear\_energy\_basis.tex},
+\texttt{linear\_discontinuous\_angle.tex} and \texttt{continuous\_linear\_space.tex},
+the in-scatter density at $x=(z,E,\mu)$ in cell $k$ is
+\begin{equation}
+  T(x) = \sum_{g'j'}\sum_{a'b'} \tpsi_{g'j'a'b'}(z)\int_{g'}\dd E'\,
+  P_{a'}\big(x_{g'}(E')\big) \sum_r N_r\sigma_r(E')\,
+  \bar\tau^{\,b'}_{r,j'}(E'\to E,\mu),
+\end{equation}
+\begin{equation}
+  \bar\tau^{\,b'}_{r,j'} = \int\dd\mu_0\, f_{r,L}(E',E,\mu_0)\,
+  \Pi^{b'}_{j'}(\mu,\mu_0),
+\end{equation}
+where $\tpsi_{\cdot}(z)$ interpolates the nodal coefficients linearly for the
+continuous spatial basis, and $\Pi^{b'}$ is the closed-form angular moment of the
+incident bin (the azimuthal kernel is symmetric in the incident and outgoing cosines).
+The projection
+\[
+  \Sbar_\beta(x) = \sum_{a,b}\frac{(2a+1)(2b+1)}{\Delta E_g\Delta\mu_j}\,
+  P_a\big(x_g(E)\big)P_b\big(y_j(\mu)\big)\sum M\,\tpsi
+\]
+is linear in $E$ and $\mu$, and linear in $z$ for the continuous spatial basis.
+Both estimators carry over: the integrated one evaluates $T(x)$ and $\Sbar_\beta(x)$ at
+the sampled $x$; the pointwise one needs a subtracted density with
+$\int\bar s\dd E' = \Sbar_\beta(x)$ (for instance flat in $E'$ over each $g'$, as
+above, times the polynomial factors in $E$ and $\mu$). The variance argument of
+Section~3 is unchanged: a better trial space reduces $\|r_s\|_1$ and therefore the
+integrated estimator's variance, but not $L_{\rm pw}$.
+
+\section{A family between the two: randomized quadrature in $E'$}
+
+Draw $x\sim q_x$, and then $m$ incident energies $E'_1,\dots,E'_m$ by stratified
+sampling over the pieces between breakpoints: one point uniform in each of $m$
+equal-probability strata of a density $q(E'\mid x)$. Score
+\begin{equation}
+  w_m(x) = \frac{1}{q_x(x)}\,\frac{1}{m}\sum_{i=1}^m
+  \frac{t(E'_i,x) - \bar s(E'_i,x)}{q(E'_i\mid x)} .
+\end{equation}
+\begin{proposition}
+$w_m$ is unbiased for every $m\ge 1$, with $\E[w_m\mid x] = w_{\rm int}(x)$. Its excess
+variance $\E[\Var(w_m\mid x)]$ is at most that of $m$ independent draws, i.e.\ the
+pointwise excess divided by $m$. For an integrand with a bounded derivative on each
+stratum it falls as $O(m^{-3})$ [5].
+\end{proposition}
+\noindent For $m=1$ with a single stratum this is the pointwise sampler, and as
+$m\to\infty$ it tends to the integrated one. For finite $m$ it is exactly unbiased: it
+needs no quadrature tolerance and has no deterministic error at missed resonances.
+Its cost is $m$ kernel evaluations per particle, so $m$ can be chosen to balance
+\eqref{eq:fom}, typically a few strata per piece between breakpoints. It is a natural
+candidate to replace both estimators.
+
+\paragraph{Support of the proposals.} Unbiasedness needs $q>0$ wherever the scored
+numerator can be nonzero. Pilot masses estimated at a few points can vanish where
+$r_s$ does not (a signed integrand can be zero at every pilot node). A defensive
+mixture $q_x = (1-\epsilon)\,q_{\rm pilot} + \epsilon\, q_{\rm vol}$, with $q_{\rm vol}$
+proportional to bin volume, guarantees support for any $\epsilon>0$, and costs at most
+a factor $1/(1-\epsilon)$ in the second moment where the pilot is good [6].
+
+\section{Summary}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+ & pointwise & integrated \\
+\midrule
+Bias & none & quadrature error of $\widehat T$ \\
+Best second moment & $L_{\rm pw}^2$ (in-scatter scale) & $\|r_s\|_1^2$ (residual scale) \\
+Improves with the trial space & no & yes \\
+Cost per particle & one kernel set & one adaptive $E'$ integral \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent With the measured $R\approx 485$ on the $A=1$ problem, the integrated
+estimator is more efficient whenever one $E'$ integral costs fewer than about $485$
+kernel evaluations, or whenever transport dominates the cost per history. The
+stratified estimator of Section~7 keeps most of that variance reduction without any
+quadrature bias.
+
+\begin{thebibliography}{99}
+\bibitem{spanier} J.~Spanier and E.~M.~Gelbard, \emph{Monte Carlo Principles and
+  Neutron Transport Problems}, Addison-Wesley (1969).
+\bibitem{halton} J.~H.~Halton, ``Sequential Monte Carlo,'' \emph{Proc.\ Cambridge
+  Philos.\ Soc.} \textbf{58}, 57 (1962).
+\bibitem{hammersley} J.~M.~Hammersley and D.~C.~Handscomb, \emph{Monte Carlo
+  Methods}, Methuen (1964), Ch.~5 (conditional Monte Carlo).
+\bibitem{blackwell} D.~Blackwell, ``Conditional expectation and unbiased sequential
+  estimation,'' \emph{Ann.\ Math.\ Statist.} \textbf{18}, 105 (1947); C.~R.~Rao,
+  ``Information and the accuracy attainable in the estimation of statistical
+  parameters,'' \emph{Bull.\ Calcutta Math.\ Soc.} \textbf{37}, 81 (1945).
+\bibitem{owen} A.~B.~Owen, \emph{Monte Carlo Theory, Methods and Examples} (2013),
+  chapters on conditioning, stratification and importance sampling.
+\bibitem{hesterberg} T.~Hesterberg, ``Weighted average importance sampling and
+  defensive mixture distributions,'' \emph{Technometrics} \textbf{37}, 185 (1995).
+\bibitem{vermaak} J.~I.~C.~Vermaak and J.~E.~Morel, ``Transport Error Estimation Using
+  Residual Monte Carlo,'' \emph{J.\ Comput.\ Phys.} (2022).
+\bibitem{larsen} M.~Larsen et al., ``A Residual Monte Carlo Algorithm for Continuous
+  Energy Neutron Transport with Elastic Scattering,'' \emph{Nucl.\ Sci.\ Eng.}
+  \textbf{200}(3) (2025).
+\end{thebibliography}
+
+\end{document}
