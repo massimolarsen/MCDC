@@ -8,7 +8,7 @@ a given error, and how much the current method gains over the dissertation's.
 |---|---|---|
 | `smc` | (tallies on the same bins) | standard Monte Carlo, histories = level x bins x 10 |
 | `dissertation` | constant in energy, z and angle | 10 collision-only iterations (phase 1 only) |
-| `current` | linear energy; for the fuel rod also linear angle and continuous linear z | 10 collision-only iterations + 4 correction passes |
+| `current` | linear energy; for the fuel rod also linear angle and continuous linear z | 10 collision-only iterations + 4 correction passes (pointwise sampler; integrated for the fuel rod) |
 
 | Problem | Type | Reference |
 |---|---|---|
@@ -99,8 +99,11 @@ it locally.
 - At 400 histories per bin the thermal fuel rod has about 1.9 x 10^6 histories per
   iteration. Its 12 h limit is untested: check the first fuel rod task's timing before
   submitting the second fuel rod.
-- The `current` configuration's correction passes use the integrated sampler, the
-  most expensive part per history (`mcdc/rmc/writeups/scattering_correction_samplers.tex`).
+- The `current` configuration's correction passes use the pointwise sampler for the
+  0D problems and the integrated sampler for the fuel rod (the pointwise one does not
+  support linear z or angle yet). On the absorber the integrated sampler cost about
+  22 ms of CPU per sample, about 2000x a transported history, and took 99% of the run
+  (`mcdc/rmc/writeups/scattering_correction_samplers.tex`).
 
 ## Timings
 
