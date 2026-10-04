@@ -15,8 +15,8 @@ git -C "$MCDC_DIR" rev-parse HEAD > "logs/revision-$SLURM_JOB_ID.txt"
 
 if [ "${SWEEP_MODE:-run}" = "warmup" ]; then
     mpirun -n "$SLURM_NTASKS" -bind-to none \
-        python -u sweep.py warmup "$PROBLEM" "$CONFIG" --mode=numba
+        python -u sweep.py warmup "$PROBLEM" "$CONFIG" --mode=numba --no-progress_bar
 else
     mpirun -n "$SLURM_NTASKS" -bind-to none \
-        python -u sweep.py run "$SLURM_ARRAY_TASK_ID" --mode=numba
+        python -u sweep.py run "$SLURM_ARRAY_TASK_ID" --mode=numba --no-progress_bar
 fi

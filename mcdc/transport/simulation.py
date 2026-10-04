@@ -193,7 +193,7 @@ def source_loop(seed, simulation, data):
         # Run the source particle and its secondaries
         exhaust_active_bank(simulation, data)
 
-        source_closeout(simulation, idx_work, N_prog, data)
+        N_prog = source_closeout(simulation, idx_work, N_prog, data)
 
 
 @njit
@@ -273,6 +273,7 @@ def source_closeout(simulation, idx_work, N_prog, data):
         N_prog += 1
         with objmode():
             print_progress(percent, simulation)
+    return N_prog
 
 
 # ======================================================================================

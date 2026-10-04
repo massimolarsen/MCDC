@@ -3,3 +3,6 @@ results/
 work/
 cache/
 logs/
+summary.csv
+timing.csv
+timing_warmup.csv
