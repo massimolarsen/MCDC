@@ -13,7 +13,7 @@ from mcdc.rmc.angular import build_angular_transfer_table
 from mcdc.rmc.driver import _emission_integrals, _reaction_tables
 from mcdc.rmc.residual import material_total_xs
 from mcdc.rmc.kernel import nuclide_transfer_moments
-from mcdc.rmc.residual import _abs_linear_integral
+from mcdc.rmc.residual import collision_residual_mass
 from mcdc.rmc.source import (
     FACE_NUDGE,
     PROPOSAL_DEFENSIVE,
@@ -49,7 +49,12 @@ def tally_bins(particles, z_edges, E_edges, mu_edges, N_total):
     return mean, std
 
 
-def test_collision_edge_unbiased(prepare_simulation):
+@pytest.mark.parametrize("P, antithetic", [(1, False), (2, False), (2, True)])
+def test_collision_edge_unbiased(prepare_simulation, P, antithetic):
+    """
+    Constant (P = 1) and linear (P = 2) energy coefficients of psi~, c and jumps;
+    independent or antithetic (mirrored-energy pair) sampling.
+    """
     N = 200000
 
     def configure(simulation):
@@ -64,9 +69,9 @@ def test_collision_edge_unbiased(prepare_simulation):
     E_edges = np.array([1.0, 2.0, 5.0, 9.0])
     mu_edges = np.array([-1.0, 0.0, 1.0])
     K, G, J = 2, 3, 2
-    psi = rng.uniform(0.5, 1.5, (K, G, J))
-    c = rng.uniform(-1.0, 3.0, (K, G, J))
-    jump = rng.uniform(-1.0, 1.0, (K + 1, G, J))
+    psi = rng.uniform(0.5, 1.5, (K, G, J, P))
+    c = rng.uniform(-1.0, 3.0, (K, G, J, P))
+    jump = rng.uniform(-1.0, 1.0, (K + 1, G, J, P))
     E_grid = np.array([1.0, 1.5, 4.0, 6.0, 9.0])
     Sigma = np.array([[1.0, 3.0, 0.5, 2.0, 1.0], [2.0, 0.2, 1.0, 4.0, 0.5]])
     xs_offsets = np.array([0, 5, 10])
@@ -80,24 +85,28 @@ def test_collision_edge_unbiased(prepare_simulation):
     for k in range(K):
         h = z_edges[k + 1] - z_edges[k]
         for g in range(G):
-            x = np.unique(np.concatenate(([E_edges[g], E_edges[g + 1]], E_grid)))
-            x = x[(x >= E_edges[g]) & (x <= E_edges[g + 1])]
+            x = np.linspace(E_edges[g], E_edges[g + 1], 200001)
+            s = (2 * x - E_edges[g] - E_edges[g + 1]) / (E_edges[g + 1] - E_edges[g])
             for j in range(J):
-                y = c[k, g, j] - psi[k, g, j] * np.interp(x, E_grid, Sigma[k])
+                c_E = c[k, g, j, 0] + (c[k, g, j, 1] * s if P > 1 else 0.0)
+                psi_E = psi[k, g, j, 0] + (psi[k, g, j, 1] * s if P > 1 else 0.0)
+                y = c_E - psi_E * np.interp(x, E_grid, Sigma[k])
                 exact_c[k, g, j] = h * 1.0 * np.trapezoid(y, x)
-                mass_c[k, g, j] = (
-                    h
-                    * 1.0
-                    * sum(
-                        _abs_linear_integral(x[i], x[i + 1], y[i], y[i + 1])
-                        for i in range(len(x) - 1)
-                    )
+                mass_c[k, g, j] = h * collision_residual_mass(
+                    c[k, g, j],
+                    psi[k, g, j],
+                    E_edges[g],
+                    E_edges[g + 1],
+                    E_grid,
+                    Sigma[k],
                 )
-    abs_mu = np.array([0.5, 0.5])
     mu_mean = np.array([-0.5, 0.5])  # int_j mu dmu
     dE = np.diff(E_edges)
-    mass_e = np.abs(jump) * dE[None, :, None] * abs_mu[None, None, :]
-    exact_e = -jump * dE[None, :, None] * mu_mean[None, None, :]
+    # Edge masses as the residual computes them (any positive masses are unbiased)
+    D0 = jump[..., 0]
+    D1 = jump[..., 1] if P > 1 else np.zeros_like(D0)
+    mass_e = (np.abs(D0) + np.abs(D1)) * dE[None, :, None] * 0.5
+    exact_e = -D0 * dE[None, :, None] * mu_mean[None, None, :]
 
     mass = np.concatenate((mass_c.ravel(), mass_e.ravel()))
     particle_bank_module.set_bank_size(simulation["bank_source"], 0)
@@ -119,6 +128,7 @@ def test_collision_edge_unbiased(prepare_simulation):
         xs_total,
         cell_material,
         simulation,
+        antithetic,
     )
     particles = banked(simulation)
     assert len(particles) == N
@@ -129,6 +139,10 @@ def test_collision_edge_unbiased(prepare_simulation):
         < 2 * FACE_NUDGE
     )
     mean, std = tally_bins(particles[~on_face], z_edges, E_edges, mu_edges, N)
+    # Pair partners land in the same bin: the independent-sample standard error
+    #   understates the bin-sum error by up to sqrt(2)
+    inflation = np.sqrt(2.0) if antithetic else 1.0
+    std *= inflation
     assert np.all(np.abs(mean - exact_c) < 5 * std + 1e-12)
 
     face = np.argmin(
@@ -143,6 +157,7 @@ def test_collision_edge_unbiased(prepare_simulation):
     np.add.at(square, (face, g, j), face_particles["w"] ** 2)
     mean_e = total / N
     std_e = np.sqrt(np.maximum(square / N - mean_e**2, 0.0) / N)
+    std_e *= inflation
     assert np.all(np.abs(mean_e - exact_e) < 5 * std_e + 1e-12)
 
 
@@ -176,6 +191,7 @@ def test_scattering_correction_unbiased(prepare_simulation, monkeypatch, proposa
     M_true *= 0.05  # atom density
     M_used = 0.5 * M_true
     psi = np.random.default_rng(2).uniform(0.5, 1.5, (1, G, J))
+    psi_coefficients = psi[..., None]  # constant energy basis
 
     tables = _reaction_tables(simulation, data, [material.ID], False)
     xs = [
@@ -200,7 +216,7 @@ def test_scattering_correction_unbiased(prepare_simulation, monkeypatch, proposa
         z_edges,
         E_edges,
         mu_edges,
-        psi,
+        psi_coefficients,
         M_used[None],
         emission,
         np.array([0]),
@@ -210,7 +226,7 @@ def test_scattering_correction_unbiased(prepare_simulation, monkeypatch, proposa
     )
     particles = banked(simulation)
     mean, std = tally_bins(particles, z_edges, E_edges, mu_edges, N)
-    expected = np.einsum("pqgj,pq->gj", M_true - M_used, psi[0])[None]
+    expected = np.einsum("pqgj,pq->gj", (M_true - M_used)[0, :, :, 0], psi[0])[None]
     assert np.all(np.abs(mean - expected) < 5 * std + 1e-12 * expected.max())
     w = particles["w"]
     std_total = np.sqrt(max(np.sum(w**2) / N - (np.sum(w) / N) ** 2, 0.0) / N)
@@ -247,7 +263,7 @@ def test_scattering_correction_integrated(prepare_simulation, monkeypatch):
         simulation, data, nuclide, E_edges, mu_edges, table
     )
     M_true *= 0.05  # atom density
-    psi = np.random.default_rng(2).uniform(0.5, 1.5, (1, G, J))
+    psi = np.random.default_rng(2).uniform(0.5, 1.5, (1, G, J))[..., None]
     tables = _reaction_tables(simulation, data, [material.ID], False)
     cell_material = np.array([0])
 
@@ -281,13 +297,16 @@ def test_scattering_correction_integrated(prepare_simulation, monkeypatch):
             average = integral / ((E_edges[g + 1] - E_edges[g]) * 1.0)
             # The test quadrature converges as O(h^2) across those kinks (1e-6 with
             #   128 panels); 32 panels give a few 1e-4
-            assert average == pytest.approx(S_true[0, g, j], rel=5e-4)
+            assert average == pytest.approx(S_true[0, g, j, 0], rel=5e-4)
 
     # (2) Unbiased with M halved
     S_used = 0.5 * S_true
     mass = correction_masses(
         psi,
         S_used,
+        psi,
+        S_used,
+        False,
         z_edges,
         E_edges,
         mu_edges,
@@ -308,6 +327,9 @@ def test_scattering_correction_integrated(prepare_simulation, monkeypatch):
         mu_edges,
         psi,
         S_used,
+        psi,
+        S_used,
+        False,
         mass,
         cell_material,
         *tables,
@@ -316,5 +338,5 @@ def test_scattering_correction_integrated(prepare_simulation, monkeypatch):
     )
     particles = banked(simulation)
     mean, std = tally_bins(particles, z_edges, E_edges, mu_edges, N)
-    expected = 0.5 * np.einsum("pqgj,pq->gj", M_true, psi[0])[None]
+    expected = 0.5 * np.einsum("pqgj,pq->gj", M_true[0, :, :, 0], psi[0, ..., 0])[None]
     assert np.all(np.abs(mean - expected) < 5 * std + 1e-12 * expected.max())

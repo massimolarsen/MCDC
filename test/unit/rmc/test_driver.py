@@ -12,6 +12,7 @@ import pytest
 
 import mcdc
 from mcdc.rmc.driver import run
+from mcdc.rmc.space import mass_matrix, node_moments
 
 from .conftest import numba_only, write_synthetic_nuclide
 
@@ -109,6 +110,62 @@ def test_analytic_slowing_down_A1(tmp_path, monkeypatch):
     assert np.sqrt(np.mean(z**2)) < 2.5, z
 
 
+def test_analytic_slowing_down_A1_linear(tmp_path, monkeypatch):
+    """
+    The A = 1 problem above (phi ~ E^(-1/2)) on the linear discontinuous energy basis:
+    the collision-only iteration (projected removal) converges exponentially to a
+    fixed point that matches the exact bin averages and P_1 coefficients far closer
+    than the constant basis' bin-shape floor (3e-3).
+    """
+    E0, delta = 101.0, 0.1
+    write_synthetic_nuclide(
+        tmp_path, "HX", 1.0, [1.0e-5, 1.0e3], [1.0, 1.0], [1.0, 1.0]
+    )
+    monkeypatch.setenv("MCDC_LIB", str(tmp_path))
+    material = mcdc.Material(nuclide_composition={"HX": 1.0}, temperature=0.1)
+    simulation = mcdc.Simulation("rmc-analytic-linear")
+    simulation.set_model([reflective_box(material)])
+    simulation.set_sources(
+        [mcdc.Source(position=[0.0, 0.0, 0.5], isotropic=True, energy=E0)]
+    )
+    E_edges = np.concatenate((np.logspace(0.0, np.log10(E0 - delta), 21), [E0]))
+    mu_edges = np.array([-1.0, 0.0, 1.0])
+    G = len(E_edges) - 1
+    Q = np.zeros((1, G, 2))
+    Q[0, -1, :] = 1.0 / (delta * 2.0)
+
+    result = run(
+        simulation,
+        [0.0, 1.0],
+        E_edges,
+        mu_edges,
+        Q,
+        [material],
+        N_iteration=8,
+        N_per_bin=500,
+        energy_basis="linear",
+    )
+
+    # Exact phi = c / (Sigma_t E0) (E0 / E)^c with c = 1/2: P_0 and P_1 coefficients
+    a, b = E_edges[:-2], E_edges[1:-1]
+    E = np.linspace(0.0, 1.0, 20001)[None, :] * (b - a)[:, None] + a[:, None]
+    x = (2.0 * E - a[:, None] - b[:, None]) / (b - a)[:, None]
+    phi = 0.5 / (2.0 * E0) * np.sqrt(E0 / E)
+    average = np.trapezoid(phi, E, axis=1) / (b - a)
+    slope = 3.0 * np.trapezoid(phi * x, E, axis=1) / (b - a)
+    dmu = np.diff(mu_edges)
+    phi_average = np.einsum("kgj,j->kg", result.psi_fixed_point, dmu)[0, :-1]
+    phi_slope = np.einsum("kgj,j->kg", result.psi_slope_fixed_point, dmu)[0, :-1]
+
+    norms = np.array(result.epsilon_norm)
+    print("linear: eps", norms)
+    print("average rel", np.max(np.abs(phi_average / average - 1.0)))
+    print("slope rel", np.max(np.abs(phi_slope / slope - 1.0)))
+    assert norms[7] < 1e-6 * norms[0], norms
+    assert np.max(np.abs(phi_average / average - 1.0)) < 5e-4
+    assert np.max(np.abs(phi_slope / slope - 1.0)) < 2e-2
+
+
 def small_problem(tmp_path, monkeypatch, E_low=1.0, anisotropic=False):
     path = write_synthetic_nuclide(
         tmp_path, "HX", 1.0, [1.0e-6, 1.0e3], [1.0, 1.0], [1.0, 1.0]
@@ -192,8 +249,37 @@ def test_moment_cache(tmp_path, monkeypatch):
             cache_dir=str(cache),
         )
         results.append(result.psi)
-    assert len(list(cache.iterdir())) == 1
+    files = list(cache.iterdir())
+    assert len(files) == 1
     np.testing.assert_array_equal(results[0], results[1])
+
+    # Provenance is stored with the moments
+    import h5py
+
+    with h5py.File(files[0], "r") as f:
+        assert len(f.attrs["data_sha256"]) == 64
+        assert f.attrs["format_version"] >= 2
+
+    # Changed nuclear data (same name, temperature, grids, tolerances) must not reuse
+    #   the cached moments
+    path = os.path.join(tmp_path, "HX-0.1K.h5")
+    simulation, material, E_edges, mu_edges, Q = small_problem(tmp_path, monkeypatch)
+    with h5py.File(path, "r+") as f:
+        f["neutron_reactions/elastic_scattering/MT-002/xs"][...] *= 2.0
+    result = run(
+        simulation,
+        [0.0, 1.0],
+        E_edges,
+        mu_edges,
+        Q,
+        [material],
+        2,
+        50,
+        seed=3,
+        cache_dir=str(cache),
+    )
+    assert len(list(cache.iterdir())) == 2
+    assert not any(name.suffix == ".tmp" for name in cache.iterdir())
 
 
 @pytest.mark.skipif(
@@ -365,6 +451,103 @@ def test_slab_against_smc(tmp_path, monkeypatch):
     )
     # In 1D the face residual keeps an in-cell shape, so ||eps~|| drops in the first
     #   iteration and then plateaus at the noise of one iteration (NOTES.md, 2b)
+    assert np.all(norms[1:] < 0.1 * norms[0]), norms
+    assert np.sqrt(np.mean(z**2)) < 2.0, z
+    assert np.all(np.abs(z) < 5.0), z
+
+
+def test_slab_against_smc_linear_z(tmp_path, monkeypatch):
+    """
+    The two-material vacuum slab above on the continuous piecewise-linear spatial
+    basis: no face residual (vacuum conditions in the trial space). RMC converges to
+    the L2 projection Pi psi, which does not preserve cell averages but preserves the
+    hat-function moments t_i = int psi h_i of every unconstrained node. The averaged
+    corrections must reproduce SMC's hat moments (from its flux and z-slope cell
+    tallies) at the interior nodes within the combined error.
+    """
+    import h5py
+
+    write_synthetic_nuclide(
+        tmp_path, "HX", 1.0, [1.0e-6, 1.0e3], [1.0, 1.0], [1.0, 1.0]
+    )
+    monkeypatch.setenv("MCDC_LIB", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    E0, delta = 10.0, 0.1
+    z_edges = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    E_edges = np.concatenate((np.logspace(0.0, np.log10(E0 - delta), 9), [E0]))
+    mu_edges = np.array([-1.0, 0.0, 1.0])
+    K, G = 4, len(E_edges) - 1
+
+    material_a = mcdc.Material(nuclide_composition={"HX": 1.0}, temperature=0.1)
+    material_b = mcdc.Material(nuclide_composition={"HX": 0.4}, temperature=0.1)
+    simulation = slab_model(material_a, material_b, E0, delta, True)
+    simulation.settings.N_particle = 200_000
+    simulation.settings.use_neutron_energy_window = True
+    simulation.settings.neutron_energy_min = E_edges[0]
+    simulation.settings.neutron_energy_max = E_edges[-1]
+    simulation.settings.output_name = "smc"
+    mesh = mcdc.MeshStructured("slab", z=z_edges)
+    simulation.set_tallies(
+        [mcdc.Tally(mesh=mesh, scores=["flux", "flux-z-slope"], energy=E_edges)]
+    )
+    simulation.run()
+    with h5py.File("smc.h5", "r") as f:
+        group = f["tallies"][list(f["tallies"])[0]]
+        tallies = {
+            f"{score}/{x}": np.squeeze(group[f"{score}/{x}"][()]).T
+            for score in ("flux", "flux-z-slope")
+            for x in ("mean", "sdev")
+        }
+    # Hat moments t_i = int phi h_i dz per unit energy, (m0 -+ m1) / 2 from the cells
+    #   on each side; the fully correlated sum of the standard errors bounds theirs
+    dE = np.diff(E_edges)[None, :]
+    t_smc = node_moments(tallies["flux/mean"], tallies["flux-z-slope/mean"]) / dE
+    s0, s1 = tallies["flux/sdev"], tallies["flux-z-slope/sdev"]
+    sd_smc = node_moments(s0 + s1, np.zeros_like(s1)) / dE
+
+    material_a = mcdc.Material(nuclide_composition={"HX": 1.0}, temperature=0.1)
+    material_b = mcdc.Material(nuclide_composition={"HX": 0.4}, temperature=0.1)
+    simulation = slab_model(material_a, material_b, E0, delta, False)
+    Q = np.zeros((K, G, 2))
+    Q[0, -1, :] = 1.0 / (1.0 * delta * 2.0)
+    result = run(
+        simulation,
+        z_edges,
+        E_edges,
+        mu_edges,
+        Q,
+        [material_a, material_a, material_b, material_b],
+        8,
+        200,
+        N_correction=8,
+        boundary=("vacuum", "vacuum"),
+        spatial_basis="linear",
+    )
+    norms = np.array(result.epsilon_norm)
+    dmu = np.diff(mu_edges)
+    assert result.psi.shape == (K + 1, G, 2)
+    # Vacuum boundary conditions are exact in the trial space
+    assert np.all(result.psi[0, :, 1] == 0.0) and np.all(result.psi[K, :, 0] == 0.0)
+    M = mass_matrix(z_edges)
+
+    def hat_moments(psi):
+        return M @ np.einsum("igj,j->ig", psi, dmu)
+
+    t_rmc = hat_moments(result.psi)
+    corrections = np.array([hat_moments(e) for e in result.corrections])
+    se_rmc = corrections.std(axis=0, ddof=1) / np.sqrt(len(corrections))
+    # Boundary nodes mix a vacuum-fixed incoming direction into the scalar moment,
+    #   which the projection does not preserve: compare the interior nodes
+    z = ((t_rmc - t_smc) / np.sqrt(sd_smc**2 + se_rmc**2))[1:-1]
+    assert result.scalar_flux.shape == (K, G)
+    print(
+        "slab linear z: eps",
+        norms,
+        "z rms",
+        np.sqrt(np.mean(z**2)),
+        "max rel",
+        np.max(np.abs(t_rmc / t_smc - 1)[1:-1]),
+    )
     assert np.all(norms[1:] < 0.1 * norms[0]), norms
     assert np.sqrt(np.mean(z**2)) < 2.0, z
     assert np.all(np.abs(z) < 5.0), z

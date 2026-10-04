@@ -1,13 +1,17 @@
 """
 Binned transfer moments of the in-scattering (and fission) operator.
 
-With a piecewise-constant trial space (energy bins g, polar-cosine bins j about the
-slab axis), the in-scatter source of psi~ is exactly a matrix product:
+The trial space is piecewise constant in the polar cosine (bins j about the slab axis)
+and, in energy, piecewise constant or linear discontinuous on each bin g:
+psi~(E) = sum_a psi~[g, j, a] P_a(x_g(E)), with the Legendre polynomials P_0 = 1,
+P_1 = x and x_g = (2E - E_g - E_{g+1}) / dE_g in [-1, 1]. The projection of the
+in-scatter source of psi~ onto the same space is exactly a matrix product:
 
-    S_bar[g, j] = 1 / (dE_g dmu_j) sum_{g', j'} M[g', j', g, j] psi~[g', j'],
+    S_bar[g, j, a] = (2a + 1) / (dE_g dmu_j)
+                     sum_{a', g', j'} M[a', g', j', a, g, j] psi~[g', j', a'],
 
-    M[g', j', g, j] = sum_r int_{g'} dE_in sigma_r(E_in)
-                          int_g dE_out int dmu0 f_r(E_in -> E_out, mu0) A_{j j'}(mu0),
+    M[a', g', j', a, g, j] = sum_r int_{g'} dE_in sigma_r(E_in) P_a'(x_g'(E_in))
+        int_g dE_out P_a(x_g(E_out)) int dmu0 f_r(E_in -> E_out, mu0) A_{j j'}(mu0),
 
 where f_r is the lab emission kernel of reaction r (yield included, see
 `mcdc.rmc.reaction`) and A_{j j'} the angular transfer (`mcdc.rmc.angular`). M depends
@@ -59,6 +63,7 @@ from mcdc.rmc.evaluate import (
 )
 from mcdc.rmc.kinematics import (
     com_to_lab,
+    elastic_E_out,
     elastic_mu_cm,
     elastic_mu_lab,
     level_mu_cm,
@@ -138,7 +143,7 @@ TOLERANCE_FLOOR = 1e-8
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _pieces(low, high, candidates):
     """Sorted unique breakpoints of [low, high] including candidates inside it."""
     points = np.empty(len(candidates) + 2)
@@ -161,7 +166,7 @@ def _pieces(low, high, candidates):
     return out[:M]
 
 
-@njit
+@njit(cache=True)
 def _bin_range(E_edges, low, high):
     """Outgoing bins [g0, g1] overlapping (low, high); empty if g0 > g1."""
     G = len(E_edges) - 1
@@ -174,7 +179,24 @@ def _bin_range(E_edges, low, high):
     return g0, g1
 
 
-@njit
+@njit(cache=True)
+def _add_outgoing(out, g, E_out, E_edges, weight, A):
+    """out[a, g] += weight P_a(x_g(E_out)) A for the energy polynomials a < len(out)."""
+    out[0, g] += weight * A
+    if out.shape[0] > 1:
+        x = (2.0 * E_out - E_edges[g] - E_edges[g + 1]) / (E_edges[g + 1] - E_edges[g])
+        out[1, g] += (weight * x) * A
+
+
+@njit(cache=True)
+def _add_incoming(K, f, weight, E_in, E_center, E_half):
+    """K[a'] += weight P_a'(x(E_in)) f on the incident bin (center, half width)."""
+    K[0] += weight * f
+    if K.shape[0] > 1:
+        K[1] += (weight * (E_in - E_center) / E_half) * f
+
+
+@njit(cache=True)
 def _angle_density(E_in, mu, angle_type, mu_ID, simulation, data):
     if angle_type == ANGLE_ISOTROPIC:
         return 0.5
@@ -183,7 +205,7 @@ def _angle_density(E_in, mu, angle_type, mu_ID, simulation, data):
     )
 
 
-@njit
+@njit(cache=True)
 def _angle_breakpoints(E_in, angle_type, mu_ID, simulation, data):
     if angle_type != ANGLE_DISTRIBUTED:
         return np.empty(0)
@@ -193,11 +215,12 @@ def _angle_breakpoints(E_in, angle_type, mu_ID, simulation, data):
 
 
 # ======================================================================================
-# Inner integrals at fixed E_in: out[g, j, j'] += emission into (g, j) from j'
+# Inner integrals at fixed E_in: out[a, g, j, j'] += emission into (g, j) from j',
+#   weighted by the outgoing energy polynomial P_a
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _delta_inner(E_in, reaction, nuclide, simulation, data, E_edges, table, out, A):
     """Elastic or level scattering: integrate yield * p(mu_cm) over mu_cm intervals."""
     awr = nuclide["atomic_weight_ratio"]
@@ -251,14 +274,17 @@ def _delta_inner(E_in, reaction, nuclide, simulation, data, E_edges, table, out,
                 if p_mu == 0.0:
                     continue
                 if elastic:
+                    E_out = elastic_E_out(E_in, mu_cm, awr)
                     mu_lab = elastic_mu_lab(mu_cm, awr)
                 else:
-                    _, mu_lab = com_to_lab(E_in, E_cm, mu_cm, awr)
+                    E_out, mu_lab = com_to_lab(E_in, E_cm, mu_cm, awr)
                 angular_transfer(mu_lab, table, A)
-                out[g] += (0.5 * (d - c) * _GL_W[q] * Y * p_mu) * A
+                _add_outgoing(
+                    out, g, E_out, E_edges, 0.5 * (d - c) * _GL_W[q] * Y * p_mu, A
+                )
 
 
-@njit
+@njit(cache=True)
 def _com_spectrum_inner(
     E_in,
     weight,
@@ -347,12 +373,19 @@ def _com_spectrum_inner(
                             )
                         if f == 0.0:
                             continue
-                        _, mu_lab = com_to_lab(E_in, E_cm, mu_cm, awr)
+                        E_out, mu_lab = com_to_lab(E_in, E_cm, mu_cm, awr)
                         angular_transfer(mu_lab, table, A)
-                        out[g] += (wE * 0.5 * (d - c) * _GL_W[qm] * f) * A
+                        _add_outgoing(
+                            out,
+                            g,
+                            E_out,
+                            E_edges,
+                            wE * 0.5 * (d - c) * _GL_W[qm] * f,
+                            A,
+                        )
 
 
-@njit
+@njit(cache=True)
 def _lab_spectrum_inner(
     E_in,
     weight,
@@ -420,7 +453,7 @@ def _lab_spectrum_inner(
                     p_E = evaluate_distribution(
                         E_in, E_out, spectrum, simulation, data, True
                     )
-                    out[g] += (wE * p_E) * angle_factor
+                    _add_outgoing(out, g, E_out, E_edges, wE * p_E, angle_factor)
                     continue
                 if spectrum["sub_type"] == DISTRIBUTION_TABULATED_ENERGY_ANGLE:
                     mu_points = tabulated_energy_angle_cosine_breakpoints(
@@ -440,10 +473,12 @@ def _lab_spectrum_inner(
                         if f == 0.0:
                             continue
                         angular_transfer(mu0, table, A)
-                        out[g] += (wE * 0.5 * (d - c) * _GL_W[q] * f) * A
+                        _add_outgoing(
+                            out, g, E_out, E_edges, wE * 0.5 * (d - c) * _GL_W[q] * f, A
+                        )
 
 
-@njit
+@njit(cache=True)
 def _free_gas_inner(E_in, nuclide, E_edges, table, out, A):
     """
     Free-gas elastic kernel in (E_out, mu0): pieces in E_out at E_in and at multiples
@@ -483,10 +518,12 @@ def _free_gas_inner(E_in, nuclide, E_edges, table, out, A):
                         if f == 0.0:
                             continue
                         angular_transfer(mu0, table, A)
-                        out[g] += (wE * 0.5 * (d - c) * _GL_W[q] * f) * A
+                        _add_outgoing(
+                            out, g, E_out, E_edges, wE * 0.5 * (d - c) * _GL_W[q] * f, A
+                        )
 
 
-@njit
+@njit(cache=True)
 def _continuous_inner(
     E_in, reaction, nuclide, simulation, data, E_edges, mu_edges, table, out, A
 ):
@@ -567,11 +604,11 @@ def _continuous_inner(
             )
 
 
-@njit
+@njit(cache=True)
 def _integrand(
     E_in, reaction, ktype, nuclide, simulation, data, E_edges, mu_edges, table, out, A
 ):
-    """out[g, j, j'] = sigma_r(E_in) * inner(E_in)."""
+    """out[a, g, j, j'] = sigma_r(E_in) * inner(E_in)."""
     out[:] = 0.0
     sigma = reaction_micro_xs(E_in, reaction, nuclide, data)
     if sigma <= 0.0:
@@ -592,7 +629,7 @@ def _integrand(
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _support_crossings(points, reaction, nuclide, simulation, data, E_edges):
     """Incident energies between points where a support edge crosses a bin edge."""
     N = len(points)
@@ -633,12 +670,14 @@ def _support_crossings(points, reaction, nuclide, simulation, data, E_edges):
     return extra[:M]
 
 
-@njit
+@njit(cache=True)
 def reaction_transfer_row(
     E_a, E_b, reaction, nuclide, simulation, data, E_edges, mu_edges, table, tol, out
 ):
     """
-    out[g, j, j'] += int_{E_a}^{E_b} dE_in sigma_r(E_in) inner_r(E_in)[g, j, j'].
+    out[a', a, g, j, j'] += int_{E_a}^{E_b} dE_in sigma_r(E_in) P_a'(x(E_in))
+                            inner_r(E_in)[a, g, j, j'],
+    with x(E_in) relative to [E_a, E_b] (the incident bin).
 
     Adaptive G7-K15 on pieces. A piece [a, b] is accepted when its Kronrod-Gauss
     difference is below tol times its own magnitude, or below its width share of tol
@@ -648,6 +687,8 @@ def reaction_transfer_row(
     """
     ktype = kernel_type(reaction, simulation, data)
     tol = max(tol, TOLERANCE_FLOOR)
+    E_center = 0.5 * (E_a + E_b)
+    E_half = 0.5 * (E_b - E_a)
 
     # Threshold
     xs_grid = mcdc_get.nuclide.neutron_xs_energy_grid_all(nuclide, data)
@@ -669,9 +710,9 @@ def reaction_transfer_row(
     points = _pieces(E_a, E_b, np.concatenate((points, crossings)))
 
     shape = out.shape
-    J = shape[1]
+    J = shape[3]
     A = np.zeros((J, J))
-    f = np.zeros(shape)
+    f = np.zeros(shape[1:])
     K = np.zeros(shape)
     Gs = np.zeros(shape)
 
@@ -688,8 +729,9 @@ def reaction_transfer_row(
         center = 0.5 * (points[p + 1] + points[p])
         K[:] = 0.0
         for q in range(15):
+            E_in = center + half * GK_X[q]
             _integrand(
-                center + half * GK_X[q],
+                E_in,
                 reaction,
                 ktype,
                 nuclide,
@@ -702,7 +744,7 @@ def reaction_transfer_row(
                 A,
             )
             N_evaluation += 1
-            K += (half * GK_WK[q]) * f
+            _add_incoming(K, f, half * GK_WK[q], E_in, E_center, E_half)
         S += np.sum(np.abs(K))
     width = points[-1] - points[0]
 
@@ -722,8 +764,9 @@ def reaction_transfer_row(
             K[:] = 0.0
             Gs[:] = 0.0
             for q in range(15):
+                E_in = center + half * GK_X[q]
                 _integrand(
-                    center + half * GK_X[q],
+                    E_in,
                     reaction,
                     ktype,
                     nuclide,
@@ -736,9 +779,9 @@ def reaction_transfer_row(
                     A,
                 )
                 N_evaluation += 1
-                K += (half * GK_WK[q]) * f
+                _add_incoming(K, f, half * GK_WK[q], E_in, E_center, E_half)
                 if GK_WG[q] != 0.0:
-                    Gs += (half * GK_WG[q]) * f
+                    _add_incoming(Gs, f, half * GK_WG[q], E_in, E_center, E_half)
             error = np.max(np.abs(K - Gs))
             magnitude = np.sum(np.abs(K))
             if (
@@ -793,11 +836,20 @@ def nuclide_reactions(simulation, data, nuclide):
 
 
 def nuclide_transfer_moments(
-    simulation, data, nuclide, E_edges, mu_edges, table, tol=1e-8, tol_low=1e-8
+    simulation,
+    data,
+    nuclide,
+    E_edges,
+    mu_edges,
+    table,
+    tol=1e-8,
+    tol_low=1e-8,
+    energy_order=0,
 ):
     """
-    Transfer moments M[g', j', g, j] of one nuclide (per unit atom density), split into
-    scattering (elastic + inelastic) and fission. The lowest energy decade of the
+    Transfer moments M[a', g', j', a, g, j] of one nuclide (per unit atom density) for
+    energy polynomials a', a <= energy_order, split into scattering (elastic +
+    inelastic) and fission. The lowest energy decade of the
     grid uses the tighter tolerance tol_low. Rows are computed in parallel over MPI
     ranks and summed on all of them.
     """
@@ -806,9 +858,10 @@ def nuclide_transfer_moments(
     comm = MPI.COMM_WORLD
     G = len(E_edges) - 1
     J = len(mu_edges) - 1
-    M_scatter = np.zeros((G, J, G, J))
-    M_fission = np.zeros((G, J, G, J))
-    row = np.zeros((G, J, J))
+    P = energy_order + 1
+    M_scatter = np.zeros((P, G, J, P, G, J))
+    M_fission = np.zeros((P, G, J, P, G, J))
+    row = np.zeros((P, P, G, J, J))
     task = -1
     for reaction, is_fission in nuclide_reactions(simulation, data, nuclide):
         target = M_fission if is_fission else M_scatter
@@ -832,7 +885,7 @@ def nuclide_transfer_moments(
                 tolerance,
                 row,
             )
-            target[gp] += np.transpose(row, (2, 0, 1))
+            target[:, gp] += np.transpose(row, (0, 4, 1, 2, 3))
     for M in (M_scatter, M_fission):
         comm.Allreduce(MPI.IN_PLACE, M, op=MPI.SUM)
     return M_scatter, M_fission

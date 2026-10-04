@@ -150,3 +150,136 @@ MC/DC bugs found while inverting, fixed on separate branches merged into feature
 
 Not inverted: anisotropic free gas (no closed form) and S(alpha, beta) (MC/DC does
 not sample it yet).
+
+## 6. External audit of feature/RMC at 22d1e6ae (2026-10-03)
+
+Triage by how likely each finding is to affect real runs:
+
+| # | Finding | Likelihood / impact | Status |
+|---|---------|---------------------|--------|
+| 1 | Integrated correction (`in_scatter_density`) splits E_in only at trial edges and support crossings, not at the cross-section grid; a narrow resonance missed by all 15 G-K nodes returns 0 (deterministic bias) | Likely in resonant materials; affects the correction passes only | Deferred (see below) |
+| 2 | Pilot mass floor `0.1 abs(S_bar)` gives no or tiny support when signed psi~ makes S_bar ~ 0 while T != 0 | Exact zero is measure-zero; near-zero raises variance with negative/noisy psi~ | Deferred: build the floor from sum abs(psi~) M |
+| 3 | Moment cache keyed without data contents, version, or effective quadrature; non-atomic writes | Real: data were regenerated three times this session | **Fixed**: key/provenance include the data SHA-256, `MOMENT_FORMAT_VERSION`, effective tolerances, N_theta, depth; validated on load; atomic rename |
+| 4 | Rounded scatter/fission budget can give a small active term zero histories | Only when a term's mass < ~1/(2N); bias bounded by that term | Deferred: probabilistic term selection with 1/P weights, or one history minimum |
+| 5 | `_neutron_inelastic_scattering_production_xs` reads the integer multiplicity (-1 for tabulated yields) | nu-production tally scores only, MT-5-type reactions | Deferred (MC/DC fix branch) |
+| 6 | `m (gamma - 1)` speed-to-energy conversion cancels catastrophically (MC/DC and RMC kinematics) | Relative error ~1e-16 / (E / 470 MeV): 1e-6 at thermal, 1% at 1e-5 eV | Deferred (MC/DC fix branch; use beta^2 / (sqrt(1-beta^2)(1+sqrt(1-beta^2)))) |
+| - | Phase-1 results shown as "RMC" without noting the binned bias | Communication | Deferred: record scheme/N_correction in output and labels |
+| - | Dense G^2 J^2 storage, pilot repeated per rank, round-robin rows, unreported depth-limit acceptance, numba_only marker at import, CI data skips | Performance / diagnostics / test infrastructure | Deferred |
+
+### Deferred fix for #1, and why it is not a convergence fix
+
+Convergence (rate and floor) is limited by the piecewise-constant trial space, not by
+quadrature: the moments are accurate to ~1e-8, the trial-space errors are 1e-3 to
+1e-1. Finding 1 only affects whether the *correction passes* are unbiased in
+resonance bins. It becomes essential with better trial spaces (a self-shielded basis
+f_g ~ 1/(E Sigma_t) carries the full resonance structure; adaptive refinement makes
+bins resonance-dominated), so do it as part of that work:
+
+- Split the E_in integral at every non-smooth point: cross-section grid points in the
+  kinematic window, reaction thresholds, the distributions' incident-energy grids,
+  support crossings, trial-space edges, the 400 kT free-gas threshold; few Gauss points
+  per smooth piece; drop the `K == 0` early acceptance at shallow depth.
+- Cost is set by kinematic pruning: U-238 elastic needs E_in in [E', E'/alpha]
+  (~1.7%), a few hundred of its ~2e5 points per evaluation.
+- Wide-range reactions (fission: every E_in reaches every E'): product integration --
+  per reaction, prefix sums of int sigma E^n dE (n = 0..3, exact for lin-lin data);
+  approximate the smooth kernel by a low-order polynomial between its own breakpoints;
+  each segment integral is then a few lookups, independent of the data density. For
+  fission spectra the E_in dependence is only table interpolation, so the bin integral
+  factorizes exactly: sum_k (int nu sigma_f w_k) chi_k(E').
+- Precompute T at fixed nodes per outgoing bin in the cached moment library, so this
+  cost is paid once per nuclide and grid.
+
+## 7. Linear discontinuous energy basis (2026-10-03)
+
+`energy_basis="linear"`: psi~(E) = psi~_0 + psi~_1 x_g(E) on each energy bin (Legendre
+P_0, P_1 with x_g in [-1, 1]); z and mu stay piecewise constant for now.
+
+Choice of continuity, from the literature: the Texas A&M ECMC work (Peterson, Morel,
+Ragusa, M&C 2013 and thesis; Franke, Bruss, Morel 2013; Bolding, Morel 2017) used linear
+discontinuous trial spaces in space and angle. Vermaak and Morel (JCP 2022) then showed
+that spatial discontinuities are a pitfall: mu d/dz turns each jump into equal and
+opposite face sources on the two sides of a face, which mostly cancel (piecewise-constant
+RMC was 6.5x *less* efficient than SMC on a 1D slab, continuous linear 3x more). Only z
+is differentiated by the transport operator (no d/dE without CSD, no d/dmu in slab
+geometry), so: **continuous linear in z** (planned next), **discontinuous linear in E and
+mu** (no residual cost, local projection, and real jumps at E0, alpha E0, mu = 0).
+
+Pieces:
+- Moments M[a', g', j', a, g, j] weight E_in by P_a' and E_out by P_a (same kernel
+  evaluations; E_out is known at every inner node). Cache key includes `energy_order`
+  (format version 3).
+- Projected source S_bar_a = (2a+1)/(dE dmu) sum M psi~; collision-only iterations use
+  the projected removal R[g, a, b] = (2a+1)/dE int Sigma_t P_a P_b (the Galerkin fixed
+  point; for the constant basis this is the old bin-averaged Sigma_t).
+- |r_c| masses are exact: c(E) - Sigma_t(E) psi~(E) is quadratic between xs grid points.
+- Tally: new MC/DC track-length score `flux-energy-slope` (flux times x_g(E)); the
+  coefficient is (2a+1) score / volume.
+
+First results (A = 1 analytic, 20 bins, 500 histories/bin):
+- Collision-only fixed point: bin averages within 2.5e-4 of exact (constant basis
+  3e-3), P_1 coefficients within 0.09%; eps~ falls ~10x per iteration.
+- Full-residual iterations (r_c + r_e + integrated r_s every iteration): constant
+  basis converges 2 iterations then stalls at |eps~| ~1e-3, rms error 0.7-1%; linear
+  converges 4 iterations (3.5, 0.19, 1.2e-2, 5.3e-4, 8.5e-5) and stalls at ~7e-5,
+  rms error ~5e-4 (15-20x lower).
+
+Linear basis, further findings (2026-10-03):
+- RMC converges exactly to the deterministic Galerkin solution of the projected
+  equations (A = 1 absorber: RMC vs direct solve of R psi = Q + S_bar[psi] with the same
+  moments, 1e-16). O-16 1-10 MeV: that Galerkin solution is within 1.9% rms of SMC
+  (constant-basis fixed point ~4.5%).
+- Absorber at 100 P/B/I: the linear runs plateau at ~5e-10 for G = 50, 100, 200 alike.
+  With exact (closed-form) moments the linear Galerkin error is 2.6e-10, 1.9e-11,
+  3.6e-12 (about 4th order in h; constant: 8.1e-7, 2.1e-7, 5.2e-8, 2nd order, equal
+  to the constant RMC plateaus). The common ~1e-7 relative floor is physics, not
+  quadrature: MC/DC (and the inverted kernels) use relativistic elastic kinematics;
+  the moment difference to the non-relativistic closed form is 1.4 E/mc^2 in every
+  bin, and the analytic reference is non-relativistic. A relativistic reference is
+  needed to see the linear basis' G-convergence below ~1e-7.
+- Minimum histories: the P_1 coefficient is tallied as 3 x track length x x, so its
+  noise per unit flux is ~sqrt(3) that of the average; the iteration's noise gain is
+  ~sqrt(3) larger. Absorber: constant converges at 10 P/B/I (gain ~0.6), linear does
+  not (~1.0) and needs ~3x the histories; O-16 1-10 MeV at 50 P/B/I diverges for the
+  same reason. Antithetic mirrored-energy pairs with shared transport random numbers
+  (now used for the linear basis' r_c + r_e) do not change this: most of a bin's flux
+  in slowing down comes from in-scatter, not first flights.
+
+## 8. 0D end-to-end kernel tests: C-12 and H-2 (2026-10-03)
+
+`examples/rmc/c12`, `examples/rmc/h2` (phase 1 against SMC, 10^6 histories):
+- H-2 1-20 MeV (N-body, A = 2 elastic): pass, rms z 0.98.
+- C-12 1-30 MeV (elastic, levels, evaporation, KM with a tabulated yield): pass in
+  flat-Sigma_t bins (rms z 1.25); the top bin 29-30 MeV is +4.4% (z = 6), unexplained.
+- C-12 0.01-10 eV (free gas): not decisive at c = 0.9993 (phase 1 converges slowly
+  and its bias is amplified by ~1/(1-c)). The free-gas moments match MC/DC's sampler
+  directly (per-bin rms z ~1, upscatter fractions within 3e-4, conservation 2e-7).
+- Fixes found by these runs: zero-width interpolation intervals at repeated grid
+  energies (`grid_fraction` in evaluate.py; C-12 elastic angles repeat 20 MeV), and the
+  free-gas isotropy guard now weights the next angular table by its interpolation
+  fraction below the threshold (tolerance 1e-4; C-12's sampled anisotropy is 3e-6).
+- z-scores of a scalar flux from SMC must treat the polar bins as correlated (in 0D
+  every track scores both); assuming independence inflated z by up to sqrt(2).
+
+## 9. Continuous linear spatial basis (2026-10-03)
+
+`spatial_basis="linear"` (writeups/continuous_linear_space.tex): nodal values on
+z_edges, boundary conditions imposed on the trial space (vacuum incoming nodal values
+zero, reflective tied to the mirror bin), so there is no face residual. New MC/DC
+track-length scores `flux-z-slope` and `flux-z-energy-slope` give the cell P_1 moments
+in z; the projection (`mcdc/rmc/space.py`) assembles hat-function moments and solves
+the constrained mass system. The residual uses the linear interpolation of the nodal
+in-scatter (no projection in z) and the streaming term -mu (Phi_{k+1} - Phi_k) / h_k.
+Phase 2 supports the integrated sampler only.
+
+- RMC converges to Pi psi, the L2 projection onto continuous linears. That projection
+  is global and does **not** preserve cell averages; it preserves the hat moments of
+  unconstrained nodes. Comparing Pi psi's cell averages with SMC cell tallies on the
+  two-material vacuum slab (cells 2 mfp, source in cell 0) gave rms z = 16.6 although
+  nothing was wrong; comparing interior hat moments (SMC from its flux and z-slope cell
+  tallies) passes (`test_slab_against_smc_linear_z`).
+- The phase-1 plateau of that slab did not drop (eps after the first iteration ~0.05,
+  constant basis 0.02-0.09): with two polar bins, the in-bin mu shape of the streaming
+  term (mu - mu_j) dPhi/dz is as large as the face residual it replaces. Linear
+  discontinuous angle (writeups/linear_discontinuous_angle.tex) or more polar bins
+  should address this; the face-cancellation pitfall itself is gone.

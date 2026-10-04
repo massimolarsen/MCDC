@@ -34,7 +34,7 @@ N_THETA_DEFAULT = 8193
 _GL_X, _GL_W = np.polynomial.legendre.leggauss(40)
 
 
-@njit
+@njit(cache=True)
 def angular_transfer_exact(mu0, mu_edges, j, jp):
     """A_{j j'}(mu0), evaluated to round-off."""
     low = mu_edges[jp]
@@ -73,7 +73,7 @@ def angular_transfer_exact(mu0, mu_edges, j, jp):
     return total
 
 
-@njit
+@njit(cache=True)
 def build_angular_transfer_table(mu_edges, N_theta):
     """Table A[j, j', k] at theta0_k = pi k / (N_theta - 1), mu0 = cos(theta0_k)."""
     J = len(mu_edges) - 1
@@ -86,7 +86,7 @@ def build_angular_transfer_table(mu_edges, N_theta):
     return table
 
 
-@njit
+@njit(cache=True)
 def angular_transfer(mu0, table, out):
     """Fill out[j, j'] with A_{j j'}(mu0) by linear interpolation in theta0."""
     N_theta = table.shape[2]

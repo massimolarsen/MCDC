@@ -26,7 +26,7 @@ from mcdc.constant import LIGHT_SPEED, NEUTRON_MASS, PI
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def com_to_lab(E_in, E_cm, mu_cm, A):
     """COM (E_cm, mu_cm) to lab (E_out, mu_lab), as in `sample_inelastic_scattering`."""
     E_out = E_cm + (E_in + 2 * mu_cm * (A + 1) * math.sqrt(E_in * E_cm)) / (A + 1) ** 2
@@ -34,7 +34,7 @@ def com_to_lab(E_in, E_cm, mu_cm, A):
     return E_out, mu_lab
 
 
-@njit
+@njit(cache=True)
 def lab_to_com(E_in, E_out, mu_lab, A):
     """Inverse of `com_to_lab`. Returns E_cm <= 0 if the lab point is unreachable."""
     E_cm = (
@@ -46,7 +46,7 @@ def lab_to_com(E_in, E_out, mu_lab, A):
     return E_cm, mu_cm
 
 
-@njit
+@njit(cache=True)
 def com_to_lab_jacobian(E_out, E_cm):
     """
     Joint density factor f_L(E_out, mu_lab) = f_C(E_cm, mu_cm) * sqrt(E_out / E_cm).
@@ -57,7 +57,7 @@ def com_to_lab_jacobian(E_out, E_cm):
     return math.sqrt(E_out / E_cm)
 
 
-@njit
+@njit(cache=True)
 def level_mu_cm(E_in, E_out, E_cm, A):
     """COM cosine giving lab E_out for a fixed E_cm (E_out is affine in mu_cm)."""
     return ((A + 1) ** 2 * (E_out - E_cm) - E_in) / (
@@ -65,13 +65,13 @@ def level_mu_cm(E_in, E_out, E_cm, A):
     )
 
 
-@njit
+@njit(cache=True)
 def level_dmu_cm_dE_out(E_in, E_cm, A):
     """|d mu_cm / d E_out| for a fixed E_cm."""
     return (A + 1) / (2.0 * math.sqrt(E_in * E_cm))
 
 
-@njit
+@njit(cache=True)
 def level_E_out_range(E_in, E_cm_low, E_cm_high, A):
     """
     Lab E_out support for E_cm in [E_cm_low, E_cm_high], over all mu_cm.
@@ -95,7 +95,7 @@ def level_E_out_range(E_in, E_cm_low, E_cm_high, A):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def speed_squared(E):
     """Squared speed [cm^2/s^2] of a neutron with kinetic energy E, as `particle_speed`."""
     m = NEUTRON_MASS
@@ -103,7 +103,7 @@ def speed_squared(E):
     return v * v
 
 
-@njit
+@njit(cache=True)
 def energy_from_speed_squared(v2):
     """Kinetic energy from squared speed, as `particle_energy_from_speed`."""
     beta2 = v2 / (LIGHT_SPEED * LIGHT_SPEED)
@@ -111,7 +111,7 @@ def energy_from_speed_squared(v2):
     return NEUTRON_MASS * (gamma - 1.0)
 
 
-@njit
+@njit(cache=True)
 def elastic_E_out(E_in, mu_cm, A):
     """Lab outgoing energy for COM cosine mu_cm: |v_out|^2 = v^2 (1+A^2+2A mu_cm)/(1+A)^2."""
     v2 = speed_squared(E_in)
@@ -120,20 +120,20 @@ def elastic_E_out(E_in, mu_cm, A):
     )
 
 
-@njit
+@njit(cache=True)
 def elastic_mu_cm(E_in, E_out, A):
     """COM cosine that yields lab E_out (inverse of `elastic_E_out`)."""
     ratio = speed_squared(E_out) / speed_squared(E_in)
     return ((1.0 + A) ** 2 * ratio - 1.0 - A * A) / (2.0 * A)
 
 
-@njit
+@njit(cache=True)
 def elastic_mu_lab(mu_cm, A):
     """Lab scattering cosine for COM cosine mu_cm."""
     return (1.0 + A * mu_cm) / math.sqrt(1.0 + A * A + 2.0 * A * mu_cm)
 
 
-@njit
+@njit(cache=True)
 def elastic_dmu_cm_dE_out(E_in, E_out, A):
     """|d mu_cm / d E_out|, with d(v^2)/dE = 2 c^2 m^2 / (E + m)^3."""
     m = NEUTRON_MASS
@@ -141,7 +141,7 @@ def elastic_dmu_cm_dE_out(E_in, E_out, A):
     return (1.0 + A) ** 2 / (2.0 * A * speed_squared(E_in)) * dv2_dE
 
 
-@njit
+@njit(cache=True)
 def elastic_E_out_range(E_in, A):
     """Lab E_out support of target-at-rest elastic scattering: mu_cm in [-1, 1]."""
     return elastic_E_out(E_in, -1.0, A), E_in
@@ -155,7 +155,7 @@ def elastic_E_out_range(E_in, A):
 # where s = sqrt(1 - mu^2). Its density is the arcsine density below.
 
 
-@njit
+@njit(cache=True)
 def azimuthal_kernel(mu_in, mu_out, mu0):
     """Density of mu_out given (mu_in, mu0); zero outside its support."""
     D = 1.0 - mu_in * mu_in - mu_out * mu_out - mu0 * mu0 + 2.0 * mu_in * mu_out * mu0
@@ -164,7 +164,7 @@ def azimuthal_kernel(mu_in, mu_out, mu0):
     return 1.0 / (PI * math.sqrt(D))
 
 
-@njit
+@njit(cache=True)
 def azimuthal_bin_probability(mu_in, mu0, mu_low, mu_high):
     """Probability that mu_out lies in [mu_low, mu_high] given (mu_in, mu0)."""
     center = mu_in * mu0
@@ -181,7 +181,7 @@ def azimuthal_bin_probability(mu_in, mu0, mu_low, mu_high):
     return (math.asin(t_high) - math.asin(t_low)) / PI
 
 
-@njit
+@njit(cache=True)
 def mu0_from_theta(mu_in, mu_out, theta):
     """
     Substitution mu0 = mu_in mu_out + s_in s_out cos(theta), theta in [0, pi].

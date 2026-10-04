@@ -71,7 +71,7 @@ KERNEL_LEVEL = 2
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def kernel_type(reaction, simulation, data):
     """Kernel type of a base neutron reaction record."""
     reaction_type = reaction["sub_type"]
@@ -94,7 +94,7 @@ def kernel_type(reaction, simulation, data):
     raise ValueError("RMC: reaction emits no neutrons")
 
 
-@njit
+@njit(cache=True)
 def _inelastic_spectrum(inelastic, n, simulation, data):
     ID = mcdc_get.neutron_inelastic_scattering_reaction.energy_spectrum_IDs(
         n, inelastic, data
@@ -102,7 +102,7 @@ def _inelastic_spectrum(inelastic, n, simulation, data):
     return simulation["distributions"][ID]
 
 
-@njit
+@njit(cache=True)
 def inelastic_yield(E_in, inelastic, simulation, data):
     """Expected secondaries per reaction: integer multiplicity or tabulated yield(E)."""
     if inelastic["multiplicity_tabulated"]:
@@ -111,7 +111,7 @@ def inelastic_yield(E_in, inelastic, simulation, data):
     return float(inelastic["multiplicity"])
 
 
-@njit
+@njit(cache=True)
 def _secondaries_through(N, E_in, inelastic, n, data):
     """
     Secondaries emitted through spectrum n when N are emitted: one per spectrum if
@@ -128,7 +128,7 @@ def _secondaries_through(N, E_in, inelastic, n, data):
     )
 
 
-@njit
+@njit(cache=True)
 def _spectrum_weight(E_in, inelastic, n, simulation, data):
     """
     Expected number of secondaries emitted through spectrum n, mirroring
@@ -149,7 +149,7 @@ def _spectrum_weight(E_in, inelastic, n, simulation, data):
     return weight
 
 
-@njit
+@njit(cache=True)
 def fission_yield(E_in, nuclide, simulation, data):
     """Expected fission neutrons per fission (all prompt), as in `sample_fission`."""
     nu = neutron_fission_prompt_multiplicity(
@@ -177,20 +177,20 @@ def fission_yield(E_in, nuclide, simulation, data):
 FREE_GAS_EXPONENT_CUTOFF = 50.0
 
 
-@njit
+@njit(cache=True)
 def free_gas_threshold(nuclide):
     """MC/DC samples target motion for E <= 400 kT (none at T = 0)."""
     return THERMAL_THRESHOLD_FACTOR * BOLTZMANN_K * nuclide["temperature"]
 
 
-@njit
+@njit(cache=True)
 def is_free_gas(E_in, reaction, nuclide):
     if reaction["sub_type"] != NEUTRON_REACTION_ELASTIC_SCATTERING:
         return False
     return nuclide["temperature"] > 0.0 and E_in <= free_gas_threshold(nuclide)
 
 
-@njit
+@njit(cache=True)
 def free_gas_density(E_in, E_out, mu0, A, kT):
     """Free-gas lab density per unit E_out and lab cosine mu0 (normalized to 1)."""
     if E_out <= 0.0 or E_in <= 0.0 or mu0 < -1.0 or mu0 > 1.0:
@@ -208,7 +208,7 @@ def free_gas_density(E_in, E_out, mu0, A, kT):
     return ((A + 1.0) / A) ** 2 / (2.0 * kT) * math.sqrt(E_out / E_in) * S / D
 
 
-@njit
+@njit(cache=True)
 def _free_gas_min_exponent(E_in, E_out, A, kT):
     """min over mu0 of (alpha + beta)^2 / (4 alpha) at fixed E_out <= E_in."""
     beta = (E_out - E_in) / kT
@@ -223,7 +223,7 @@ def _free_gas_min_exponent(E_in, E_out, A, kT):
     return (a + beta) ** 2 / (4.0 * a)
 
 
-@njit
+@njit(cache=True)
 def free_gas_support(E_in, A, kT):
     """
     [E_low, E_high] outside which the free-gas exponent exceeds the cutoff for every
@@ -244,7 +244,7 @@ def free_gas_support(E_in, A, kT):
     return low, E_high
 
 
-@njit
+@njit(cache=True)
 def sample_free_gas(E_in, A, kT, container):
     """
     (E_out, mu0) of one free-gas collision: the target-velocity rejection scheme of
@@ -283,10 +283,14 @@ def sample_free_gas(E_in, A, kT, container):
     return E_out, oz / math.sqrt(E_out)
 
 
-def elastic_isotropic_below(reaction, E_limit, simulation, data, tolerance=1e-6):
+def elastic_isotropic_below(reaction, E_limit, simulation, data, tolerance=1e-4):
     """
-    True if the elastic COM angular tables that the sampler can use at E <= E_limit
-    (tables at or below it and the next one, for interpolation) are isotropic.
+    True if the elastic COM angular density that the sampler uses at E <= E_limit is
+    isotropic within `tolerance` (max |p(mu) - 1/2|). The tables at or below E_limit
+    must be isotropic; the next table enters only through linear interpolation, so its
+    deviation is weighted by the largest interpolation fraction it reaches below
+    E_limit. (C-12: isotropic up to 25.3 meV, next table at 2 keV with |p - 1/2| =
+    5.6e-4, so the density sampled below 10.1 eV deviates by 3e-6.)
     """
     elastic = simulation["neutron_elastic_scattering_reactions"][reaction["sub_ID"]]
     distribution = simulation["distributions"][elastic["mu_table_ID"]]
@@ -305,7 +309,10 @@ def elastic_isotropic_below(reaction, E_limit, simulation, data, tolerance=1e-6)
         y = mcdc_get.table_data.y_all(pdf_table, data)
         if abs(x[0] + 1.0) > tolerance or abs(x[-1] - 1.0) > tolerance:
             return False
-        if np.max(np.abs(y - 0.5)) > tolerance:
+        weight = 1.0
+        if grid[idx] > E_limit and idx > 0:
+            weight = (E_limit - grid[idx - 1]) / (grid[idx] - grid[idx - 1])
+        if weight * np.max(np.abs(y - 0.5)) > tolerance:
             return False
     return True
 
@@ -315,7 +322,7 @@ def elastic_isotropic_below(reaction, E_limit, simulation, data, tolerance=1e-6)
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _emission_density(
     E_in, E_out, mu_lab, A, frame, angle_type, mu_ID, spectrum, simulation, data
 ):
@@ -346,7 +353,7 @@ def _emission_density(
     return jacobian * p_E * p_mu
 
 
-@njit
+@njit(cache=True)
 def continuous_lab_density(E_in, E_out, mu_lab, reaction, nuclide, simulation, data):
     """
     Emitted-neutron density f_L(E_out, mu_lab | E_in) of a continuous reaction, or of
@@ -402,7 +409,7 @@ def continuous_lab_density(E_in, E_out, mu_lab, reaction, nuclide, simulation, d
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def delta_lab_line(E_in, E_out, reaction, nuclide, simulation, data):
     """
     Line kernel (g, mu_lab*): emitted density in E_out, and the lab cosine it implies.
@@ -455,7 +462,7 @@ def delta_lab_line(E_in, E_out, reaction, nuclide, simulation, data):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def lab_energy_support(E_in, reaction, nuclide, simulation, data):
     """
     Closed-form lab E_out range [E_low, E_high] reachable at E_in (empty: E_low > E_high).
@@ -502,7 +509,7 @@ def lab_energy_support(E_in, reaction, nuclide, simulation, data):
     return E_low, E_high
 
 
-@njit
+@njit(cache=True)
 def _spectrum_support(E_in, angle_type, spectrum, simulation, data):
     if angle_type == ANGLE_ENERGY_CORRELATED:
         return correlated_distribution_support(E_in, spectrum, simulation, data)
@@ -570,7 +577,7 @@ TAU_TOLERANCE = 1e-10
 TAU_MAX_DEPTH = 40
 
 
-@njit
+@njit(cache=True)
 def emission_kernel_bin(
     E_in, E_out, mu_out, mu_low, mu_high, reaction, ktype, nuclide, simulation, data
 ):
@@ -679,7 +686,7 @@ def emission_kernel_bin(
     return total
 
 
-@njit
+@njit(cache=True)
 def _com_energy_range(E_in, reaction, simulation, data):
     """Union of the COM outgoing-energy ranges of a continuous reaction's spectra."""
     if reaction["sub_type"] == NEUTRON_REACTION_FISSION:

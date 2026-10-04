@@ -177,6 +177,11 @@ SCORE_DENSITY = 1
 SCORE_COLLISION = 2
 SCORE_CAPTURE = 3
 SCORE_FISSION = 4
+# Flux times the bin's linear Legendre polynomial in energy (energy filter required),
+#   in z within the mesh cell (structured mesh required), and in both
+SCORE_FLUX_ENERGY_SLOPE = 5
+SCORE_FLUX_Z_SLOPE = 6
+SCORE_FLUX_Z_ENERGY_SLOPE = 7
 
 # Surface-crossing scores
 SCORE_CURRENT_NET = 100
@@ -188,7 +193,16 @@ SCORE_ENERGY_DEPOSITION = 200
 
 # Supported scores by estimator type
 SUPPORTED_SCORES_SURFACE_CROSSING = {"current-net", "current-in", "current-out"}
-SUPPORTED_SCORES_TRACKLENGTH = {"flux", "density", "collision", "capture", "fission"}
+SUPPORTED_SCORES_TRACKLENGTH = {
+    "flux",
+    "density",
+    "collision",
+    "capture",
+    "fission",
+    "flux-energy-slope",
+    "flux-z-slope",
+    "flux-z-energy-slope",
+}
 SUPPORTED_SCORES_COLLISION = {"energy_deposition"}
 SUPPORTED_SCORES = (
     SUPPORTED_SCORES_SURFACE_CROSSING

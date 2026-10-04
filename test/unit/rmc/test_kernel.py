@@ -43,10 +43,14 @@ MU_EDGES = np.array([-1.0, 0.0, 1.0])
 TABLE = build_angular_transfer_table(MU_EDGES, 2049)
 
 
-def transfer_row(reaction, nuclide, simulation, data, E_edges, gp, tol=1e-8):
+def transfer_row(
+    reaction, nuclide, simulation, data, E_edges, gp, tol=1e-8, energy_order=0
+):
+    """Row [g, j, j'] (constant basis) or [a', a, g, j, j'] (energy_order > 0)."""
     G = len(E_edges) - 1
     J = len(MU_EDGES) - 1
-    row = np.zeros((G, J, J))
+    P = energy_order + 1
+    row = np.zeros((P, P, G, J, J))
     reaction_transfer_row(
         E_edges[gp],
         E_edges[gp + 1],
@@ -60,7 +64,7 @@ def transfer_row(reaction, nuclide, simulation, data, E_edges, gp, tol=1e-8):
         tol,
         row,
     )
-    return row
+    return row[0, 0] if P == 1 else row
 
 
 def exact_xs_integral(reaction, nuclide, data, E_a, E_b):
@@ -87,6 +91,34 @@ def test_elastic_row_conservation(nuclide_simulation):
             assert row[:, :, jp].sum() == pytest.approx(dmu * xs_integral, rel=1e-7)
         # Elastic never upscatters (target at rest)
         assert np.all(row[gp + 1 :] == 0.0)
+
+
+@requires_nuclide("O16")
+def test_elastic_row_linear_basis(nuclide_simulation):
+    """Linear energy basis: the P_0 block is the constant row, and the incident P_1
+    block conserves int sigma P_1(E_in) dE_in."""
+    simulation, data, nuclide = nuclide_simulation("O16")
+    ID = mcdc_get.nuclide.neutron_elastic_scattering_reaction_IDs(0, nuclide, data)
+    reaction = simulation["neutron_reactions"][ID]
+    E_edges = np.logspace(5.0, 7.0, 9)
+    gp = 7
+    E_a, E_b = E_edges[gp], E_edges[gp + 1]
+    row = transfer_row(reaction, nuclide, simulation, data, E_edges, gp, energy_order=1)
+    constant = transfer_row(reaction, nuclide, simulation, data, E_edges, gp)
+    np.testing.assert_allclose(row[0, 0], constant, rtol=1e-6, atol=1e-12)
+
+    grid = mcdc_get.nuclide.neutron_xs_energy_grid_all(nuclide, data)
+    x = np.concatenate(([E_a], grid[(grid > E_a) & (grid < E_b)], [E_b]))
+    x = np.unique(
+        np.concatenate([np.linspace(x[i], x[i + 1], 65) for i in range(len(x) - 1)])
+    )
+    sigma = np.array([reaction_micro_xs(e, reaction, nuclide, data) for e in x])
+    first = np.trapezoid(sigma * (2 * x - E_a - E_b) / (E_b - E_a), x)
+    for jp in range(2):
+        dmu = MU_EDGES[jp + 1] - MU_EDGES[jp]
+        assert row[1, 0, :, :, jp].sum() == pytest.approx(dmu * first, rel=1e-5)
+    # Outgoing slopes are bounded by the averages: |int f P_1| <= int f
+    assert np.all(np.abs(row[0, 1]) <= row[0, 0] * (1 + 1e-9) + 1e-300)
 
 
 # ======================================================================================

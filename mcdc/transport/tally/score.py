@@ -23,6 +23,9 @@ from mcdc.constant import (
     SCORE_COLLISION,
     SCORE_CAPTURE,
     SCORE_FISSION,
+    SCORE_FLUX_ENERGY_SLOPE,
+    SCORE_FLUX_Z_ENERGY_SLOPE,
+    SCORE_FLUX_Z_SLOPE,
     SCORE_CURRENT_NET,
     SCORE_CURRENT_IN,
     SCORE_CURRENT_OUT,
@@ -398,6 +401,25 @@ def tracklength(particle_container, distance, tally, simulation, data):
                 score = flux * physics.macro_xs(
                     NEUTRON_REACTION_FISSION, particle_container, simulation, data
                 )
+            elif score_type == SCORE_FLUX_ENERGY_SLOPE:
+                E_low = mcdc_get.tally.energy(i_energy, tally, data)
+                E_high = mcdc_get.tally.energy(i_energy + 1, tally, data)
+                score = flux * (2.0 * particle["E"] - E_low - E_high) / (E_high - E_low)
+            elif (
+                score_type == SCORE_FLUX_Z_SLOPE
+                or score_type == SCORE_FLUX_Z_ENERGY_SLOPE
+            ):
+                # The Legendre polynomial of z is linear along the straight segment
+                #   inside the cell, so its segment average is its midpoint value
+                mesh = simulation["meshes"][tracklength_tally["mesh_filter_ID"]]
+                z_low = mesh_module.get_z(i_z, mesh, simulation, data)
+                z_high = mesh_module.get_z(i_z + 1, mesh, simulation, data)
+                z_mid = z + 0.5 * distance_scored * uz
+                score = flux * (2.0 * z_mid - z_low - z_high) / (z_high - z_low)
+                if score_type == SCORE_FLUX_Z_ENERGY_SLOPE:
+                    E_low = mcdc_get.tally.energy(i_energy, tally, data)
+                    E_high = mcdc_get.tally.energy(i_energy + 1, tally, data)
+                    score *= (2.0 * particle["E"] - E_low - E_high) / (E_high - E_low)
             util.atomic_add(data, idx_base + i_score, score)
 
         # Accumulate distance swept

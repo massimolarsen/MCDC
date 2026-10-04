@@ -45,7 +45,7 @@ from mcdc.transport.util import find_bin
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def evaluate_distribution(E, x, distribution, simulation, data, scale):
     """Density of `sample_distribution[_with_scale]` producing x at incident energy E."""
     distribution_type = distribution["sub_type"]
@@ -71,7 +71,7 @@ def evaluate_distribution(E, x, distribution, simulation, data, scale):
         raise ValueError("RMC: unsupported distribution type for evaluation")
 
 
-@njit
+@njit(cache=True)
 def distribution_support(E, distribution, simulation, data, scale):
     """Range [x_low, x_high] of values the sampler can produce at incident energy E."""
     distribution_type = distribution["sub_type"]
@@ -97,7 +97,7 @@ def distribution_support(E, distribution, simulation, data, scale):
         raise ValueError("RMC: unsupported distribution type for evaluation")
 
 
-@njit
+@njit(cache=True)
 def evaluate_correlated_distribution(E, E_out, mu, distribution, simulation, data):
     """Joint density of `sample_correlated_distribution_with_scale` producing (E_out, mu)."""
     distribution_type = distribution["sub_type"]
@@ -119,7 +119,7 @@ def evaluate_correlated_distribution(E, E_out, mu, distribution, simulation, dat
         raise ValueError("RMC: unsupported correlated distribution for evaluation")
 
 
-@njit
+@njit(cache=True)
 def correlated_distribution_support(E, distribution, simulation, data):
     """Outgoing-energy range [E_low, E_high] of a correlated distribution at E."""
     distribution_type = distribution["sub_type"]
@@ -156,13 +156,13 @@ def correlated_distribution_support(E, distribution, simulation, data):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _pdf_table(table, simulation, data):
     pdf_data = simulation["data"][table["pdf_ID"]]
     return simulation["table_data"][pdf_data["sub_ID"]]
 
 
-@njit
+@njit(cache=True)
 def evaluate_tabulated(x, table, simulation, data):
     """Density of `sample_tabulated`: the histogram or piecewise-linear table PDF."""
     pdf_table = _pdf_table(table, simulation, data)
@@ -172,7 +172,7 @@ def evaluate_tabulated(x, table, simulation, data):
     return _piecewise_pdf(x, values, pdf, interpolation == INTERPOLATION_HISTOGRAM)
 
 
-@njit
+@njit(cache=True)
 def tabulated_support(table, simulation, data):
     pdf_table = _pdf_table(table, simulation, data)
     return (
@@ -181,7 +181,7 @@ def tabulated_support(table, simulation, data):
     )
 
 
-@njit
+@njit(cache=True)
 def _piecewise_pdf(x, values, pdf, histogram):
     """Histogram or linear PDF on a value grid; zero outside the grid."""
     if x < values[0] or x > values[-1]:
@@ -202,14 +202,28 @@ def _piecewise_pdf(x, values, pdf, histogram):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _multi_table_tabulated(idx, multi_table, simulation, data):
     ID = mcdc_get.multi_table_distribution.table_IDs(idx, multi_table, data)
     sub_ID = simulation["distributions"][ID]["sub_ID"]
     return simulation["tabulated_distributions"][sub_ID]
 
 
-@njit
+@njit(cache=True)
+def grid_fraction(E, grid, idx):
+    """
+    Interpolation fraction of E in [grid[idx], grid[idx + 1]]; 0 on a zero-width
+    interval (a repeated grid energy marking a discontinuity of the data, where the
+    samplers' fraction is undefined: only reached by quadrature nodes and support
+    evaluations exactly at that energy, never by a sampled energy).
+    """
+    width = grid[idx + 1] - grid[idx]
+    if width <= 0.0:
+        return 0.0
+    return (E - grid[idx]) / width
+
+
+@njit(cache=True)
 def _multi_table_interval(E, grid):
     """Mirror `_sample_multi_table` table selection: (idx, f, use_scale_allowed)."""
     if E < grid[0]:
@@ -217,11 +231,11 @@ def _multi_table_interval(E, grid):
     if E > grid[-1]:
         return len(grid) - 1, 0.0, False
     idx = find_bin(E, grid)
-    f = (E - grid[idx]) / (grid[idx + 1] - grid[idx])
+    f = grid_fraction(E, grid, idx)
     return idx, f, True
 
 
-@njit
+@njit(cache=True)
 def evaluate_multi_table(E, x, multi_table, simulation, data, scale):
     """
     Density of `_sample_multi_table`.
@@ -273,7 +287,7 @@ def evaluate_multi_table(E, x, multi_table, simulation, data, scale):
     return density
 
 
-@njit
+@njit(cache=True)
 def multi_table_support(E, multi_table, simulation, data, scale):
     grid = mcdc_get.multi_table_distribution.grid_all(multi_table, data)
     idx, f, in_grid = _multi_table_interval(E, grid)
@@ -300,7 +314,7 @@ def multi_table_support(E, multi_table, simulation, data, scale):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _outgoing_table_range(l, grid, offsets, N_out):
     start = int(offsets[l])
     if l + 1 == len(grid):
@@ -310,13 +324,13 @@ def _outgoing_table_range(l, grid, offsets, N_out):
     return start, end
 
 
-@njit
+@njit(cache=True)
 def _correlated_energy_range(E, grid, offsets, energy_out):
     """[E_min, E_max] of the unit-base interpolated outgoing table at E."""
     idx = find_bin(E, grid)
     if idx == -1:
         return 0.0, 0.0
-    f = (E - grid[idx]) / (grid[idx + 1] - grid[idx])
+    f = grid_fraction(E, grid, idx)
     N_out = len(energy_out)
     start0, end0 = _outgoing_table_range(idx, grid, offsets, N_out)
     start1, end1 = _outgoing_table_range(idx + 1, grid, offsets, N_out)
@@ -325,7 +339,7 @@ def _correlated_energy_range(E, grid, offsets, energy_out):
     return E_min, E_max
 
 
-@njit
+@njit(cache=True)
 def _correlated_energy_component(
     E_out, l, weight, E_min, E_max, grid, offsets, energy_out, pdf
 ):
@@ -350,7 +364,9 @@ def _correlated_energy_component(
     k += start
     E0 = energy_out[k]
     E1 = energy_out[k + 1]
-    p = pdf[k] + (pdf[k + 1] - pdf[k]) * (E_hat - E0) / (E1 - E0)
+    p = pdf[k]
+    if E1 > E0:
+        p += (pdf[k + 1] - pdf[k]) * (E_hat - E0) / (E1 - E0)
     density = weight * p * (E_high - E_low) / (E_max - E_min)
     return density, k, E_hat
 
@@ -360,7 +376,7 @@ def _correlated_energy_component(
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def kalbach_density(mu, R, A):
     """Kalbach angular density p(mu) = A / (2 sinh A) [cosh(A mu) + R sinh(A mu)]."""
     if A < 1e-8:
@@ -369,7 +385,7 @@ def kalbach_density(mu, R, A):
     return 0.5 * A / math.sinh(A) * (math.cosh(A * mu) + R * math.sinh(A * mu))
 
 
-@njit
+@njit(cache=True)
 def evaluate_kalbach_mann(E, E_out, mu, kalbach_mann, data):
     """Joint (E_out, mu) density of `sample_kalbach_mann` (COM or lab per reaction)."""
     if mu < -1.0 or mu > 1.0:
@@ -386,7 +402,7 @@ def evaluate_kalbach_mann(E, E_out, mu, kalbach_mann, data):
     idx = find_bin(E, grid)
     if idx == -1:
         return 0.0
-    f = (E - grid[idx]) / (grid[idx + 1] - grid[idx])
+    f = grid_fraction(E, grid, idx)
     E_min, E_max = _correlated_energy_range(E, grid, offsets, energy_out)
     if E_out < E_min or E_out > E_max:
         return 0.0
@@ -410,7 +426,7 @@ def evaluate_kalbach_mann(E, E_out, mu, kalbach_mann, data):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def evaluate_tabulated_energy_angle(E, E_out, mu, table, data):
     """Joint (E_out, mu) density of `sample_tabulated_energy_angle`."""
     grid = mcdc_get.tabulated_energy_angle_distribution.energy_all(table, data)
@@ -432,7 +448,7 @@ def evaluate_tabulated_energy_angle(E, E_out, mu, table, data):
     idx = find_bin(E, grid)
     if idx == -1:
         return 0.0
-    f = (E - grid[idx]) / (grid[idx + 1] - grid[idx])
+    f = grid_fraction(E, grid, idx)
     E_min, E_max = _correlated_energy_range(E, grid, offsets, energy_out)
     if E_out < E_min or E_out > E_max:
         return 0.0
@@ -448,7 +464,8 @@ def evaluate_tabulated_energy_angle(E, E_out, mu, table, data):
         # Angular table: nearest outgoing point in CDF, as in the sampler
         #   (xi2 - c_k > c_{k+1} - xi2, where xi2 = c(E_hat))
         dE = E_hat - energy_out[k]
-        m = (pdf[k + 1] - pdf[k]) / (energy_out[k + 1] - energy_out[k])
+        width = energy_out[k + 1] - energy_out[k]
+        m = (pdf[k + 1] - pdf[k]) / width if width > 0.0 else 0.0
         c_hat = cdf[k] + pdf[k] * dE + 0.5 * m * dE * dE
         j = k + 1 if c_hat - cdf[k] > cdf[k + 1] - c_hat else k
 
@@ -468,13 +485,13 @@ def evaluate_tabulated_energy_angle(E, E_out, mu, table, data):
 # [0, E - U], with the nuclear temperature theta(E) interpolated as the sampler does.
 
 
-@njit
+@njit(cache=True)
 def _nuclear_temperature(E, distribution, simulation, data):
     table = simulation["data"][distribution["nuclear_temperature_ID"]]
     return evaluate_data(E, table, simulation, data)
 
 
-@njit
+@njit(cache=True)
 def evaporation_normalization(w):
     """int_0^w s e^{-s} ds = 1 - e^{-w} (1 + w), cancellation-free for small w."""
     if w < 1e-3:
@@ -482,7 +499,7 @@ def evaporation_normalization(w):
     return -math.expm1(-w) - w * math.exp(-w)
 
 
-@njit
+@njit(cache=True)
 def maxwellian_normalization(w):
     """int_0^w sqrt(s) e^{-s} ds = sqrt(pi)/2 erf(sqrt(w)) - sqrt(w) e^{-w}."""
     if w < 1e-3:
@@ -491,7 +508,7 @@ def maxwellian_normalization(w):
     return 0.5 * math.sqrt(math.pi) * math.erf(r) - r * math.exp(-w)
 
 
-@njit
+@njit(cache=True)
 def evaluate_evaporation(E, E_out, evaporation, simulation, data):
     """f(E_out | E) = E_out e^{-E_out/theta} / (theta^2 I(w)), 0 <= E_out <= E - U."""
     limit = E - evaporation["restriction_energy"]
@@ -504,7 +521,7 @@ def evaluate_evaporation(E, E_out, evaporation, simulation, data):
     return E_out * math.exp(-E_out / theta) / norm
 
 
-@njit
+@njit(cache=True)
 def evaluate_maxwellian(E, E_out, maxwellian, simulation, data):
     """f(E_out | E) = sqrt(E_out) e^{-E_out/theta} / (theta^{3/2} I(w)), 0 <= E_out <= E - U."""
     limit = E - maxwellian["restriction_energy"]
@@ -522,13 +539,13 @@ def evaluate_maxwellian(E, E_out, maxwellian, simulation, data):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def nbody_energy_max(E, nbody):
     """E_max(E) = (Ap - 1)/Ap (A/(A + 1) E + Q), stored as slope and offset."""
     return nbody["energy_max_slope"] * E + nbody["energy_max_offset"]
 
 
-@njit
+@njit(cache=True)
 def evaluate_nbody(E, E_cm, mu_cm, nbody, simulation, data):
     """
     f(E_cm, mu_cm | E) = p(T) / E_max / 2 with T = E_cm / E_max: the sampler draws T
@@ -545,7 +562,7 @@ def evaluate_nbody(E, E_cm, mu_cm, nbody, simulation, data):
 # ======================================================================================
 
 
-@njit
+@njit(cache=True)
 def _append_points(out, N, values):
     for v in values:
         out[N] = v
@@ -553,7 +570,7 @@ def _append_points(out, N, values):
     return N
 
 
-@njit
+@njit(cache=True)
 def distribution_breakpoints(E, distribution, simulation, data, scale):
     """Values x where the density of `evaluate_distribution` has kinks (unsorted)."""
     distribution_type = distribution["sub_type"]
@@ -600,7 +617,7 @@ def distribution_breakpoints(E, distribution, simulation, data, scale):
     return out
 
 
-@njit
+@njit(cache=True)
 def correlated_energy_breakpoints(E, distribution, simulation, data):
     """Outgoing energies where a correlated distribution's energy density has kinks."""
     if distribution["sub_type"] == DISTRIBUTION_N_BODY:
@@ -656,7 +673,8 @@ def correlated_energy_breakpoints(E, distribution, simulation, data):
             #   midpoint of the outgoing bin (a jump in the angular density)
             if law61 and k < end - 1:
                 target = 0.5 * (cdf[k + 1] - cdf[k])
-                m = (pdf[k + 1] - pdf[k]) / (energy_out[k + 1] - energy_out[k])
+                width = energy_out[k + 1] - energy_out[k]
+                m = (pdf[k + 1] - pdf[k]) / width if width > 0.0 else 0.0
                 if abs(m) < 1e-300:
                     dE = target / pdf[k] if pdf[k] > 0.0 else 0.0
                 else:
@@ -668,7 +686,7 @@ def correlated_energy_breakpoints(E, distribution, simulation, data):
     return out[:N]
 
 
-@njit
+@njit(cache=True)
 def tabulated_energy_angle_cosine_breakpoints(E, E_out, distribution, simulation, data):
     """Cosine-grid points of the Law-61 angular tables selected at (E, E_out)."""
     table = simulation["tabulated_energy_angle_distributions"][distribution["sub_ID"]]
@@ -690,7 +708,7 @@ def tabulated_energy_angle_cosine_breakpoints(E, E_out, distribution, simulation
     idx = find_bin(E, grid)
     if idx == -1:
         return out[:0]
-    f = (E - grid[idx]) / (grid[idx + 1] - grid[idx])
+    f = grid_fraction(E, grid, idx)
     E_min, E_max = _correlated_energy_range(E, grid, offsets, energy_out)
     for l, weight in ((idx, 1.0 - f), (idx + 1, f)):
         p_E, k, E_hat = _correlated_energy_component(
@@ -699,7 +717,8 @@ def tabulated_energy_angle_cosine_breakpoints(E, E_out, distribution, simulation
         if p_E == 0.0:
             continue
         dE = E_hat - energy_out[k]
-        m = (pdf[k + 1] - pdf[k]) / (energy_out[k + 1] - energy_out[k])
+        width = energy_out[k + 1] - energy_out[k]
+        m = (pdf[k + 1] - pdf[k]) / width if width > 0.0 else 0.0
         c_hat = cdf[k] + pdf[k] * dE + 0.5 * m * dE * dE
         j = k + 1 if c_hat - cdf[k] > cdf[k + 1] - c_hat else k
         start = int(cosine_offsets[j])
