@@ -1,0 +1,335 @@
+\documentclass[11pt]{article}
+\input{preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+
+\title{A self-shielded (collision-density) energy trial space for RMC\\
+\large design note, not yet implemented}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Builds on \texttt{linear\_energy\_basis.tex} (notation, the Legendre
+polynomials $P_a(x_g(E))$ on bin $g$, and the slope tally) and \texttt{rmc\_math.tex}
+(the residual and the two-phase schedule). $E'$ is the incident and $E$ the outgoing
+energy.
+
+\section{Motivation}
+
+Two limitations of the current energy trial spaces can share one cause, the variation of
+$\Sigt(E)$ \emph{inside} a bin.
+\begin{enumerate}
+  \item \emph{Stall and bias.} The collision residual $c(E) - \Sigt(E)\tpsi(E)$
+  contains the in-bin shape of $\Sigt$, which no polynomial $\tpsi$ removes. Iterated
+  with the pointwise $\Sigt$, RMC stalls at the noise of that term; iterated with the
+  projected removal, a convergent iteration instead reaches a Galerkin fixed point
+  that can exhibit the Jensen-type underestimate described in \texttt{rmc\_math.tex}
+  under its constant-source assumption (O-16, 1--10\,MeV: 15--27\%
+  in the 2.35 and 1.65\,MeV bins for the constant basis).
+  \item \emph{Overshoot.} The linear basis removes most of that bias (1.9\% rms against
+  4.6\% on O-16), but a straight line fitted to a flux with a narrow dip inside the bin
+  pivots about the average and overshoots at the bin ends.
+\end{enumerate}
+
+\section{Exact factorization and the smoothness assumption}
+
+In a nonfissioning infinite medium (0D) with unit-yield scattering, with
+$F=\Sigt\phi$ the collision density and a normalized scalar scattering kernel $f$,
+\begin{equation}
+  F(E) = q(E) + \int \dd E'\, \frac{\Sigma_s(E')}{\Sigt(E')}\,F(E')\,f(E'\to E),
+  \label{eq:collision}
+\end{equation}
+and $\phi = F/\Sigt$ exactly wherever $\Sigt>0$. Smoothness of $F$ is an additional
+assumption. For classical elastic scattering on a nuclide of mass ratio $A$, the
+energy support is $[\alpha E',E']$, $\alpha=((A-1)/(A+1))^2$; broad redistribution
+can smooth a resonance when $\Gamma\ll(1-\alpha)E$, the source is smooth, and the
+scattering ratios and angular law do not introduce comparable structure [1--3].
+An integral over $E'$ alone does not guarantee this. For example, an
+energy-preserving kernel gives $F=q\Sigt/\Sigma_a$ in a pure absorption/scattering
+balance and can retain sharp cross-section structure.
+The narrow-resonance approximation treats the numerator as slowly varying;
+the algebraic factorization itself remains exact even when that approximation fails.
+
+Possible nonsmooth features include the edges of a source, the
+first-collision edges $\alpha E_0$ of a line source, and inelastic thresholds. These
+can cause kinks or jumps in $\phi$ too. Aligning bin edges helps represent such
+features, but a line source is distributional and needs explicit source treatment.
+
+\section{Trial and test spaces}
+
+Let $w(E) = 1/\Sigma_{t,m}(E)$ be the inverse total cross section of the material $m$
+of the cell. Assume $0<\Sigma_{\min}\le\Sigma_{t,m}(E)\le\Sigma_{\max}<\infty$
+on each bin, so the moments and trial functions are finite. This weight does not
+apply in vacuum; very small cross sections can also impair conditioning.
+On bin $g$, take
+\begin{equation}
+  \text{trial: } \tpsi(E) = w(E)\sum_{b=0}^{p}\tpsi_{gb}\,P_b(x_g(E)),\qquad
+  \text{test: } P_a(x_g(E)),\quad a = 0..p,
+\end{equation}
+a Petrov--Galerkin pair. Then $\Sigt\tpsi = \sum_b \tpsi_{gb}P_b$ is a polynomial in
+every bin: the trial space represents collision densities by polynomials.
+
+\paragraph{Projection.} With the test functions, the projection $\Pi$ onto the trial
+space matches the Legendre moments $t_a = \int_g\psi\,P_a\dd E$ of a function $\psi$:
+\begin{equation}
+  \sum_b B_{g,ab}\,(\Pi\psi)_{gb} = t_{ga},\qquad
+  B_{g,ab} = \int_g w(E)\,P_aP_b\dd E .
+  \label{eq:projection}
+\end{equation}
+$B_g$ is symmetric positive definite ($w>0$), $(p+1)\times(p+1)$ per bin. $\Pi$ is an
+oblique projection: $\Pi v = v$ for every trial function $v$, and $\Pi\psi$ is the trial
+function with the same moments as $\psi$. For $w$ constant on the bin it is the
+Legendre ($L^2$) projection of \texttt{linear\_energy\_basis.tex}.
+
+\paragraph{Tallies.} The moments $t_a$ are exactly what the existing track-length scores
+estimate (\texttt{flux} for $a=0$, \texttt{flux-energy-slope} for $a=1$). The only new
+step is the solve \eqref{eq:projection} for the correction $\teps$ after each transport
+pass. (A Bubnov--Galerkin choice, test $= wP_a$, would need a new score
+$w(E)P_a(x_g(E))$ per track and a different mass matrix; the Petrov--Galerkin choice
+keeps the tallies and makes the removal trivial, below.)
+
+\section{Galerkin equations and transfer moments}
+
+Testing the transport equation with $P_a$ on bin $(g,j)$ (0D),
+\begin{equation}
+  \int_g P_a\,\Sigt\tpsi\dd E = \sum_b\tpsi_{gb}\int_g P_aP_b\dd E
+  = \frac{\Delta E_g}{2a+1}\,\tpsi_{ga}
+  \;\Longrightarrow\;
+  \tpsi_{gja} = Q_{gja} + \Sbar_{gja},
+  \label{eq:galerkin}
+\end{equation}
+i.e.\ in the normalization of \texttt{linear\_energy\_basis.tex} the removal matrix
+$R_{g,ab} = \frac{2a+1}{\Delta E_g}\int_g \Sigt\,w\,P_aP_b\dd E = \delta_{ab}$ is the
+identity, independent of the cross sections. The in-scatter projection uses moments
+with the weight on the incident energy:
+\begin{equation}
+  M^{w,r}_{m,\,a'g'j',\,agj} = \int_{g'}\!\dd E'\,
+  \frac{\sigma_r(E')}{\Sigma_{t,m}(E')}\,P_{a'}(x_{g'}(E'))
+  \int_{j'}\!\dd\mu'\int_g\!\dd E\,P_a(x_g(E))\int_j\!\dd\mu\;
+  \tau_r(E'\!\to E,\mu'\!\to\mu),
+\end{equation}
+$\Sbar_{gja} = \frac{2a+1}{\Delta E_g\Delta\mu_j}
+\sum_{r\in m}\sum_{a'g'j'}N_rM^{w,r}_{m,\,a'g'j',\,agj}\tpsi_{g'j'a'}$,
+with $N_r$ the nuclide's atom density. The material moment is the density-weighted
+sum $M^w_m=\sum_{r\in m}N_rM^{w,r}_m$. The quadrature is
+the existing one with one extra factor $w(E')$ in the incident integrand;
+$\sigma_r/\Sigma_{t,m}\le 1/N_r$ is bounded and, inside a resonance of reaction $r$,
+often smoother than $\sigma_r$ alone, but that is not guaranteed for arbitrary
+mixtures and thresholds. The price is that $M^w$ depends on the material through
+$w$: moments are computed and cached per material (composition and temperature) instead
+of per nuclide.
+
+\section{Residual}
+
+\begin{proposition}[The collision residual is in the test space]
+In the nonfissioning 0D formulation, with projected $Q$ and $\Sbar$, the weighted
+trial space and pointwise $\Sigt(E)$ give
+\[
+  r_c(E) = Q(E) + \Sbar(E) - \Sigt(E)\tpsi(E)
+  = \sum_a\big(Q_{gja} + \Sbar_{gja} - \tpsi_{gja}\big)P_a(x_g(E))
+\]
+on every bin: a polynomial of degree $p$, which vanishes identically at the Galerkin
+fixed point \eqref{eq:galerkin}.
+\end{proposition}
+
+\noindent Consequences:
+\begin{itemize}
+  \item The pointwise and polynomial-projected removal coincide. No bin-averaged
+  removal is needed, although omitting the scattering remainder still modifies the
+  full operator. This eliminates that removal-shape mismatch; it does not eliminate
+  all Galerkin error or imply convergence.
+  \item If $q=Q$, angular remainders are absent, and there is no fission or streaming,
+  the remaining residual at the Galerkin fixed point is
+  $r_s=\mathcal S\tpsi-\Sbar$. For a sufficiently smooth scattering source with
+  bounded derivatives, its polynomial approximation error is
+  $O(\Delta E^{p+1})$. A lower residual and stall level are plausible benefits,
+  not guarantees in every varying-cross-section bin. Tally variance also depends
+  on sampling and transport response. General problems retain $q-Q$, fission,
+  angular, spatial and boundary remainders as applicable.
+  \item $|r_c|$ masses are exact and cheap ($|$polynomial$|$ on each bin, no
+  cross-section grid).
+\end{itemize}
+
+\paragraph{Edge residual (1D).} Across a face between cells of the same material,
+$D(E) = w(E)\sum_b(\tpsi_{R,b}-\tpsi_{L,b})P_b$; its mass $\int_g|D|\dd E$ needs the
+cross-section grid (roots of a polynomial times a positive $w$ are the polynomial's
+roots, so the integral splits at those and is a weighted polynomial integral). Between
+different materials $w$ jumps, so $D$ does not vanish even for equal coefficients:
+continuity in $z$ (planned) must then be imposed on $\tpsi$ itself, not on the
+coefficients.
+
+\paragraph{Scattering correction.} $T(E,\mu) = \int\dd E'\,\tpsi(E')\,U(E'\to E,\mu)$
+now has the resonance structure of $w(E')$ in its integrand, so the incident-energy
+integral of \texttt{in\_scatter\_density} must split at the cross-section grid points
+in the kinematic window, as well as at trial and support boundaries, to resolve
+that structure. This is a quadrature requirement for the proposed method, not
+a claim that the current implementation already satisfies it. Pilot proposals
+also require the signed-source support safeguards described in \texttt{rmc\_math.tex}.
+
+\section{Expected accuracy and cost}
+
+The following comparison concerns the nonfissioning 0D model with an exactly
+represented source and no unresolved angular dependence; it is not a measured
+performance comparison.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+ & Linear basis & Self-shielded linear basis \\
+\midrule
+Represented in each bin & $\phi$ by a line & $F = \Sigt\phi$ by a line \\
+Collision residual at the fixed point & in-bin shape of $\Sigt\tpsi$ & 0 \\
+Irreducible residual & $\Sigt$ shape $+$ $r_s$ & $r_s$ only \\
+Transport per iteration & --- & unchanged (same scores) \\
+Projection & diagonal & $2\times2$ solve per bin \\
+Transfer moments & per nuclide & per material \\
+Correction sampler & smooth $\tpsi(E')$ & split at the xs grid \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Where $\Sigt$ is constant on a bin, $w$ is constant and the self-shielded
+basis spans the same functions as the linear basis. The A = 1 absorber (constant
+cross sections) should therefore reproduce the same reconstructed fixed point.
+Identical random seeds alone do not guarantee identical stochastic iterates if
+proposal normalization, coefficient scaling or stopping criteria differ.
+
+\section{Where the factorization weakens}
+
+\begin{itemize}
+  \item \emph{Leakage.} The scalar balance is
+  $\Sigt\phi=q_0+\mathcal S_0\phi-\partial_zJ$, with
+  $\phi=\int_{-1}^1\psi\dd\mu$, $J=\int_{-1}^1\mu\psi\dd\mu$, and $q_0$
+  the angle-integrated source:
+  in thin or boundary regions the flux does not dip as $1/\Sigt$ (the dip is partly
+  filled by neutrons streaming in). An equivalence-theory-inspired option is the
+  weight $w = 1/(\Sigt + \Sigma_e)$ with an escape cross section $\Sigma_e$ (Wigner's
+  rational approximation for a lump) [2,3]. A geometry-dependent escape estimate
+  is needed; $\Sigma_e=1/\bar\ell$ is an isolated-lump approximation, not a general
+  leakage law. The weight may be chosen per region, but then
+  $\Sigt\tpsi=[\Sigt/(\Sigt+\Sigma_e)]\sum_b\tpsi_bP_b$ is generally no longer
+  polynomial. The exact-removal simplification does not carry over.
+  \item \emph{Wide resonances.} Where $\Gamma \gtrsim (1-\alpha)E$ (heavy nuclides, low
+  energies), the collision density can develop its own resonance structure [2];
+  $F$ is then not smooth through the resonance and the polynomial part must represent
+  that dip. The finite-dimensional Galerkin approximation is not exact; exact
+  full-residual RMC can still recover the physical solution's projection in expectation.
+  \item \emph{Upscatter and thermal energies.} Free-gas and thermal scattering broaden
+  $f$, but thermal kernels and source structure require their own smoothness analysis.
+  The algebraic factorization remains valid wherever $\Sigt>0$.
+\end{itemize}
+
+\section{Relation to existing methods}
+
+\begin{itemize}
+  \item \emph{Narrow-resonance weighting and Bondarenko self-shielding} [1--3] use
+  shapes proportional to $1/(\sigma_t+\sigma_0)$ in microscopic units, or
+  $1/(\Sigma_t+\Sigma_0)$ with consistent macroscopic units, as
+  \emph{weighting functions} for multigroup constants. The multigroup unknowns
+  are integrated group fluxes, rather than a resolved in-group shape. Here a
+  related shape is the
+  \emph{trial function} of a Petrov--Galerkin discretization, and the Monte Carlo
+  correction (RMC), when its source and transport are unbiased, recovers the
+  physical solution's projection in expectation.
+  \item \emph{Subgroup and probability-table methods} [3] parametrize the flux by the
+  value of $\Sigt$ inside a group; the weighted basis instead keeps a continuous energy
+  variable with an analytic dependence on $\Sigt(E)$.
+  \item \emph{Energy finite elements}: wavelet discontinuous Galerkin in energy with a
+  $\Sigt$-orthogonalized basis for the resolved resonance range [4]; finite elements
+  with discontiguous support (FEDS), which cluster representative spectra to define
+  discontiguous energy elements and use spectral basis shapes [5]. Sorting only
+  by $\Sigt$ with constant functions is a related band model, not the full published
+  FEDS construction. The discrete generalized multigroup method expands the flux
+  within coarse groups in discrete orthogonal polynomials [6].
+  \item \emph{Monte Carlo functional expansion tallies} [7] estimate expansion
+  coefficients such as $t_a$ with orthogonal polynomials; \eqref{eq:projection} adds a
+  weighted mass matrix to such tallies.
+  \item \emph{Residual / exponentially convergent Monte Carlo} has used piecewise
+  constant and linear (continuous or discontinuous) trial spaces in space and angle
+  [8--11], and piecewise-constant energy bins for continuous energy [12--14].
+\end{itemize}
+The search for this note did not identify an RMC implementation with this exact
+$1/\Sigt$-weighted Petrov--Galerkin pair. This limited search does not establish
+novelty or absence from the wider Galerkin transport literature. Its ingredients
+(resonance weighting, energy finite elements and coefficient tallies) are established.
+
+\section{Verification plan}
+
+\begin{enumerate}
+  \item A = 1 absorber (constant $\Sigt$): the reconstructed fixed point agrees
+  with the linear basis up to numerical error; compare stochastic observables
+  using their uncertainties rather than requiring bitwise equality for the same seeds.
+  \item 0D O-16 and U-238 + H windows: the fixed point equals the deterministic solve of
+  \eqref{eq:galerkin}; difference to SMC against the constant and linear bases; SMC
+  tallied with the same moments $t_a$ (and finer bins) to compare like with like.
+  \item Full-residual iterations: number of convergent iterations before the stall, and
+  the stall level, against the linear basis.
+\end{enumerate}
+
+\begin{thebibliography}{99}
+\bibitem{bondarenko} I.~I.~Bondarenko (ed.), \emph{Group Constants for Nuclear Reactor
+  Calculations}, Consultants Bureau, New York (1964).
+\bibitem{bell} G.~I.~Bell and S.~Glasstone, \emph{Nuclear Reactor Theory}, Van
+  Nostrand Reinhold (1970) (resonance absorption, narrow- and wide-resonance
+  approximations, equivalence relations).
+\bibitem{stacey} W.~M.~Stacey, \emph{Nuclear Reactor Physics}, 2nd ed., Wiley-VCH
+  (2007), Ch.~11, \emph{Resonance Absorption} (resonance approximations,
+  equivalence relations and multiband self-shielding),
+  \href{https://doi.org/10.1002/9783527611041.ch11}{doi:10.1002/9783527611041.ch11}.
+\bibitem{letellier} R.~Le~Tellier, D.~Fournier and J.~M.~Ruggieri, ``A Wavelet-Based
+  Finite Element Method for the Self-Shielding Issue in Neutron Transport,''
+  \emph{Nucl.\ Sci.\ Eng.} \textbf{163}(1), 34--55 (2009),
+  \href{https://doi.org/10.13182/NSE163-34}{doi:10.13182/NSE163-34}.
+\bibitem{till} A.~T.~Till, \emph{Finite Elements with Discontiguous Support for Energy
+  Discretization in Particle Transport}, Ph.D.\ thesis, Texas A\&M University (2015);
+  A.~T.~Till, M.~L.~Adams and J.~E.~Morel, ``The Finite Element with Discontiguous
+  Support Multigroup Method: Theory,'' M\&C 2015.
+  Published treatment: A.~T.~Till, M.~L.~Adams and J.~E.~Morel,
+  \emph{The Finite-Element with Discontiguous-Support Method},
+  Nucl.\ Sci.\ Eng.\ \textbf{196}(1), 53--74 (2022),
+  \href{https://doi.org/10.1080/00295639.2021.1932224}{doi:10.1080/00295639.2021.1932224}.
+\bibitem{zhu} L.~Zhu and B.~Forget,
+  \emph{A discrete generalized multigroup energy expansion theory},
+  Nucl.\ Sci.\ Eng.\ \textbf{166}(3), 239--253 (2010),
+  \href{https://doi.org/10.13182/NSE09-84}{doi:10.13182/NSE09-84};
+  \emph{An energy recondensation method using the discrete generalized multigroup
+  energy expansion theory}, Ann.\ Nucl.\ Energy \textbf{38}(8), 1718--1727 (2011),
+  \href{https://doi.org/10.1016/j.anucene.2011.04.008}{doi:10.1016/j.anucene.2011.04.008}.
+\bibitem{griesheimer} D.~P.~Griesheimer, W.~R.~Martin and J.~P.~Holloway,
+  ``Convergence properties of Monte Carlo functional expansion tallies,''
+  \emph{J.\ Comput.\ Phys.} \textbf{211}, 129 (2006).
+\bibitem{peterson} J.~R.~Peterson, J.~E.~Morel and J.~C.~Ragusa,
+  ``Exponentially-convergent Monte Carlo for the 1-D transport equation,'' M\&C 2013;
+  J.~R.~Peterson, M.S.\ thesis, Texas A\&M University (May 2014),
+  \href{https://oaktrust.library.tamu.edu/bitstreams/69ab2dae-3fef-4daf-96d0-2bd1896d81e3/download}
+  {university copy}.
+  Published formulation: \emph{Residual Monte Carlo for the One-Dimensional
+  Particle Transport Equation}, SIAM J.\ Sci.\ Comput.\ \textbf{38}(6),
+  B941--B961 (2016), \href{https://doi.org/10.1137/16M1057619}{doi:10.1137/16M1057619}.
+\bibitem{franke} B.~C.~Franke, D.~E.~Bruss and J.~E.~Morel, ``Residual Monte Carlo with
+  Discrete Scattering Angles in the 1-D Transport Equation,'' ANS Winter Meeting
+  \emph{Trans.\ Am.\ Nucl.\ Soc.} \textbf{109}(1), 679--682 (2013),
+  \href{https://www.ans.org/pubs/transactions/volume-109/}{ANS publication record}.
+\bibitem{bolding} S.~R.~Bolding and J.~E.~Morel, ``Residual Monte Carlo Transport in
+  Time with Consistent Low-Order Acceleration for 1D Thermal Radiative Transfer,''
+  M\&C 2017,
+  \href{https://www.kns.org/files/int_paper/paper/MC2017_2017_2/P102S02-03BoldingS.pdf}
+  {conference paper}.
+\bibitem{vermaak} J.~I.~C.~Vermaak and J.~E.~Morel, ``Transport Error Estimation Using
+  Residual Monte Carlo,'' \emph{J.\ Comput.\ Phys.} (2022).
+\bibitem{larsen-nse} M.~Larsen et al., ``A Residual Monte Carlo Algorithm for
+  Continuous Energy Neutron Transport with Elastic Scattering,'' \emph{Nucl.\ Sci.\
+  Eng.} \textbf{200}(3), 525--538 (2026),
+  \href{https://doi.org/10.1080/00295639.2025.2495608}{doi:10.1080/00295639.2025.2495608}.
+\bibitem{larsen-diss} M.~Larsen, Ph.D.\ dissertation, Oregon State University (2025).
+\bibitem{larsen-1d} ``A Residual Monte Carlo Algorithm for 1D Continuous-Energy Neutron
+  Transport,'' \emph{Nucl.\ Sci.\ Eng.} (2026), doi:10.1080/00295639.2026.2659992.
+\end{thebibliography}
+
+\end{document}

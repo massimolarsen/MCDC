@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{preamble}
 
-\title{Inverted kernel: discrete-level inelastic scattering (ENDF Law 3)}
+\title{Inverted kernel: discrete-level inelastic scattering (ACE Law 3)}
 \date{}
 
 \begin{document}
@@ -12,6 +12,10 @@
 \texttt{\_delta\_inner} in \texttt{mcdc/rmc/kernel.py}.
 
 \section{What MC/DC samples}
+
+\noindent Source: \acespec{4.3.11.3} (level-scattering parameters).
+The frame and angular interpolation below describe the MC/DC sampler; the
+COM-to-lab transformation is derived in \texttt{frames\_and\_azimuth.tex}.
 
 \texttt{sample\_inelastic\_scattering} with a level-scattering spectrum in the COM
 frame: the COM outgoing energy is fixed,

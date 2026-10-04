@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{preamble}
 
-\title{Inverted kernel: evaporation spectrum (ENDF Law 9)}
+\title{Inverted kernel: evaporation spectrum (ACE Law 9 / ENDF MF=5, LF=9)}
 \date{}
 
 \begin{document}
@@ -11,6 +11,9 @@
 \texttt{mcdc/rmc/evaluate.py}.
 
 \section{What MC/DC samples}
+
+\noindent Sources: \acespec{4.3.11.7}; \endfspec{MF=5, LF=9}.
+The sampled density below assumes $\theta(\Ein)>0$ and $\Ein>U$.
 
 \texttt{sample\_evaporation}: with the nuclear temperature $\theta(\Ein)$ (tabulated,
 interpolated by \texttt{evaluate\_data} with the ENDF interpolation laws of the data;

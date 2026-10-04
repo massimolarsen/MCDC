@@ -31,6 +31,12 @@ its own write-up in this directory: \texttt{frames\_and\_azimuth.tex},
 \texttt{tabulated\_spectra.tex}, \texttt{kalbach\_mann.tex},
 \texttt{energy\_angle\_tabulated.tex}, \texttt{evaporation.tex},
 \texttt{maxwellian.tex}, \texttt{n\_body.tex} and \texttt{multi\_spectrum\_yield.tex}.
+The linear discontinuous energy trial space (\texttt{energy\_basis="linear"}) is
+described in \texttt{linear\_energy\_basis.tex}, and the proposed self-shielded
+($1/\Sigma_t$-weighted) trial space in \texttt{self\_shielded\_basis.tex}; the
+continuous linear spatial and linear discontinuous angular trial spaces in
+\texttt{continuous\_linear\_space.tex} and \texttt{linear\_discontinuous\_angle.tex}.
+This note uses the piecewise-constant space throughout.
 
 \tableofcontents
 
@@ -58,6 +64,10 @@ included) and $N_r$ the atom density of its nuclide. $\mathcal F$ is the same wi
 fission reactions (all prompt). Neutrons leaving the energy window
 $[E_{\min},E_{\max}]$ are killed; this is part of $L$ for both RMC and standard Monte
 Carlo (SMC).
+The fixed-source arguments below assume that $L^{-1}$ exists and the requested
+transport tallies have finite moments; a multiplying system must be subcritical
+for the fixed-source Monte Carlo solve. Boundary residuals include any mismatch
+between the trial flux and the prescribed incoming flux.
 
 \paragraph{Trial space.} Bins $(k,g,j)$ of widths $h_k$, $\Delta E_g$, $\Delta\mu_j$
 ($\mu=0$ is an edge). The trial function is piecewise constant,
@@ -81,15 +91,19 @@ projection $\teps=P\epsilon$ with a track-length estimator on the trial-space me
 then $\tpsi^{(n+1)}=\tpsi^{(n)}+\teps$.
 
 \begin{proposition}[Unbiased iterates]
-If the sampled source is an unbiased estimate of the exact residual $r=q-L\tpsi$, then
-$\E[\teps]=P L^{-1} r = P\psi-\tpsi$, hence $\E[\tpsi^{(n+1)}]=P\psi$ for every
+If the source and transport tally are unbiased estimates for the exact residual
+$r=q-L\tpsi$, including boundary mismatches, then
+$\E[\teps\mid\tpsi]=P L^{-1} r = P\psi-\tpsi$, hence
+$\E[\tpsi^{(n+1)}\mid\tpsi]=P\psi$ for every
 $\tpsi^{(n)}$ (since $P\tpsi=\tpsi$).
 \end{proposition}
 
-The iterates then fluctuate about the exact bin averages, with a noise proportional to
-the residual norm $\|r\|_1$ (the weights are $\propto |r|/q$). The exponential
-convergence of RMC comes from $\|r\|\to 0$; any part of $r$ that cannot vanish sets a
-noise floor (Section~\ref{sec:schedule}).
+This is an expectation identity, not a proof of convergence of individual iterates.
+The source-weight second moment depends on $r$ and the proposal; tally variance also
+depends on the transport response. Sequential RMC can converge geometrically when
+the error update contracts in mean square, but a vanishing residual at a fixed point
+alone does not establish that contraction \cite{peterson,vermaak}. An unresolved
+residual generally leaves finite-history noise (Section~\ref{sec:schedule}).
 
 \paragraph{Normalization.} MC/DC tallies are per source history, so a residual term
 $r_i$ sampled with $N_i$ of the $N$ histories from a density $q_i$ carries the weight
@@ -106,8 +120,11 @@ and the tally divided by $h_k\Delta E_g\Delta\mu_j$ is $\teps_{kgj}$.
 For piecewise-constant $\tpsi$, $\mu\partial_z\tpsi$ is a sum of delta functions at
 the cell faces, and the residual splits as
 \begin{equation}
-  r = r_c + r_e + r_s + r_f .
+  r = r_c + r_e + r_s + r_f + r_q,\qquad Q=Pq,\quad r_q=q-Q .
 \end{equation}
+The external-source remainder $r_q$ is zero only when the source is represented
+exactly by the trial space. Otherwise it must be included in full-residual passes;
+using $Q$ alone targets the projected-source problem.
 
 \paragraph{Binned in- and fission sources.} The \emph{transfer moments}
 \begin{equation}
@@ -140,13 +157,13 @@ face $z_f$,
 At a vacuum boundary only incoming directions carry a jump ($\psi_{\rm in}=0$); at a
 reflective boundary the incoming value is the mirrored $\tpsi(-\mu)$.
 
-\paragraph{Scattering and fission corrections.} The remainder of $q-L\tpsi$ is
+\paragraph{Scattering and fission corrections.} The scattering remainder is
 \begin{equation}
   r_s(z,E,\mu)=T(z,E,\mu)-\Sbar_{kgj},\qquad T=\mathcal S\tpsi ,
   \label{eq:rs}
 \end{equation}
 and $r_f$ likewise. By construction $\int_{kgj} r_s=0$: $r_s$ carries only the in-bin
-shape of the in-scatter source. It does \emph{not} vanish as $\tpsi\to P\psi$.
+shape of the in-scatter source. It generally does not vanish as $\tpsi\to P\psi$.
 
 %======================================================================================
 \section{Inverted scattering kernels}
@@ -155,10 +172,13 @@ shape of the in-scatter source. It does \emph{not} vanish as $\tpsi\to P\psi$.
 MC/DC \emph{samples} $(E,\mu_0)$ given $E'$; RMC needs the \emph{density}
 $\tau_r(E'\to E,\mu'\to\mu)$ evaluated at given points. Every evaluator in
 \texttt{evaluate.py} and \texttt{reaction.py} mirrors the corresponding MC/DC sampler
-(including its table interpolation), so that $\mathcal S$ in the residual is exactly
-the operator transport applies.
+(including its table interpolation). Matching that sampler defines the intended
+$\mathcal S$; finite tabulation, quadrature and tail truncation introduce additional
+numerical approximations. Sampler agreement is distinct from independent validation
+of the physical scattering model.
 
-\paragraph{Lab density.} For a law giving $f_C(E_{cm},\mu_{cm}\,|\,E')$ in the
+\paragraph{Lab density.} For a law using classical COM-to-lab kinematics and giving
+$f_C(E_{cm},\mu_{cm}\,|\,E')$ in the
 centre-of-mass frame, with $s_A=\sqrt{E'}/(A+1)$,
 \begin{equation}
   E=E_{cm}+s_A^2+2\mu_{cm}s_A\sqrt{E_{cm}},\qquad
@@ -171,8 +191,11 @@ levels) are delta lines in $(E,\mu_0)$: for each $E$ there is one $\mu_0^*(E',E)
   f_L=g(E\,|\,E')\,\delta(\mu_0-\mu_0^*),\qquad
   g(E\,|\,E')=p(\mu_{cm}^*)\left|\frac{\dd\mu_{cm}}{\dd E}\right|,
 \end{equation}
-with $p$ the real (anisotropic) COM angular distribution; for isotropic elastic,
-$g=1/((1-\alpha)E')$.
+with $p$ the data's COM angular distribution. In the classical isotropic elastic
+limit, $\alpha=((A-1)/(A+1))^2$ and $g=1/((1-\alpha)E')$.
+MC/DC's target-at-rest elastic sampler instead combines classical velocity addition
+with a relativistic speed--energy conversion: its line Jacobian is the one derived
+in \texttt{elastic.tex}, not this constant classical density.
 
 \paragraph{Azimuthal kernel.} With $\mu_0=\mu\mu'+\sqrt{1-\mu^2}\sqrt{1-\mu'^2}\cos\phi$,
 integrating over the relative azimuth gives
@@ -187,7 +210,9 @@ $K$ is symmetric in $(\mu',\mu)$, and its integral over an incident bin is analy
   =\frac1\pi\Big[\arcsin t\Big]_{t(\mu'_{j'-1/2})}^{t(\mu'_{j'+1/2})},\quad
   t(\mu')=\operatorname{clip}\!\Big(\frac{\mu'-\mu\mu_0}{\sqrt{1-\mu^2}\sqrt{1-\mu_0^2}}\Big).
 \end{equation}
-The code works with the bounded, bin-integrated kernel
+The density is zero outside its kinematic support. When
+$\sqrt{1-\mu^2}\sqrt{1-\mu_0^2}=0$, its limiting distribution is a delta function;
+bin membership replaces the arcsine formula. The code works with the bin-integrated kernel
 \begin{equation}
   \bar\tau_{r,j'}(E'\!\to E,\mu)=\int_{j'}\tau_r\dd\mu'=\int\dd\mu_0\,f_L(E,\mu_0|E')\,\Pi_{j'}(\mu,\mu_0),
 \end{equation}
@@ -211,9 +236,12 @@ Kronrod--Gauss difference $e$ satisfies
   e\le \mathrm{tol}\cdot|K_{[a,b]}| \quad\text{or}\quad
   e\le \mathrm{tol}\cdot S_{\rm row}\,\frac{b-a}{E_b-E_a},
 \end{equation}
-so the row error is at most $\mathrm{tol}\cdot S_{\rm row}$. The tolerance is clamped
+This controls an embedded error estimate, not a rigorous bound on the row error;
+Gauss--Kronrod agreement can miss unresolved structure. The interval-scaled criterion
+budgets those estimates against $S_{\rm row}$, whereas the relative criterion is
+local. The tolerance is clamped
 at $10^{-8}$: the angular table is linear in $\theta_0$ between 8193 nodes, and below
-$\sim10^{-8}$ every node is an unlisted kink (an O-16 elastic row costs 6\,ms at
+$\sim10^{-8}$ the unlisted interpolation knots can dominate refinement (an O-16 elastic row costs 6\,ms at
 $10^{-8}$ and 134\,s at $10^{-9}$ for the same seven digits).
 
 %======================================================================================
@@ -225,7 +253,8 @@ $A_{kgj}=h_k\Delta\mu_j\int_g|r_c|\dd E$ (piecewise linear integrand on the unio
 cross-section grid) and $B=\Delta E_g|D|\,|\mu_b^2-\mu_a^2|/2$ for faces. A bin is
 chosen with probability $\propto$ mass, then $(z,E,\mu)$ uniformly (faces: $\mu^2$
 uniform, $z=z_f$ nudged into the cell), with the weight~\eqref{eq:weight}. The
-variance per history is then of order $(\|r_c\|_1+\|r_e\|_1)^2$.
+source-weight second moment scales with these masses; transport tally variance
+additionally depends on the response to a particle born at each source point.
 
 \paragraph{Importance sampling and the best proposal.} For a term $r$ sampled from
 $q$, $\E[w]=\frac{N}{N_i}\int r$ and
@@ -236,20 +265,24 @@ $q$, $\E[w]=\frac{N}{N_i}\int r$ and
 \end{equation}
 with equality for $q^*\propto|r|$ (Cauchy--Schwarz). The minimal second moment is
 $\|r\|_1^2$.
+This optimum concerns the source weight. For a transported quantity of interest,
+the optimum proposal also depends on the conditional second moment of that
+particle's tally response.
 
 %======================================================================================
 \section{Two-phase schedule}
 \label{sec:schedule}
 %======================================================================================
 
-Sampling $r_s$ in every iteration stalls RMC near SMC accuracy: $r_s$ never vanishes,
-so the per-iteration noise stays $\propto\|r_s\|_1$. The same holds for the in-bin
+Sampling an unresolved $r_s$ in every iteration can produce a noise floor; its size
+relative to SMC is problem- and tally-dependent \cite{vermaak}. The same applies to the in-bin
 part of $\Sigt(E)\tpsi$ in $r_c$:
 \begin{equation}
   \Sigt(E)\tpsi_{kgj}=\bar\Sigma_{t,g}\tpsi_{kgj}+\big(\Sigt(E)-\bar\Sigma_{t,g}\big)\tpsi_{kgj},
   \qquad \bar\Sigma_{t,g}=\frac{1}{\Delta E_g}\int_g\Sigt\dd E,
 \end{equation}
-whose second term has zero bin integral and never vanishes. The schedule is:
+whose second term has zero bin integral and generally persists at a nonzero fixed
+point when $\Sigt$ varies within the bin. The schedule is:
 
 \begin{enumerate}
 \item \textbf{Collision-only iterations} with the binned residual
@@ -258,12 +291,16 @@ whose second term has zero bin integral and never vanishes. The schedule is:
   \end{equation}
   which is constant in $E$ within each bin. In 0D, $r^{(1)}=0$ is the multigroup system
   $\bar\Sigma_{t,g}\tpsi_{gj}=Q_{gj}+\Sbar_{gj}+\bar F_{gj}$ with flat-flux-weighted
-  cross sections and moments; the iteration converges to its solution $\tpsi^*$
-  (the flat-weighted multigroup solution), not to $P\psi$.
+  cross sections and moments. If $PL^{-1}$ is nonsingular on this residual space,
+  its mean fixed point is that system's solution $\tpsi^*$ (the flat-weighted
+  multigroup solution), generally different from $P\psi$. Convergence to that
+  fixed point requires the contraction conditions below.
 \item \textbf{Correction passes} at $\tpsi^*$ with the exact residual
-  ($r_c$ with pointwise $\Sigt(E)$, $r_e$, $r_s$, $r_f$). Each pass is an unbiased
-  estimate of $P\psi-\tpsi^*$; the passes are averaged (not accumulated), so the
-  correction noise falls as $1/\sqrt{\text{passes}}$:
+  ($r_c$ with pointwise $\Sigt(E)$, $r_e$, $r_s$, $r_f$, and $r_q$ if nonzero).
+  With exact residual evaluation and unbiased transport, each pass is an unbiased
+  estimate of $P\psi-\tpsi^*$, even if the fixed trial function is not the phase-1
+  fixed point. Independent passes with finite variance are averaged (not accumulated),
+  so their standard error falls as $1/\sqrt{\text{passes}}$:
   \begin{equation}
     \tpsi_{\rm final}=\tpsi^*+\frac1{N_c}\sum_{m=1}^{N_c}\teps^{(m)},\qquad
     \E[\tpsi_{\rm final}]=P\psi .
@@ -273,13 +310,24 @@ whose second term has zero bin integral and never vanishes. The schedule is:
 \paragraph{Convergence rate of phase 1.} Write the phase-1 operator as $L_h$
 ($r^{(1)}=q_h-L_h\tpsi$). Then
 \begin{equation}
-  \E[\tpsi^{(n+1)}]-\tpsi^*=\big(I-PL^{-1}L_h\big)\big(\tpsi^{(n)}-\tpsi^*\big),
+  \E[\tpsi^{(n+1)}\mid\tpsi^{(n)}]-\tpsi^*
+  =\big(I-PL^{-1}L_h\big)\big(\tpsi^{(n)}-\tpsi^*\big),
 \end{equation}
-so the rate is the spectral radius of $I-PL^{-1}L_h$, the mismatch between the binned
-operator and transport. For cross sections constant within bins, $L^{-1}L_h\approx I$
-and the contraction is very fast (A\,=\,1: about $0.03$ per iteration). In bins where
-$\Sigt$ varies by a large factor (an O-16 resonance window), the mismatch is $O(1)$ and
-the iteration contracts slowly there; in the 1--10 MeV O-16 run, 77\% of the
+where $\tpsi^*$ satisfies $PL^{-1}(q_h-L_h\tpsi^*)=0$. Taking expectation
+again gives the same matrix acting on the mean error. Mean convergence requires
+$\rho(I-PL^{-1}L_h)<1$. For example, a one-bin 0D pure absorber with $\Sigt=1$
+and $100$ on equal halves has mean error multiplier
+$1-\langle\Sigt\rangle\langle1/\Sigt\rangle=-24.5025$, despite a unique
+zero-residual fixed point. Mean contraction alone does not imply stochastic
+convergence: a sufficient condition for geometric decay of the finite-history
+error is $\E[\|e_{n+1}\|^2\mid e_n]\le\gamma\|e_n\|^2$, $\gamma<1$, when the
+phase-1 residual vanishes at that fixed point. Here $e_n=\tpsi^{(n)}-\tpsi^*$.
+History count, sampling and any relaxation affect this condition; a persistent
+residual adds a variance floor. For cross sections constant within bins,
+$L^{-1}L_h\approx I$
+can make the mean contraction fast; the recorded A\,=\,1 example has a factor
+of about $0.03$ per iteration. Strong variation in $\Sigt$ can weaken contraction
+or cause divergence. In the recorded 1--10 MeV O-16 run, 77\% of the
 remaining $\|\teps\|^2$ after iteration 7 sits in five resonance bins.
 
 %======================================================================================
@@ -296,15 +344,17 @@ averages are then
 \end{equation}
 Since $x\mapsto1/x$ is convex for $x>0$, Jensen's inequality gives
 $\langle1/\Sigt\rangle_g\ge 1/\langle\Sigt\rangle_g$, with equality only when $\Sigt$
-is constant on the bin:
+is constant on the bin. For the same positive, constant source $S$:
 \begin{equation}
   \bar\psi_{\rm binned}\le\bar\psi_{\rm true}.
 \end{equation}
-The flat average weights the high-$\Sigt$ part of a bin, where the true flux is small,
-so it overcounts collisions. The bias is one-signed, largest for deep windows (O-16 at
-2.35\,MeV: $-26\%$ with $G=100$ on 1--10\,MeV), and local: the emission out of the bin,
-$\approx(\bar\sigma_s/\bar\sigma_t)\,S\,\Delta E_g$, is nearly correct, so bins
-downstream are hardly affected. The correction passes remove it; a narrow-resonance
+The flat average overweights the high-$\Sigt$ part relative to the shielded flux.
+This establishes the sign of the local error under the constant-source assumption,
+not a sign theorem for the coupled scattering solution. The recorded O-16 example
+has a $-26\%$ error at 2.35\,MeV with $G=100$ on 1--10\,MeV.
+Downstream effects depend on the reaction branching ratios and transfer kernels;
+they cannot in general be assumed small. Exact full-residual correction passes
+remove the projected-solution bias in expectation; a narrow-resonance
 weighting $\bar\Sigma_{t,g}=\Delta E_g/\int_g\Sigt^{-1}\dd E$ (and $1/\Sigt$-weighted
 moments) would remove it at leading order in phase 1.
 
@@ -318,7 +368,14 @@ moments) would remove it at leading order in phase 1.
   t=\sum_{j'}\tpsi_{kg'j'}U_{j'}(E'\!\to E,\mu),\quad
   U_{j'}=\sum_r N_r\sigma_r(E')\,\bar\tau_{r,j'},
 \end{equation}
-with $\bar s=\Sbar_{kgj}/\Delta E_{g'}$ per unit incident energy. Its best second moment
+with the contribution from this incident bin subtracted per unit incident energy:
+\[
+  \bar s_{g'}=\frac{\Sbar^{(g')}_{kgj}}{\Delta E_{g'}},\qquad
+  \Sbar^{(g')}_{kgj}=\frac{1}{\Delta E_g\Delta\mu_j}
+  \sum_{j'}M_{m_k,g'j'gj}\tpsi_{kg'j'} .
+\]
+Thus $\sum_{g'}\int_{g'}\bar s_{g'}\dd E'=\Sbar_{kgj}$.
+Below, $\bar s$ denotes this incident-bin-dependent subtraction. Its best second moment
 is $\big(\int\!\!\int|t-\bar s|\dd E'\dd E\dd\mu\big)^2$: for $\mu_0$-correlated
 two-body kernels, $t$ is a triangle in $(E',E)$ on diagonal blocks while $\bar s$ is
 flat, so $|t-\bar s|$ is of the size of $t$ itself, whatever $\|r_s\|_1$ is
@@ -337,19 +394,33 @@ uniformly in the bin, with
   q=\frac{P_{kgj}}{h_k\Delta E_g\Delta\mu_j}.
 \end{equation}
 The pilot masses $A_{kgj}=h_k\Delta E_g\Delta\mu_j\big(\overline{|T-\Sbar|}+0.1|\Sbar_{kgj}|\big)$
-use $2\times2$ Gauss points per bin; the floor $0.1|\Sbar|$ keeps $q>0$ wherever $r_s$
-can be nonzero, so the estimator is unbiased for any pilot accuracy. $T$ is evaluated
+use $2\times2$ Gauss points per bin. This floor is a heuristic, not a support
+guarantee for signed trial functions: $T=x^2-1/3$ on $x\in[-1,1]$ has zero bin
+average and vanishes at both Gauss nodes, but has a nonzero residual elsewhere.
+Unbiased importance sampling requires $q>0$ wherever $r_s\ne0$; a mixture with an
+independent proposal positive throughout the possible support is one way to ensure
+this. The pilot formula alone does not establish that requirement.
+$T$ is evaluated
 by adaptive G7--K15 in $E'$, split at the trial-space edges (where $\tpsi$ jumps) and at
 the incident energies where a reaction's emission support crosses $E$, to relative
-tolerance $10^{-6}$ (an absolute bias of at most $10^{-6}T$ per evaluation).
+tolerance $10^{-6}$. This is an estimated relative error, not a guaranteed bias
+bound; signed cancellation also requires an absolute error scale. Cross-section
+grid points inside the kinematic window should be integration breakpoints to
+resolve incident-energy structure. A computed $\widehat T$ samples
+$\widehat T-\Sbar$; the quadrature error $\widehat T-T$ remains a deterministic
+source error.
 
 \begin{proposition}[Rao--Blackwell]
-For the same marginal proposal in $(z,E,\mu)$, the integrated estimator is the
+With exact incident-energy integration, adequate proposal support and finite second
+moments, for the same marginal proposal in $(z,E,\mu)$, the integrated estimator is the
 conditional expectation of the pointwise one given $(z,E,\mu)$, so its variance is never
 larger; its best second moment is $\|r_s\|_1^2$ instead of
 $\big(\int\!\!\int|t-\bar s|\big)^2$, by the triangle inequality
 $\big|\int(t-\bar s)\dd E'\big|\le\int|t-\bar s|\dd E'$.
 \end{proposition}
+Finite quadrature is an approximation to this conditional expectation, so this
+theorem does not by itself guarantee unbiasedness or variance ordering for the
+implemented numerical integral.
 
 \noindent The price is the cost of evaluating $T$ (one adaptive $E'$ integral per
 sample and $4GJ$ per pass for the pilot), which is deterministic work outside the
@@ -360,8 +431,9 @@ transport loop.
 \section{Reference solutions used by the examples}
 %======================================================================================
 
-\paragraph{Infinite-medium slowing down.} For target-at-rest elastic scattering
-isotropic in the COM frame (the synthetic nuclides of \texttt{examples/rmc}), the
+\paragraph{Infinite-medium slowing down.} In the classical target-at-rest limit,
+for elastic scattering isotropic in the COM frame (the reference model for the
+synthetic nuclides of \texttt{examples/rmc}), the
 collision density $F=\Sigt\phi$ satisfies
 \begin{equation}
   F(E)=q(E)+\sum_n\int_E^{\min(E/\alpha_n,E_{\max})}
@@ -374,13 +446,36 @@ $E/E'=e^{-(u-u')}$, so
   \Big[H_n(u)-H_n(u-\ln\tfrac{1}{\alpha_n})\Big],\qquad
   H_n(u)=\int_0^u c_n\tilde F e^{u'}\dd u',
 \end{equation}
-which is marched with the trapezoid rule, implicit in the current node, on a lethargy
-grid that contains every bin edge, source edge, and data point. It reproduces the
-closed forms ($A=1$ with absorption; $A=4$ above $\alpha E_0$) to $\sim10^{-10}$.
+with $H_n(v)=0$ for $v<0$; for $\alpha_n=0$ the energy integral's upper limit
+is $E_{\max}$ and the delayed $H_n$ term is zero.
+The equation is marched with the trapezoid rule, implicit in the current node, on a
+lethargy grid that contains every bin edge, source edge, and data point. The recorded
+agreement with the classical closed forms ($A=1$ with absorption; $A=4$ above
+$\alpha E_0$) is $\sim10^{-10}$; this is a reference-model comparison, not an error
+bound for MC/DC's distinct elastic kinematics.
 
-\paragraph{Energy scaling.} Target-at-rest slowing down with energy-independent
-angular laws is invariant under $E\to sE$, $\sigma(E)\to\sigma(E/s)$: the examples
+\paragraph{Energy scaling.} Classical target-at-rest slowing down with
+energy-independent angular laws is invariant under $E\to sE$,
+$\sigma(E)\to\sigma(E/s)$, with the source density transformed consistently: the examples
 below MC/DC's free-gas threshold ($400\,kT$) are run with all energies scaled by
 $s=10^4$ and mapped back ($\phi\to s\,\phi$).
+This invariance is approximate for MC/DC's elastic sampler: the relativistic
+speed--energy map contains the neutron rest energy, which is not scaled.
+For $A=1$, $\mu_{cm}=0$, scaling 100\,eV to 1\,MeV changes $E_{\rm out}/E_{\rm in}$
+from approximately $0.49999996$ to $0.49960109$. Scaling also changes which energies
+use the thermal-target model, so the mapped run is not an exact equivalent of
+unscaled free-gas transport.
+
+\begin{thebibliography}{9}
+\bibitem{peterson} J.~R.~Peterson, J.~E.~Morel and J.~C.~Ragusa,
+  \emph{Residual Monte Carlo for the One-Dimensional Particle Transport Equation},
+  SIAM J.\ Sci.\ Comput.\ \textbf{38}(6), B941--B961 (2016),
+  \href{https://doi.org/10.1137/16M1057619}{doi:10.1137/16M1057619}.
+\bibitem{vermaak} J.~I.~C.~Vermaak and J.~E.~Morel,
+  \emph{Transport Error Estimation Using Residual Monte Carlo},
+  J.\ Comput.\ Phys.\ (2022),
+  \href{https://doi.org/10.1016/j.jcp.2022.111306}{doi:10.1016/j.jcp.2022.111306},
+  Secs.~1, 3.4 and 4.1 (convergence qualifications and the spatial-face pitfall).
+\end{thebibliography}
 
 \end{document}

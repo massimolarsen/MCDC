@@ -15,8 +15,8 @@ collects the transformations they share. Code: \texttt{mcdc/rmc/kinematics.py},
 
 \section{Center-of-mass to lab, inelastic and fission}
 
-MC/DC's inelastic and fission samplers draw $(\Ecm, \mucm)$ in the COM frame and
-convert with the classical relations (MCNP Eqs.~2.43--2.44), with $A$ the target
+For inelastic and fission spectra whose data frame is COM, MC/DC draws
+$(\Ecm,\mucm)$ there and converts by classical velocity addition, with $A$ the target
 atomic-weight ratio:
 \begin{equation}
   \Eout = \Ecm + \frac{\Ein + 2\mucm (A+1)\sqrt{\Ein\Ecm}}{(A+1)^2},\qquad
@@ -27,7 +27,10 @@ The inverse used by the evaluators is
   \Ecm = \Eout + \frac{\Ein}{(A+1)^2} - \frac{2\mulab\sqrt{\Ein\Eout}}{A+1},\qquad
   \mucm = \frac{\mulab\sqrt{\Eout} - \sqrt{\Ein}/(A+1)}{\sqrt{\Ecm}},
 \end{equation}
-and a lab point with $\Ecm \le 0$ is unreachable.
+and a lab point with $\Ecm<0$ is unreachable. The density formulas use
+$\Ecm>0$; zero-speed degeneracies are interpreted by their distributional limits.
+The frame flag is part of the source data (\endfspec{MF=6, LCT});
+lab-frame spectra do not undergo this COM transformation.
 
 \paragraph{Joint Jacobian.} The lab velocity is $\bm v = \bm V_c + \bm w$ with $\bm V_c$
 the (fixed) COM velocity, so the velocity density is translation invariant:
@@ -40,7 +43,8 @@ $p_v = f_L / (2\pi c\sqrt{\Eout})$ and $p_w = f_C / (2\pi c\sqrt{\Ecm})$ give
 
 \section{Two-body (line) kernels}
 
-For a fixed COM energy $\Ecm$ (elastic: $\Ecm$ set by $\Ein$; discrete levels: Law 3),
+Under classical kinematics, for a fixed COM energy $\Ecm$
+(classical elastic or discrete levels: ACE Law 3),
 $\Eout$ is affine in $\mucm$,
 $\left|\dd\mucm/\dd\Eout\right| = (A+1)/(2\sqrt{\Ein\Ecm})$, and each $\Eout$ fixes one
 $\mulab^*(\Eout)$. The lab density is a line,
@@ -49,7 +53,8 @@ $\mulab^*(\Eout)$. The lab density is a line,
   g = Y\,p_c\big(\mucm^*(\Eout)\big)\left|\frac{\dd\mucm}{\dd\Eout}\right| ,
 \end{equation}
 with $p_c$ the COM angular density and $Y$ the yield. Elastic scattering in MC/DC adds
-velocities with the relativistic speed--energy relation; see \texttt{elastic.tex}.
+velocities with the relativistic speed--energy relation; its energy map and Jacobian
+are distinct from the classical ones above, as derived in \texttt{elastic.tex}.
 
 \section{Azimuthal integration about the slab axis}
 
@@ -64,7 +69,11 @@ symmetric in $(\mu, \mu')$. Its integral over a cosine bin $[\mu_a, \mu_b]$ is a
   \Pi(\mu', \mulab; \mu_a, \mu_b) = \frac{1}{\pi}\Big[\arcsin t\Big]_{t_a}^{t_b},\qquad
   t = \operatorname{clip}_{[-1,1]}\frac{\mu - \mu'\mulab}{\sqrt{1-\mu'^2}\sqrt{1-\mulab^2}}.
 \end{equation}
-RMC uses the bounded, incident-bin integrated kernel
+These density and arcsine expressions apply on the allowed support with a positive
+radicand and nonzero denominator. The density is zero outside the support.
+When $\sqrt{1-\mu'^2}\sqrt{1-\mulab^2}=0$, the distribution is a delta function
+at $\mu=\mu'\mulab$, and bin membership gives its integral.
+RMC uses the incident-bin integrated kernel
 \begin{equation}
   \bar\tau_j(\Ein \to \Eout, \mu') = \int\dd\mulab\, f_L(\Eout, \mulab \mid \Ein)\,
   \Pi(\mu', \mulab; \mu_{j-1/2}, \mu_{j+1/2}),
@@ -72,6 +81,8 @@ RMC uses the bounded, incident-bin integrated kernel
 in closed form ($g\,\Pi(\mu', \mulab^*)$) for lines and by adaptive Gauss--Kronrod over
 $\mulab$ (split at the kinks of $\Pi$) for continuous laws. These pieces are verified
 by the unit tests in \texttt{test/unit/rmc/test\_kinematics.py}; the lab densities
-$f_L$ of every law are verified against MC/DC's samplers in the individual write-ups.
+$f_L$ of the supported laws are compared against MC/DC's samplers in the individual
+write-ups. The shared verification note states the statistical and quadrature
+limitations of those comparisons.
 
 \end{document}

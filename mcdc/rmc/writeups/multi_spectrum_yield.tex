@@ -12,6 +12,12 @@
 
 \section{What MC/DC samples}
 
+\noindent Source for ACE applicability probabilities and yield storage:
+\acespec{4.3.11 and 4.3.11.15}. The special $N=N_s$ assignment below is a
+MC/DC implementation rule. Deriving its expected emission kernel establishes
+consistency with that sampler; it does not establish the rule as a general
+ENDF/ACE physical prescription.
+
 \texttt{sample\_inelastic\_scattering} for a reaction with $N_s$ energy spectra
 (probabilities $p_n(\Ein)$ tabulated on a grid, histogram in $\Ein$) and multiplicity
 $N$:

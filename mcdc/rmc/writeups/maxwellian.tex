@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{preamble}
 
-\title{Inverted kernel: simple Maxwellian fission spectrum (ENDF Law 7)}
+\title{Inverted kernel: simple Maxwellian fission spectrum (ACE Law 7 / ENDF MF=5, LF=7)}
 \date{}
 
 \begin{document}
@@ -11,6 +11,9 @@
 \texttt{mcdc/rmc/evaluate.py}.
 
 \section{What MC/DC samples}
+
+\noindent Sources: \acespec{4.3.11.6}; \endfspec{MF=5, LF=7}.
+The sampled density below assumes $\theta(\Ein)>0$ and $\Ein>U$.
 
 \texttt{sample\_maxwellian}: with $\theta(\Ein)$, $U$, $L = \Ein - U$ as for the
 evaporation spectrum,

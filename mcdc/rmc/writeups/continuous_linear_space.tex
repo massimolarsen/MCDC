@@ -1,0 +1,280 @@
+\documentclass[11pt]{article}
+\input{preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+\newcommand{\E}{\mathbb{E}}
+
+\title{Residual Monte Carlo with a continuous linear spatial trial space}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Slab geometry along $z$ with cells $k=0..K-1$ on nodes $z_0<\dots<z_K$,
+widths $h_k$. The transport operator is
+$L\psi = \mu\,\partial_z\psi + \Sigt\psi - \mathcal S\psi$, with $\mathcal S$ the
+scattering and fission operator (local in $z$), and RMC iterates
+\begin{equation}
+  r^{(n)} = q - L\tpsi^{(n)},\qquad L\epsilon^{(n)} = r^{(n)},\qquad
+  \tpsi^{(n+1)} = \tpsi^{(n)} + \Pi\epsilon^{(n)},
+\end{equation}
+solving the middle equation by Monte Carlo with a source sampled from $r^{(n)}$ (signed
+weights) and $\Pi$ the projection onto the trial space [1--4, 10]. The energy-angle part
+of the trial space is any of the discontinuous spaces of
+\texttt{linear\_energy\_basis.tex} and \texttt{linear\_discontinuous\_angle.tex}; it
+must be the same in every cell (Section~7).
+
+\section{Why: the face-residual pitfall}
+
+With a piecewise-constant $\tpsi$ in $z$, $\mu\,\partial_z\tpsi$ is a sum of delta
+functions at the faces, and the residual carries the face sources
+\begin{equation}
+  r_e = -\mu\,\big(\tpsi_{k}-\tpsi_{k-1}\big)\,\delta(z-z_k)
+\end{equation}
+(the edge term of \texttt{rmc\_math.tex}). For a flux that varies smoothly in $z$, each
+face carries a source $O(h\,\partial_z\psi)$, which does not vanish as the iteration
+converges, and the response to it nearly cancels the response to the collision residual
+of the adjacent cells: the iteration samples large positive and negative contributions
+whose sum is small. Vermaak and Morel identified this as the main pitfall of RMC [1]:
+on a 1D slab, a piecewise-constant approximation made RMC $6.5\times$ \emph{less}
+efficient than standard Monte Carlo, while a continuous piecewise-linear one made it
+$3\times$ more efficient in their Sec.~4.1 benchmark; these factors are not general
+performance guarantees. Continuous-energy RMC with piecewise-constant bins shows the same
+plateau in 1D [11] (the fuel rod of [D], Fig.~4.9; \texttt{NOTES.md} \S2b). Linear \emph{discontinuous} trial spaces (the classical discontinuous
+finite elements of deterministic transport [5, 9]), used by the exponentially
+convergent Monte Carlo (ECMC) work [2--4], reduce the jumps to
+$O(h^2)$ for smooth fluxes but keep a face source on every face.
+
+In the absence of internal surface sources, the true angular flux is continuous
+in $z$ for $\mu\neq0$, also across material
+interfaces (it is continuous along characteristics; only its derivative jumps). A
+continuous trial space is therefore consistent with the solution, and it removes the
+interior face residual altogether.
+
+\section{Trial space and boundary conditions}
+
+With the hat functions $h_i(z)$ ($h_i(z_l)=\delta_{il}$, linear on each cell),
+\begin{equation}
+  \tpsi(z,E,\mu) = \sum_{i=0}^{K} h_i(z)\,\Phi_i(E,\mu),\qquad
+  \tpsi = (1-s)\,\Phi_k + s\,\Phi_{k+1}\ \text{ on cell } k,\quad s=\frac{z-z_k}{h_k},
+\end{equation}
+where each nodal function $\Phi_i$ lies in the energy-angle trial space (coefficients
+$\Phi_{i,gja}$). The space has $K+1$ nodal unknowns per energy-angle coefficient
+(linear discontinuous: $2K$; piecewise constant: $K$).
+
+\paragraph{Strong boundary conditions.} The exact solution satisfies the boundary
+conditions on incoming directions exactly, so they are imposed on the trial space:
+\begin{itemize}
+  \item vacuum at $z_0$: $\Phi_{0,gj\cdot}=0$ for bins with $\mu>0$ (and at $z_K$ for
+  $\mu<0$); the bins must not straddle $\mu=0$, which the current grids already require;
+  \item reflective at $z_0$: $\Phi_0(E,\mu)=\Phi_0(E,-\mu)$, i.e.\ the coefficients of a
+  bin and of its mirror bin are one unknown (with the sign of odd angular coefficients
+  flipped, see the angle note).
+\end{itemize}
+With these constraints the trial space contains only functions that satisfy the
+boundary conditions, and the boundary face residual of the piecewise-constant scheme
+also disappears. This requires an angular space that can impose incoming values
+without constraining outgoing ones. Otherwise boundary residuals remain; in
+particular this restriction matters for global isotropic or $P_1$ angle in 3D.
+
+\section{Projection and the fixed point}
+
+Let $\Pi$ be the $L^2$-orthogonal projection in $z$ onto the constrained space (tensor
+with the energy-angle projection). For each energy-angle coefficient it solves
+\begin{equation}
+  \sum_l \mathsf M_{il}\,c_l = t_i,\qquad
+  \mathsf M_{il} = \int h_ih_l\dd z,\qquad t_i = \int \epsilon\,h_i\dd z,
+  \label{eq:mass}
+\end{equation}
+with $\mathsf M$ tridiagonal (each cell adds $h_k/3$ to both endpoint diagonal
+entries and $h_k/6$ to both symmetric off-diagonal entries), and the constrained
+unknowns removed or merged. The mass matrix is symmetric positive definite;
+conditioning depends on mesh grading and can require scaling. Its direct solve costs
+$O(K)$ per coefficient.
+
+\begin{proposition}[Unbiased full-residual update to the constrained $L^2$ projection]
+If $L^{-1}$ exists, the full residual (including source and boundary remainders) is
+evaluated exactly, and its transport tally is unbiased with finite expectation, then
+$\E[\teps\mid\tpsi]=\Pi L^{-1}r=\Pi\psi-\tpsi$ and
+$\E[\tpsi^{(n+1)}\mid\tpsi]=\Pi\psi$. This is the best approximation in the
+constrained trial space in $L^2$; it is not a proof of convergence of stochastic
+iterates or of their variances.
+\end{proposition}
+
+\noindent This is the property of \texttt{rmc\_math.tex} (Prop.~1), with $\Pi$ now a
+global projection. It matters here because a Galerkin method with continuous trial
+\emph{and} test functions applied to the first-order transport operator can exhibit
+oscillations and require stabilization in convection-dominated regimes [5, 6].
+The full-residual RMC update does not solve those Galerkin
+equations: the solve is the exact Monte Carlo transport of the residual, and only the
+projection is continuous. The expectation identity needs no Galerkin stabilization,
+but sampling and mean-square convergence still need their own analysis. The projection itself can
+over- and undershoot near steep boundary layers (as any $L^2$ projection onto
+continuous linears does), which is resolved by local refinement, not by changing the
+operator.
+
+The collision-only phase uses a modified residual $q_h-L_h\tpsi$, so its fixed
+point instead satisfies $\Pi L^{-1}(q_h-L_h\tpsi^*)=0$. Energy and spatial
+transport are coupled: exact spatial interpolation alone does not make that fixed
+point $\Pi\psi$ for the original physical problem. The full-residual identity
+above and the phase-1 contraction conditions in \texttt{rmc\_math.tex} must be
+kept separate.
+
+Strong boundary constraints can also remove constants from the spatial trial
+space. Its $L^2$ projection then need not preserve the integral of the exact
+flux. Projected nodal coefficients and direct physical integral tallies are
+different quantities and should be compared with matching reference observables.
+
+\section{Estimating the projection}
+
+The moments $t_i$ are track-length integrals. Inside one cell a track segment is
+straight, so $x = 2s-1$ is linear along it and
+\begin{equation}
+  \int_{\text{segment}} h(z)\dd\ell = \ell\,\frac{h(z_{\rm in})+h(z_{\rm out})}{2}
+\end{equation}
+exactly for any $h$ linear in $z$. The estimator of $t_i$ therefore only needs, per
+cell, the zeroth and first spatial Legendre moments of the track-length estimator,
+\begin{equation}
+  \hat m_{k,0} = \frac1N\sum w\,\ell,\qquad
+  \hat m_{k,1} = \frac1N\sum w\,\ell\,\frac{x_{\rm in}+x_{\rm out}}{2},
+\end{equation}
+assembled as $\hat t_k \mathrel{+}= (\hat m_{k,0}-\hat m_{k,1})/2$,
+$\hat t_{k+1}\mathrel{+}=(\hat m_{k,0}+\hat m_{k,1})/2$ (since $1-s=(1-x)/2$ and
+$s=(1+x)/2$). These are unbiased track-length estimators of Legendre moments, as in
+functional expansion tallies [7] and linear discontinuous implicit Monte Carlo [8].
+Although $\E[x^2]=1/3$ under uniform point sampling, this does not establish a
+fixed relative-noise ratio for track-length moments. Weights, track lengths and
+within-history correlations determine their covariance; the relative error of
+a zero slope is undefined. The required histories must be assessed for the
+actual coefficients and observables [7].
+
+\section{Residual}
+
+On cell $k$ (material $m_k$), with $\Delta_k = (\Phi_{k+1}-\Phi_k)/h_k$,
+\begin{equation}
+  r(z,E,\mu) = \underbrace{Q + \Sbar(z) - \Sigt(E)\,\tpsi(z) - \mu\,\Delta_k}_{r_c}
+  \;+\; \underbrace{\mathcal S\tpsi - \Sbar}_{r_s} + (q-Q),
+  \qquad
+  \Sbar(z) = (1-s)\,\Sbar_{m_k}[\Phi_k] + s\,\Sbar_{m_k}[\Phi_{k+1}],
+\end{equation}
+\begin{itemize}
+  \item \emph{No projection in $z$ is needed for the scattering source}: $\mathcal S$
+  acts on energy and angle at each $z$, and $\tpsi$ is linear in $z$ on the cell, so
+  $\mathcal S\tpsi$ is exactly the linear interpolation of the nodal sources computed
+  with the cell's material moments. The transfer moments are unchanged.
+  \item \emph{The streaming term} $-\mu\Delta_k$ replaces the face deltas: it is spread
+  over the cell, constant in $z$, linear in $\mu$. As $\tpsi\to\Pi\psi$, $\Delta_k$
+  approximates $\partial_z\psi$ and is balanced by the collision terms; what remains is
+  the local truncation, without equal-and-opposite pairs.
+  \item \emph{No face residual}: interior faces by continuity, boundary faces by the
+  strong boundary conditions when those can be imposed in the chosen angular space.
+\end{itemize}
+
+\paragraph{Sampling $r_c$.} With piecewise-constant angle, on a bin $(k,g,j)$,
+$r_c$ is affine in $(s,\mu)$ for each $E$ (and piecewise quadratic in $E$ for
+the linear energy basis). Linear angle adds mixed and quadratic angular terms,
+as described in the angle note. With the bin chosen
+with probability $A_{kgj}/A$ and $(z,E,\mu)$ uniform in it, the weight
+\begin{equation}
+  w = \frac{N}{N_c}\,\frac{r_c(z,E,\mu)\,h_k\Delta E_g\Delta\mu_j\,A}{A_{kgj}}
+\end{equation}
+is an unbiased estimator of $r_c$ for any masses $A_{kgj}>0$ wherever $r_c$ can be
+nonzero. The choice $A_{kgj}=\int_{kgj}|r_c|$ is an $L^1$ mass heuristic.
+For uniform sampling within bins, the source-weight second moment is minimized
+by probabilities proportional to $\sqrt{V_{kgj}\int_{kgj}r_c^2}$, where
+$V_{kgj}=h_k\Delta E_g\Delta\mu_j$; transported tallies additionally depend on
+their conditional response. For piecewise-constant angle and fixed $E$, the
+$L^1$ integral of the affine function over $(s,\mu)$ has a closed form, leaving
+quadrature in $E$.
+
+\section{Transfer moments and material interfaces}
+
+The transfer moments $M_{m}$ act on energy and angle only and are those of the
+piecewise-constant scheme. Material interfaces sit at nodes: the nodal value
+$\Phi_i$ is shared, and each adjacent cell applies its own operator ($\Sigt$,
+$M_m$) on its side, so $\tpsi$ is continuous while individual collision and
+streaming terms can jump. For the exact solution these terms balance to satisfy
+$L\psi=q$ on each side of the interface.
+
+\section{Compatibility with the energy and angle trial spaces}
+
+Continuity is a property of the reconstructed flux, not of the coefficients. It holds
+when every cell uses the same energy-angle functions: piecewise-constant or linear
+energy bins, shared discontiguous energy elements, linear discontinuous angle. It fails
+for a material-dependent energy weight ($1/\Sigma_{t,m}$,
+\texttt{self\_shielded\_basis.tex}): across a material interface the weighted shapes
+differ, so a face residual reappears there. If that basis is used, the trial space must
+generally admit jumps at material interfaces, unless a common reconstructed
+trace is represented explicitly by both adjacent trial spaces.
+
+\section{2D and 3D}
+
+The same construction uses continuous $P_1$ elements on triangles and tetrahedra (or
+$Q_1$ on quadrilaterals and hexahedra): nodal functions $\Phi_i$, a sparse symmetric
+positive-definite mass matrix (a sparse solve, with preconditioning as needed;
+the consistent mass, not a lumped one, keeps $\Pi$ a projection), and track-length
+tallies of the shape functions, exact as the segment length times the mean of the
+endpoint values for $P_1$ (and by Gauss quadrature along the segment for $Q_1$). The
+streaming residual $-\boldsymbol\Omega\cdot\nabla\tpsi$ is constant per $P_1$ element
+and linear in $\boldsymbol\Omega$; there is no interior face residual.
+Incoming conditions can be imposed strongly on boundary nodes only when the
+angular space resolves the face's incoming and outgoing directions independently.
+For a global isotropic or $P_1$ function $a+\mathbf b\cdot\boldsymbol\Omega$,
+vanishing on an incoming hemisphere forces it to vanish on the whole sphere,
+incorrectly constraining the outgoing trace. Retain the boundary residual for
+these spaces, as in [1], or use an appropriate half-range representation.
+
+\begin{thebibliography}{99}
+\bibitem{vermaak} J.~I.~C.~Vermaak and J.~E.~Morel, ``Transport Error Estimation Using
+  Residual Monte Carlo,'' \emph{J.\ Comput.\ Phys.} (2022);
+  https://www.sciencedirect.com/science/article/pii/S0021999122003680, OSTI 1977284.
+\bibitem{peterson} J.~R.~Peterson, J.~E.~Morel and J.~C.~Ragusa,
+  ``Exponentially-convergent Monte Carlo for the 1-D transport equation,'' M\&C 2013;
+  J.~R.~Peterson, M.S.\ thesis, Texas A\&M University (May 2014),
+  \href{https://oaktrust.library.tamu.edu/bitstreams/69ab2dae-3fef-4daf-96d0-2bd1896d81e3/download}
+  {university copy}.
+  Published formulation: \emph{Residual Monte Carlo for the One-Dimensional
+  Particle Transport Equation}, SIAM J.\ Sci.\ Comput.\ \textbf{38}(6),
+  B941--B961 (2016), \href{https://doi.org/10.1137/16M1057619}{doi:10.1137/16M1057619}.
+\bibitem{franke} B.~C.~Franke, D.~E.~Bruss and J.~E.~Morel, ``Residual Monte Carlo with
+  Discrete Scattering Angles in the 1-D Transport Equation,'' ANS Winter Meeting
+  \emph{Trans.\ Am.\ Nucl.\ Soc.} \textbf{109}(1), 679--682 (2013),
+  \href{https://www.ans.org/pubs/transactions/volume-109/}{ANS publication record}.
+\bibitem{bolding} S.~R.~Bolding and J.~E.~Morel, ``Residual Monte Carlo Transport in
+  Time with Consistent Low-Order Acceleration for 1D Thermal Radiative Transfer,''
+  M\&C 2017,
+  \href{https://www.kns.org/files/int_paper/paper/MC2017_2017_2/P102S02-03BoldingS.pdf}
+  {conference paper}.
+\bibitem{lewis} E.~E.~Lewis and W.~F.~Miller, \emph{Computational Methods of Neutron
+  Transport}, Wiley (1984) (finite-element spatial discretizations, linear
+  discontinuous methods).
+\bibitem{brooks} A.~N.~Brooks and T.~J.~R.~Hughes, ``Streamline upwind/Petrov--Galerkin
+  formulations for convection dominated flows,'' \emph{Comput.\ Methods Appl.\ Mech.\
+  Eng.} \textbf{32}, 199 (1982).
+\bibitem{griesheimer} D.~P.~Griesheimer, W.~R.~Martin and J.~P.~Holloway,
+  ``Convergence properties of Monte Carlo functional expansion tallies,''
+  \emph{J.\ Comput.\ Phys.} \textbf{211}, 129 (2006).
+\bibitem{wollaeger} R.~T.~Wollaeger and A.~B.~Wollaber, ``Implicit Monte Carlo with a
+  Linear Discontinuous Finite Element Material Solution and Piecewise Non-Constant
+  Opacity,'' LA-UR-15-24303, OSTI 1255243 (2016).
+\bibitem{reed} W.~H.~Reed and T.~R.~Hill, ``Triangular mesh methods for the neutron
+  transport equation,'' LA-UR-73-479, Los Alamos (1973); P.~Lesaint and P.~A.~Raviart,
+  ``On a finite element method for solving the neutron transport equation,'' in
+  \emph{Mathematical Aspects of Finite Elements in Partial Differential Equations},
+  Academic Press (1974).
+\bibitem{halton} J.~H.~Halton, ``Sequential Monte Carlo,'' \emph{Proc.\ Cambridge
+  Philos.\ Soc.} \textbf{58}, 57 (1962).
+\bibitem{larsen} M.~Larsen et al., ``A Residual Monte Carlo Algorithm for Continuous
+  Energy Neutron Transport with Elastic Scattering,'' \emph{Nucl.\ Sci.\ Eng.}
+  \textbf{200}(3), 525--538 (2026), doi:10.1080/00295639.2025.2495608;
+  ``A Residual Monte Carlo Algorithm for 1D Continuous-Energy
+  Neutron Transport,'' \emph{Nucl.\ Sci.\ Eng.} (2026), doi:10.1080/00295639.2026.2659992;
+  M.~Larsen, Ph.D.\ dissertation [D], Oregon State University (2025).
+\end{thebibliography}
+
+\end{document}

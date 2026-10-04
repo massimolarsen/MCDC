@@ -17,7 +17,8 @@ in \texttt{mcdc/rmc/reaction.py}; \texttt{\_free\_gas\_inner} in
 
 \texttt{sample\_elastic\_scattering} with \texttt{sample\_nucleus\_velocity}
 (constant-cross-section free gas, after the fixes of
-\texttt{fix/free-gas-temperature-nbody-scaling}):
+\texttt{fix/free-gas-temperature-nbody-scaling}); the Maxwellian collision-weighting
+derivation assumes classical velocities:
 \begin{enumerate}
   \item the target velocity $\bm V$ from the Maxwellian
   $M(\bm V) = (\beta^3/\pi^{3/2})\,e^{-\beta^2 V^2}$, $\beta^2 = A m_n/(2kT)$, weighted
@@ -30,14 +31,24 @@ in \texttt{mcdc/rmc/reaction.py}; \texttt{\_free\_gas\_inner} in
 \end{enumerate}
 Two bugs were fixed before this kernel was derived: $\beta$ used a hard-coded
 $T = 293.6$\,K, and the acceptance test was inverted ($\xi >$ instead of
-$\xi < |\bm v - \bm V|/(v+V)$), which samples an unweighted Maxwellian. The unit test
+$\xi < |\bm v - \bm V|/(v+V)$), which distorts the collision-weighted distribution.
+Its $v\to0$ limit is an unweighted Maxwellian. The unit test
 \texttt{test\_free\_gas\_temperature.py} checks $\langle V^2\rangle\beta^2 = 2$ for
 $v \to 0$ (the inverted test gives $3/2$).
 
 \section{Inverted kernel}
 
+\noindent Source for the bound-cross-section and $S(\alpha,\beta)$ convention:
+\endfspec{Sec.~7.5 (incoherent inelastic scattering and analytic atom models)}.
+The $400\,kT$ switch is an MC/DC model choice, not an ENDF law. The inverse-speed
+parameter $\beta$ used above is distinct from the dimensionless energy transfer
+$\beta$ below.
+
 With constant $\sigma_{\rm free}$ and isotropic COM scattering this is the ideal-gas
-law. In terms of the dimensionless momentum and energy transfer
+law in classical kinematics. If a sampler instead uses relativistic speed--energy
+conversion with classical velocity addition, the formulas below describe its
+nonrelativistic limit rather than an exact inversion of that hybrid map.
+In terms of the dimensionless momentum and energy transfer
 \begin{equation}
   \alpha = \frac{\Eout + \Ein - 2\mulab\sqrt{\Ein\Eout}}{A\,kT},\qquad
   \beta = \frac{\Eout - \Ein}{kT},
@@ -67,18 +78,23 @@ $\sigma_s(\Ein)$), the emitted neutron's density is the ratio:
   \qquad \int_0^\infty\!\!\int_{-1}^1 f_L\,\dd\mulab\,\dd\Eout = 1 .
 \end{equation}
 It requires isotropic COM scattering at $\Ein \le 400\,kT$; the RMC driver checks the
-angular tables that the sampler can use there and stops otherwise (anisotropic free
-gas has no closed form and is not supported).
+angular tables that the sampler can use there and stops otherwise. Anisotropic
+free-gas evaluation is not implemented by this kernel; no claim about the
+existence of other analytic representations is needed.
 
-\paragraph{Support.} The exponent $h = (\alpha+\beta)^2/(4\alpha)$ satisfies
-$h \ge \beta$ (since $(\alpha+\beta)^2 \ge 4\alpha\beta$), so up-scatter is bounded by
-$\Eout \le \Ein + h_{\max} kT$ with the cutoff $h_{\max} = 50$ ($e^{-50} \approx
-2\times10^{-22}$). For $\Eout < \Ein$, $\alpha$ ranges over
+\paragraph{Numerical tail truncation.} The physical free-gas distribution has
+unbounded up-scatter support. The exponent $h = (\alpha+\beta)^2/(4\alpha)$ satisfies
+$h \ge \beta$ (since $(\alpha+\beta)^2 \ge 4\alpha\beta$), so the numerical
+cutoff $h_{\max}=50$ restricts evaluations to $\Eout\le\Ein+50kT$.
+Although $e^{-50}\approx2\times10^{-22}$, this exponential factor alone is
+not a bound on the integrated omitted probability, which also contains prefactors.
+For $\Eout < \Ein$, $\alpha$ ranges over
 $[(\sqrt{\Eout}\mp\sqrt{\Ein})^2/(AkT)]$ as $\mulab$ runs over $[1,-1]$, and the
 minimum of $h$ over $\mulab$ is $0$ if $-\beta$ lies in that range and
-$h(\alpha_{\rm edge})$ otherwise; it increases monotonically as $\Eout$ decreases, so
-the lower limit is found by bisection. Outgoing bins outside
-$[\Eout_{\rm low}, \Ein + 50kT]$ are never evaluated.
+$h(\alpha_{\rm edge})$ otherwise. A numerical lower cutoff is chosen from this
+exponent criterion. Outgoing bins outside
+$[\Eout_{\rm low}, \Ein + 50kT]$ are not evaluated, introducing tail-truncation
+error rather than establishing zero physical density there.
 
 \paragraph{Quadrature.} $f_L$ peaks sharply toward $\alpha \to 0$, i.e.\ $\mulab \to 1$
 and $\Eout \to \Ein$, with width $\sqrt{4\Ein kT/A}$ in $\Eout$ (narrow for heavy
@@ -87,7 +103,7 @@ $1 - 10^{-k}$; the incident-energy quadrature has a breakpoint at $400\,kT$, whe
 switches discontinuously to target-at-rest kinematics.
 
 \paragraph{Sampling for RMC's pointwise proposal.} \texttt{sample\_free\_gas} repeats
-MC/DC's scheme in units with $E = v^2$: $\beta = \sqrt{A/kT}$, the same mixture and
+the classical free-gas scheme in units with $E = v^2$: $\beta = \sqrt{A/kT}$, the same mixture and
 (correct) acceptance, isotropic COM direction, $\Eout = |\bm v'|^2$,
 $\mulab = v'_z/|\bm v'|$.
 

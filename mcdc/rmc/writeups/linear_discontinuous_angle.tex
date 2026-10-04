@@ -1,0 +1,229 @@
+\documentclass[11pt]{article}
+\input{preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+\newcommand{\E}{\mathbb{E}}
+
+\title{Residual Monte Carlo with a linear discontinuous angular trial space}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Slab geometry, $\mu=\boldsymbol\Omega\cdot\hat{\mathbf z}$; the angular flux is
+integrated over azimuth, $\psi(z,E,\mu)=\int_0^{2\pi}\psi(z,E,\boldsymbol\Omega)\dd\varphi$.
+RMC iterates $r=q-L\tpsi$, $L\epsilon=r$ (Monte Carlo), $\tpsi\leftarrow\tpsi+\Pi\epsilon$
+[1--5]; see \texttt{continuous\_linear\_space.tex} for the spatial and
+\texttt{linear\_energy\_basis.tex} for the energy part of the trial space.
+
+\section{Why linear in angle}
+
+With $\tpsi$ constant on each polar bin $\mu\in[\mu_j,\mu_{j+1}]$, the in-bin angular
+shape of the true flux generally leaves an unresolved residual, like the in-bin
+energy shape: the streaming term $\mu\,\partial_z\tpsi$ is linear in $\mu$ inside the
+bin while $\tpsi$ is not. Streaming can produce angular anisotropy near boundaries,
+interfaces and localized sources; isotropic scattering itself still produces an
+isotropic scattering source. A linear representation
+in $\mu$ reduces the projection error of a smooth angular flux from $O(\Delta\mu)$ to
+$O(\Delta\mu^2)$. Linear discontinuous (LD) angular trial spaces were used in the
+exponentially convergent Monte Carlo work in slab geometry: in space and direction with
+h-adaptivity [2], and with anisotropic discrete-angle scattering, including the
+$\mu$-slope moments of the scattering source [3].
+
+\section{Trial space}
+
+On bin $j$ with width $\Delta\mu_j$, let $y_j(\mu)=(2\mu-\mu_j-\mu_{j+1})/\Delta\mu_j$
+and
+\begin{equation}
+  \tpsi(\mu) = \sum_{b=0}^{1}\tpsi_{jb}\,P_b\big(y_j(\mu)\big),\qquad P_0=1,\ P_1=y .
+\end{equation}
+The grid keeps $\mu=0$ as an edge: the exact angular flux is discontinuous at $\mu=0$ at
+a vacuum boundary (incoming directions carry no flux) and its $\mu$-derivative is
+singular there in general, so continuity in $\mu$ across $0$ would be wrong. With a
+single bin on each half-range the space is the double-$P_1$ ($DP_1$) approximation of
+Yvon [6], the half-range expansion suited to slabs with vacuum boundaries [7]; finer
+bins give a discontinuous piecewise-linear angular finite element space in slab
+angle (the space--direction construction in [2]). The spatial DG references [8]
+are background for discontinuous elements, not sources for angular discretization.
+
+\paragraph{Boundary conditions.} Vacuum: $\tpsi_{jb}=0$ on incoming bins of the boundary
+trace (the boundary node for continuous spatial elements). An unconstrained spatial
+trace requires a boundary residual. Reflective: $\tpsi(-\mu)=\tpsi(\mu)$; for a bin $j$ and its mirror $j^*$,
+$y_{j^*}(-\mu)=-y_j(\mu)$, so $\tpsi_{j^*0}=\tpsi_{j0}$ and $\tpsi_{j^*1}=-\tpsi_{j1}$.
+
+\section{Projection and its estimator}
+
+The Legendre basis is orthogonal on each bin, so the $L^2$ projection is local:
+\begin{equation}
+  (\Pi\psi)_{jb} = \frac{2b+1}{\Delta\mu_j}\int_j \psi(\mu)\,P_b(y_j(\mu))\dd\mu .
+\end{equation}
+Since $\mu$ is constant along a track, the track-length estimator of the $b=1$ moment
+scores $w\,\ell\,y_j(\mu)$ per segment, the angular analogue of the energy slope.
+The identity $\E[y^2]=1/3$ under uniform point sampling does not establish a fixed
+relative-noise penalty for track-length tallies. Their covariance depends on the
+sampled tracks and weights, and relative error is undefined for a zero slope.
+History requirements must be assessed for the actual observables.
+
+\begin{proposition}
+If $L^{-1}$ exists and the exact full residual, including external-source and
+boundary remainders, is transported with an unbiased finite-expectation tally,
+$\E[\tpsi^{(n+1)}\mid\tpsi^{(n)}]=\Pi\psi$ for every $\tpsi^{(n)}$ in
+the trial space; the angular part of $\Pi$ is the $L^2$ projection onto piecewise-linear
+functions of $\mu$ on the bins. This expectation identity alone does not imply
+stochastic convergence.
+\end{proposition}
+
+\section{Angular transfer}
+
+For an incident direction $\mu'$ and a lab scattering cosine $\mu_0$, with the azimuth
+uniform, the outgoing polar cosine is
+\begin{equation}
+  \mu(\theta) = c + d\cos\theta,\qquad c=\mu'\mu_0,\quad d=\sqrt{1-\mu'^2}\sqrt{1-\mu_0^2},
+  \quad\theta\in[0,\pi]\ \text{uniform},
+\end{equation}
+the substitution that removes the inverse-square-root singularity of the azimuthal
+kernel $K(\mu',\mu,\mu_0) = 1/\big(\pi\sqrt{1-\mu'^2-\mu^2-\mu_0^2+2\mu'\mu\mu_0}\big)$
+[3]. Let $\theta_{\rm lo}=\arccos\big(\mathrm{clip}((\mu_{j+1}-c)/d)\big)$ and
+$\theta_{\rm hi}=\arccos\big(\mathrm{clip}((\mu_j-c)/d)\big)$ be the azimuths where
+$\mu(\theta)$ enters and leaves bin $j$. The outgoing moments are then closed form:
+\begin{align}
+  \Pi^{0}_j(\mu',\mu_0) &= \frac1\pi\int_{\theta_{\rm lo}}^{\theta_{\rm hi}}\dd\theta
+  = \frac{\theta_{\rm hi}-\theta_{\rm lo}}{\pi},\\
+  \Pi^{1}_j(\mu',\mu_0) &= \frac1\pi\int_{\theta_{\rm lo}}^{\theta_{\rm hi}}
+  y_j\big(\mu(\theta)\big)\dd\theta
+  = \frac{2}{\pi\Delta\mu_j}\Big[(c-\bar\mu_j)(\theta_{\rm hi}-\theta_{\rm lo})
+  + d\,(\sin\theta_{\rm hi}-\sin\theta_{\rm lo})\Big],
+\end{align}
+with $\bar\mu_j$ the bin center. The piecewise-constant scheme uses only $\Pi^0_j$ (its
+arcsine form). The angular transfer between incident bin $j'$ (weighted by
+$P_{b'}$) and outgoing bin $j$ (weighted by $P_b$) is
+\begin{equation}
+  A^{b'b}_{j'j}(\mu_0) = \int_{j'}\dd\mu'\,P_{b'}\big(y_{j'}(\mu')\big)\,
+  \Pi^{b}_j(\mu',\mu_0),
+\end{equation}
+an integral with kinks where $\mu(\theta)$ is tangent to a bin edge
+($\mu' = \mu_e\mu_0\pm\sqrt{1-\mu_e^2}\sqrt{1-\mu_0^2}$ for each edge $\mu_e$ of bin
+$j$), the same breakpoints as for $b=b'=0$. For $\sum_j$ and $b=0$ the outgoing
+probabilities sum to one, so $\sum_jA^{b'0}_{j'j}(\mu_0)=\int_{j'}P_{b'}\dd\mu'$ (which
+is $\Delta\mu_{j'}$ for $b'=0$ and $0$ for $b'=1$): a check of any implementation.
+
+The transfer moments of \texttt{rmc\_math.tex} acquire the angular indices,
+\begin{equation}
+  M_{m,\,a'g'j'b',\,agjb} = \sum_{r\in m}N_r\int_{g'}\dd E'\,\sigma_r(E')P_{a'}
+  \int_g\dd E\,P_a\int\dd\mu_0\,f_r(E'\to E,\mu_0)\,A^{b'b}_{j'j}(\mu_0),
+\end{equation}
+and the projected in-scatter source is
+$\Sbar_{gjab}=\frac{(2a+1)(2b+1)}{\Delta E_g\Delta\mu_j}
+\sum_{a'g'j'b'}M_{m,\,a'g'j'b',\,agjb}\tpsi_{g'j'a'b'}$, where $N_r$ is the
+nuclide's atom density. With linear
+energy and angle the moment arrays are $16\times$ those of the piecewise-constant
+scheme; the kernel evaluations are the same.
+
+\paragraph{Isotropic and linearly anisotropic scattering.} For isotropic lab emission,
+the scattering-cosine average, not the transfer at a fixed $\mu_0$, is
+\[
+  \overline A^{b'b}_{j'j}=\frac12\int_{-1}^1 A^{b'b}_{j'j}(\mu_0)\dd\mu_0
+  =\frac12\left(\int_{j'}P_{b'}\dd\mu'\right)
+             \left(\int_jP_b\dd\mu\right).
+\]
+This vanishes unless $b=b'=0$: the bin slopes do not contribute to an isotropic
+source. At fixed $\mu_0=1$, by contrast, outgoing and incident directions coincide,
+and $A^{11}_{jj}(1)=\Delta\mu_j/3$. For a $P_1$ kernel
+$1+3\bar\mu_0\mu_0$ (per $4\pi$), the
+addition theorem gives the outgoing first moment
+$\int\dd\mu\,\mu\,(\ldots)\propto\bar\mu_0\,\mu'$, so only the incident flux's first
+angular moment transfers anisotropy. These limits check $A^{b'b}$ against closed forms.
+
+\section{Residual}
+
+With $\tpsi$ linear in $\mu$ on each bin,
+\begin{equation}
+  r_c = Q + \Sbar - \Sigt\tpsi - \mu\,\partial_z\tpsi ,
+\end{equation}
+with the full residual also including $r_s$, any fission remainder and $q-Q$.
+The collision terms are linear in $\mu$ on the bin and the streaming term is
+\emph{quadratic} in $\mu$ (the factor $\mu$ times a linear function). With a continuous
+linear spatial space, $\partial_z\tpsi$ is constant on each cell, so for fixed $E$ the
+residual on a bin $(k,j)$ is a polynomial of degree one in $s$ and two in $\mu$.
+Writing it as $A(\mu)+sB(\mu)$, the integral over $s\in[0,1]$ is
+$|A+B/2|$ if the endpoint values have the same sign, and
+$[A^2+(A+B)^2]/(2|B|)$ if they have opposite signs. For $B=0$ it is $|A|$.
+The resulting angular integrand can be rational; splitting at its sign changes
+does not make Gaussian quadrature exact. Use analytic integration where available
+or numerical quadrature with an error estimate. Sampling is as before (bin by mass,
+uniform inside, weight
+$r_c/q$); boundary faces carry no residual with the strong boundary conditions above.
+With a piecewise-constant or discontinuous spatial space, the face residual
+$-\mu\,[\tpsi]\,\delta(z-z_f)$ has density $\propto|\mu\,(D_0+D_1y)|$ on the bin; sampling
+$\mu\propto|\mu|$ and weighting by $(D_0+D_1y)\,\mathrm{sign}(-\mu)$ is unbiased.
+
+The scattering correction $r_s=\mathcal S\tpsi-\Sbar$ is unchanged in form: the
+in-scatter density integrates the incident flux, now linear in $\mu'$ on each bin,
+against the emission kernel, which needs the kernel's bin moments
+$\int_{j'}P_{b'}(y_{j'}(\mu'))\,\tau(\mu'\to\mu)\dd\mu'$.
+The angular bin integrals of $K$ and $P_1K$ are closed form in the substitution
+above; a continuous emission law still requires integration over its scattering
+cosine and incident energy.
+
+\section{Beyond the slab}
+
+In 2D and 3D the polar cosine about one axis is replaced by the direction on the sphere.
+The two standard low-order choices are spherical harmonics ($P_1$: $\psi\approx(\phi+3
+\mathbf J\cdot\boldsymbol\Omega)/4\pi$), for which the angular transfer reduces to the
+Legendre moments of the scattering kernel by the addition theorem [7], and discontinuous
+piecewise-linear functions on a partition of the sphere. Angular finite elements
+on spherical geodesic grids are studied in [9]; a discontinuous extension is a
+separate design choice.
+In RMC unresolved angular residuals contribute to finite-history noise, whose
+size also depends on the proposal and tally response. Vermaak and Morel used an
+isotropic approximate solution and
+still found RMC more efficient than standard Monte Carlo in their continuous-space
+benchmarks [4]. A global isotropic or $P_1$ function cannot satisfy vacuum on an
+entire incoming hemisphere without also vanishing on outgoing directions. Retain
+the boundary residual, as [4] does, or choose a compatible half-range space.
+
+\begin{thebibliography}{99}
+\bibitem{halton} J.~H.~Halton, ``Sequential Monte Carlo,'' \emph{Proc.\ Cambridge
+  Philos.\ Soc.} \textbf{58}, 57 (1962).
+\bibitem{peterson} J.~R.~Peterson, J.~E.~Morel and J.~C.~Ragusa,
+  ``Exponentially-convergent Monte Carlo for the 1-D transport equation,'' M\&C 2013;
+  J.~R.~Peterson, M.S.\ thesis, Texas A\&M University (May 2014),
+  \href{https://oaktrust.library.tamu.edu/bitstreams/69ab2dae-3fef-4daf-96d0-2bd1896d81e3/download}
+  {university copy}.
+  Published formulation: \emph{Residual Monte Carlo for the One-Dimensional
+  Particle Transport Equation}, SIAM J.\ Sci.\ Comput.\ \textbf{38}(6),
+  B941--B961 (2016), \href{https://doi.org/10.1137/16M1057619}{doi:10.1137/16M1057619}.
+\bibitem{franke} B.~C.~Franke, D.~E.~Bruss and J.~E.~Morel, ``Residual Monte Carlo with
+  Discrete Scattering Angles in the 1-D Transport Equation,'' ANS Winter Meeting
+  \emph{Trans.\ Am.\ Nucl.\ Soc.} \textbf{109}(1), 679--682 (2013),
+  \href{https://www.ans.org/pubs/transactions/volume-109/}{ANS publication record}.
+\bibitem{vermaak} J.~I.~C.~Vermaak and J.~E.~Morel, ``Transport Error Estimation Using
+  Residual Monte Carlo,'' \emph{J.\ Comput.\ Phys.} (2022);
+  https://www.sciencedirect.com/science/article/pii/S0021999122003680, OSTI 1977284.
+\bibitem{larsen} M.~Larsen et al., ``A Residual Monte Carlo Algorithm for Continuous
+  Energy Neutron Transport with Elastic Scattering,'' \emph{Nucl.\ Sci.\ Eng.}
+  \textbf{200}(3), 525--538 (2026), doi:10.1080/00295639.2025.2495608;
+  ``A Residual Monte Carlo Algorithm for 1D Continuous-Energy
+  Neutron Transport,'' \emph{Nucl.\ Sci.\ Eng.} (2026), doi:10.1080/00295639.2026.2659992.
+\bibitem{yvon} J.~Yvon, ``La diffusion macroscopique des neutrons: une m\'ethode
+  d'approximation,'' \emph{J.\ Nucl.\ Energy} \textbf{4}, 305 (1957).
+\bibitem{lewis} E.~E.~Lewis and W.~F.~Miller, \emph{Computational Methods of Neutron
+  Transport}, Wiley (1984) (half-range and double-$P_N$ expansions, spherical
+  harmonics, the addition theorem).
+\bibitem{reed} W.~H.~Reed and T.~R.~Hill, ``Triangular mesh methods for the neutron
+  transport equation,'' LA-UR-73-479, Los Alamos (1973); P.~Lesaint and P.~A.~Raviart,
+  ``On a finite element method for solving the neutron transport equation,'' in
+  \emph{Mathematical Aspects of Finite Elements in Partial Differential Equations},
+  Academic Press (1974).
+\bibitem{angular-fe} M.~K.~Bhattacharyya and D.~Radice,
+  \emph{A Finite Element Method for Angular Discretization of the Radiation
+  Transport Equation on Spherical Geodesic Grids}, J.\ Comput.\ Phys.\ (2023),
+  \href{https://doi.org/10.1016/j.jcp.2023.112365}{doi:10.1016/j.jcp.2023.112365}.
+\end{thebibliography}
+
+\end{document}

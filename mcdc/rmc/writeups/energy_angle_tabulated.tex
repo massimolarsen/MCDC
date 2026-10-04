@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{preamble}
 
-\title{Inverted kernel: tabulated energy--angle distribution (ENDF Law 61)}
+\title{Inverted kernel: tabulated energy--angle distribution (ACE Law 61)}
 \date{}
 
 \begin{document}
@@ -12,6 +12,11 @@
 \texttt{tabulated\_energy\_angle\_cosine\_breakpoints} in \texttt{mcdc/rmc/evaluate.py}.
 
 \section{What MC/DC samples}
+
+\noindent Source: \acespec{4.3.11.12}. Law 61 is an ACE identifier; ENDF's
+correlated continuum data use MF=6 representations. The nearest-CDF angular
+table rule below documents MC/DC's sampler, rather than continuous interpolation
+of a physical angular density.
 
 \texttt{sample\_tabulated\_energy\_angle}: incident grid $E_l$, outgoing tables
 $\{E'_{l,k}, p_{l,k}, c_{l,k}\}$ (linear PDFs), and for every outgoing point $k$ an
@@ -39,9 +44,10 @@ and $k$ otherwise. The joint density is
 \begin{equation}
   f(\Eout, \mu \mid \Ein) = \sum_{l \in \{i, i+1\}} w_l\;
   p_l(\hat E_l)\,\frac{E'_{l,K_l} - E'_{l,1}}{E'_{\max} - E'_{\min}}\;
-  q_{n(\hat E_l)}(\mu),
+  q_{l,n(\hat E_l)}(\mu),
 \end{equation}
-with $q_n$ the linear angular PDF of table $n$. The table switch makes the angular
+with $q_{l,n}$ the linear angular PDF of outgoing point $n$ in incident table $l$.
+The table switch makes the angular
 density jump where $\hat c$ crosses the CDF midpoint of an interval; solving
 $c_{l,k} + p_{l,k}\Delta + \tfrac12 m\Delta^2 = c_{l,k} + \tfrac12(c_{l,k+1} - c_{l,k})$,
 \begin{equation}

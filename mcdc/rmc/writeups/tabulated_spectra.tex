@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{preamble}
 
-\title{Inverted kernels: tabulated and multi-table distributions (ENDF Law 4),
+\title{Inverted kernels: tabulated and multi-table distributions (ACE Law 4),
 tabulated angles, and fission spectra}
 \date{}
 
@@ -13,6 +13,12 @@ tabulated angles, and fission spectra}
 \texttt{continuous\_lab\_density} in \texttt{mcdc/rmc/reaction.py}.
 
 \section{Tabulated distribution}
+
+\noindent Source: \acespec{4.3.11.4}, together with Secs.~4.3.9 and 4.3.11.15
+for angular tables and energy-dependent yields. In ENDF, tabulated energy
+spectra use MF=5, LF=1; ACE law numbers should not be interpreted as
+ENDF MF=6 LAW identifiers. The inversion and interpolation below describe
+the supported MC/DC data representation.
 
 \texttt{sample\_tabulated} draws $\xi$, finds the CDF interval $[c_k, c_{k+1})$ and
 inverts the segment exactly for a histogram PDF ($p = p_k$) or a linear PDF
@@ -66,6 +72,9 @@ spectrum when \texttt{neutron\_fission\_all\_prompt} is set, isotropic in the la
   f_L(\Eout, \mulab \mid \Ein) = \frac{\nu(\Ein)}{k}\;p_\chi(\Eout \mid \Ein)\;\frac{1}{2},
 \end{equation}
 with $p_\chi$ the scaled multi-table prompt spectrum ($\mathbb{E}[N] = \nu/k$).
+Here $k>0$ is held fixed; the physical fixed-source operator uses $k=1$.
+An eigenvalue iteration that changes $k$ is outside the fixed-operator projection
+identity in \texttt{rmc\_math.tex}.
 
 \section{Verification}
 \verificationmethod

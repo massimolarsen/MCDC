@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \input{preamble}
 
-\title{Inverted kernel: Kalbach--Mann correlated energy--angle (ENDF Law 44)}
+\title{Inverted kernel: Kalbach--Mann correlated energy--angle (ACE Law 44)}
 \date{}
 
 \begin{document}
@@ -12,6 +12,10 @@
 \texttt{mcdc/rmc/evaluate.py}.
 
 \section{What MC/DC samples}
+
+\noindent Sources: \acespec{4.3.11.11}; \endfspec{MF=6, LAW=1, LANG=2,
+Sec.~6.2.3.2}. ACE Law 44 is a processed representation of the Kalbach angular
+formalism. The following interpolation sequence is the MC/DC sampler contract.
 
 \texttt{sample\_kalbach\_mann}: an incident grid $E_l$ with outgoing tables
 $\{E'_{l,k}, p_{l,k}, c_{l,k}, R_{l,k}, A_{l,k}\}$ (linear PDFs).
@@ -45,6 +49,8 @@ $m_l = (\hat E_l - E'_{l,k})/(E'_{l,k+1} - E'_{l,k})$,
 $w_i = 1-f$, $w_{i+1} = f$, $p_l$ the linear PDF at $\hat E_l$,
 $R_l = R_{l,k} + m_l(R_{l,k+1} - R_{l,k})$ and likewise $A_l$. The energy marginal is
 exactly the scaled-table density; the angular factor integrates to 1 for each $l$. In
+the angular factor, $A_l=0$ is interpreted by its continuous limit $p(\mu)=1/2$;
+valid parameters have $A_l\ge0$ and $|R_l|\le1$. In
 the COM frame $f_L = Y f(\Ecm, \mucm)\sqrt{\Eout/\Ecm}$. Kinks of the energy density
 (table points mapped by the scaling) are quadrature breakpoints.
 

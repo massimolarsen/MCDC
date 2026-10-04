@@ -1,0 +1,352 @@
+\documentclass[11pt]{article}
+\input{preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+
+\title{Linear discontinuous energy trial space for RMC}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent Code: \texttt{energy\_basis="linear"} in \texttt{mcdc.rmc.run};
+\texttt{\_add\_outgoing}, \texttt{\_add\_incoming}, \texttt{reaction\_transfer\_row},
+\texttt{nuclide\_transfer\_moments} in \texttt{kernel.py};
+\texttt{binned\_source}, \texttt{projected\_removal}, \texttt{collision\_residual\_mass},
+\texttt{\_abs\_quadratic\_integral}, \texttt{Residual} in \texttt{residual.py};
+\texttt{sample\_collision\_edge}, \texttt{in\_scatter\_density},
+\texttt{binned\_in\_scatter}, \texttt{correction\_masses},
+\texttt{sample\_correction\_integrated}, \texttt{sample\_correction} in
+\texttt{source.py}; MC/DC track-length score \texttt{flux-energy-slope}
+(\texttt{mcdc/transport/tally/score.py}). Notation as in \texttt{rmc\_math.tex}:
+$E'$ incident and $E$ outgoing energy in the transport equations, cells $k$, energy
+bins $g$, polar-cosine bins $j$.
+
+\section{Motivation}
+
+RMC stalls when the part of the residual that cannot vanish, $r_\infty = q - L P\psi$,
+dominates: at $P\psi$ the exact correction has zero projected mean, but generally
+nonzero finite-history variance (\texttt{rmc\_math.tex}, Section~2). That variance
+depends on the residual, proposal and transport tally response. With a
+piecewise-constant trial space, $\|r_\infty\|$ is set by the in-bin shape of the flux,
+$\psi - P\psi = O(\Delta E\,\partial_E\psi)$. A linear trial space reduces this to
+$O(\Delta E^2\,\partial_E^2\psi)$ wherever $\psi$ is sufficiently smooth in the bin.
+This can reduce the unresolved residual, but does not guarantee a smaller tally
+variance or convergence rate. A line generally resolves a narrow resonance dip
+poorly; a proposed alternative is the $1/\Sigt(E)$-weighted polynomial basis of
+\texttt{self\_shielded\_basis.tex}. An additional $1/E$ factor would be a separate
+spectral assumption.
+
+\section{Continuous or discontinuous}
+
+The exponentially convergent Monte Carlo (ECMC) work at Texas A\&M used linear
+\emph{discontinuous} (LD) trial spaces in space and angle (Peterson, Morel and Ragusa,
+M\&C 2013; Franke, Bruss and Morel, ANS 2013; Bolding and Morel, M\&C 2017), with
+h-refinement to maintain convergence after inadequate resolution causes stagnation;
+see the published space--direction formulation \cite{peterson}. The appropriate
+refinement indicator depends on the algorithm. Vermaak and Morel
+\cite{vermaak} showed that \emph{spatial}
+discontinuities are a pitfall. The streaming term turns a jump $D$ at face $z_f$ into
+the face source $-\mu D\,\delta(z-z_f)$, which, seen from the two adjacent cells, is a
+pair of nearly equal sources of opposite sign; their responses cancel and only add
+variance. On a 1D slab, piecewise-constant RMC was $6.5\times$ \emph{less} efficient
+than SMC, continuous linear $3\times$ more. These are results for their
+Sec.~4.1 slab benchmark, not general efficiency factors.
+
+The transport operator differentiates only in $z$: there is no $\partial_E$ (no
+continuous slowing down) and, in slab geometry, no $\partial_\mu$. Jumps in $E$ and
+$\mu$ therefore create no distributional derivative residual, while the true flux can
+have jumps or singularities there
+(at a source energy $E_0$, at the elastic edge $\alpha E_0$, at discrete levels, and
+at $\mu=0$ at vacuum boundaries). The choice is therefore
+\begin{itemize}
+  \item \textbf{linear discontinuous in $E$} (this note) and in $\mu$ (planned): local
+  projection, block-diagonal mass matrix, no extra residual terms;
+  \item \textbf{linear continuous in $z$} (planned): no interior face residual; the
+  projection is a tridiagonal solve per $(g,j)$.
+\end{itemize}
+
+\section{Basis and projection}
+
+On bin $g=[E_g,E_{g+1}]$ with width $\Delta E_g$, let
+\begin{equation}
+  x_g(E) = \frac{2E - E_g - E_{g+1}}{\Delta E_g}\in[-1,1],\qquad
+  P_0 = 1,\quad P_1(x) = x ,
+\end{equation}
+and represent
+\begin{equation}
+  \tpsi(z,E,\mu) = \sum_{a=0}^{p} \tpsi_{kgj,a}\,P_a\big(x_g(E)\big),
+  \qquad (z,E,\mu)\in(k,g,j),
+\end{equation}
+with $p=0$ (constant) or $p=1$ (linear). Since
+$\int_g P_aP_b\dd E = \Delta E_g\,\delta_{ab}/(2a+1)$, the $L^2$ projection is local
+and diagonal:
+\begin{equation}
+  (Pf)_{kgj,a} = \frac{2a+1}{h_k\Delta E_g\Delta\mu_j}
+  \int_k\!\dd z\int_g\!\dd E\int_j\!\dd\mu\; f(z,E,\mu)\,P_a\big(x_g(E)\big).
+  \label{eq:projection}
+\end{equation}
+$\tpsi_{kgj,0}$ is the bin average and $\tpsi_{kgj,1}$ half the change across the
+bin. Errors are reported in the function norm
+$\|\tpsi\|^2 = \sum\sum_a \tpsi_{kgj,a}^2/(2a+1)$ (per unit bin volume), which reduces
+to the coefficient norm for $p=0$.
+
+\paragraph{Estimating the coefficients.} The energy of a particle is constant along a
+track, so a track-length estimator of \eqref{eq:projection} scores
+$w\,\ell\,P_a(x_g(E))$. MC/DC's \texttt{flux} score gives $a=0$; the score
+\texttt{flux-energy-slope} added for this purpose gives $a=1$ (it requires an
+energy filter, whose bin supplies $E_g, E_{g+1}$). Then
+\begin{equation}
+  \teps_{kgj,a} = (2a+1)\,\frac{\text{tally}_{kgj,a}}{h_k\Delta E_g\Delta\mu_j}.
+\end{equation}
+
+\section{Transfer moments}
+
+The in-scatter source of $\tpsi$ projects exactly (up to quadrature) onto the trial
+space through the moments
+\begin{equation}
+  M^r_{a'g'j',\,agj} = \int_{g'}\!\dd E'\,\sigma_r(E')\,P_{a'}\big(x_{g'}(E')\big)
+  \int_{j'}\!\dd\mu'\int_g\!\dd E\,P_a\big(x_g(E)\big)\int_j\!\dd\mu\;
+  \tau_r(E'\!\to E,\mu'\!\to\mu),
+  \label{eq:moments}
+\end{equation}
+\begin{equation}
+  \Sbar_{kgj,a} = \frac{2a+1}{\Delta E_g\Delta\mu_j}
+  \sum_{a'g'j'} M_{m_k,\,a'g'j',\,agj}\;\tpsi_{kg'j',a'} = \big(P\mathcal S\tpsi\big)_{kgj,a}.
+\end{equation}
+Here $M_m=\sum_{r\in m}N_rM^r$, with $N_r$ the atom density of reaction $r$'s
+nuclide, as in \texttt{rmc\_math.tex}.
+The $a'=a=0$ block is the piecewise-constant moment matrix. Storage grows by
+$(p+1)^2$, i.e.\ $4\times$.
+
+\paragraph{Quadrature.} The kernel evaluations are unchanged; only the accumulation
+is weighted.
+\begin{itemize}
+  \item \emph{Outgoing weight.} Every inner quadrature node knows its lab outgoing
+  energy: elastic uses the speed--energy map in \texttt{elastic.tex};
+  $E = E'\,(A^2+2A\mucm+1)/(A+1)^2$ is its classical limit. Level and continuous
+  COM laws use the classical COM-to-lab map; lab and free-gas laws integrate in $E$
+  directly. The
+  node's contribution $w\,A_{jj'}$ is added to both $a=0$ and, multiplied by
+  $x_g(E)$, $a=1$ (\texttt{\_add\_outgoing}). For classical COM kinematics,
+  $E(\mucm)$ is affine at fixed $E'$ and $\Ecm$, so the outgoing weight is linear
+  in that variable. The full integrand also contains the angular transfer and
+  need not be polynomial. MC/DC's elastic energy map is not affine, so neither
+  a polynomial-degree argument nor Gaussian exactness applies to that map.
+  \item \emph{Incident weight.} The adaptive G7--K15 integral over $E'$ accumulates
+  each integrand $f(E')$ into $K_0 \mathrel{+}= w f$ and
+  $K_1 \mathrel{+}= w\,x_{g'}(E') f$ (\texttt{\_add\_incoming}); the error estimate and
+  acceptance use all blocks together.
+\end{itemize}
+
+\paragraph{Checks.} For any reaction that conserves particles inside the grid,
+$\sum_{gj}M^r_{1g'j',0gj} = \Delta\mu_{j'}\int_{g'}\sigma_r\,x_{g'}\dd E'$ (the
+incident-weighted row sum), and $|M^r_{0g'j',1gj}|\le M^r_{0g'j',0gj}$ (because the
+kernel is non-negative and $|x_g|\le 1$). Both are tested on O-16 elastic
+(\texttt{test\_elastic\_row\_linear\_basis}).
+
+\paragraph{Cache.} The cache key includes the basis order \texttt{energy\_order};
+the moment format version is 3.
+
+\section{Residual}
+
+\subsection{Collision residual}
+
+Inside bin $(k,g,j)$,
+\begin{equation}
+  r_c(E) = c(E) - \Sigt(E)\,\tpsi(E),\qquad
+  c(E) = \sum_a c_{kgj,a}P_a\big(x_g(E)\big),\quad
+  c_{kgj,a} = Q_{kgj,a} + \Sbar_{kgj,a} + \bar F_{kgj,a}.
+\end{equation}
+The external source enters through its own projection $Q_{kgj,a}$; a source uniform
+in a bin has $Q_{kgj,1}=0$. For a general source, the full residual also contains
+$r_q=q-Pq$. Omitting this remainder solves the projected-source problem.
+
+\paragraph{Exact sampling mass.} $\Sigt$ is linear between the points $E_i$ of the
+material's union grid, and $c$ and $\tpsi$ are linear in $E$, so $r_c$ is a
+\emph{quadratic} on each interval $[E_i,E_{i+1}]\cap g$. With
+$y_0, y_m, y_1$ its values at the ends and the midpoint, and $t\in[0,1]$,
+\begin{equation}
+  y(t) = y_0 + b\,t + a\,t^2,\qquad a = 2y_0-4y_m+2y_1,\quad b = -3y_0+4y_m-y_1 .
+\end{equation}
+The roots in $(0,1)$ are found in a cancellation-free form,
+$q=-\tfrac12\big(b+s_b\sqrt{b^2-4ay_0}\big)$, $t_1=q/a$,
+$t_2=y_0/q$, where $s_b=1$ for $b\ge0$ and $-1$ otherwise. Only real roots in
+$(0,1)$ are retained; $q=0$ gives the repeated zero root, and a negligible $a$
+uses the linear root $t=-y_0/b$ if $b\ne0$. Between consecutive roots $|y|$
+is a quadratic, which Simpson's rule integrates exactly:
+\begin{equation}
+  \int_{E_i}^{E_{i+1}}|r_c|\dd E = (E_{i+1}-E_i)\sum_{\text{pieces}}
+  \frac{t_b-t_a}{6}\Big(|y(t_a)| + 4\,\big|y\big(\tfrac{t_a+t_b}{2}\big)\big| + |y(t_b)|\Big).
+\end{equation}
+The bin mass is $A_{kgj} = h_k\Delta\mu_j\int_g|r_c|\dd E$
+(\texttt{collision\_residual\_mass}).
+
+\paragraph{Sampling.} As before, a bin is drawn with probability $A_{kgj}/A$ and
+$(z,E,\mu)$ uniformly inside it, so the weight is
+$w = (N/N_c)\,r_c(E)\,h_k\Delta E_g\Delta\mu_j\,A/A_{kgj}$, now with $r_c(E)$
+evaluated from both coefficients.
+
+\subsection{Projected removal (collision-only iterations)}
+
+The collision-only phase replaces $\Sigt\tpsi$ by its projection,
+\begin{equation}
+  \big(P[\Sigt\tpsi]\big)_{kgj,a} = \sum_b R_{m_k,g,ab}\,\tpsi_{kgj,b},\qquad
+  R_{g,ab} = \frac{2a+1}{\Delta E_g}\int_g\Sigt(E)\,P_aP_b\dd E ,
+\end{equation}
+computed exactly by Simpson's rule on the lin-lin grid (the integrand is at most
+cubic; \texttt{projected\_removal}). This term is folded into $c$, so the sampled
+$r_c = \sum_a\big(c_a - (R\tpsi)_a\big)P_a$ is linear in each bin. For $p=0$,
+$R_{g,00}$ is the bin-averaged $\Sigt$ of the piecewise-constant scheme.
+
+\begin{proposition}[Fixed point of the collision-only iteration]
+With the projected removal and no scattering correction, the residual lies in the
+trial space. In an infinite medium the iteration is then a stochastic fixed-point
+iteration for the Galerkin system
+\[
+  \sum_b R_{g,ab}\,\tpsi_{gj,b} = Q_{gj,a} + \Sbar_{gj,a}[\tpsi]
+  \qquad\text{for all } g, j, a ,
+\]
+which is the discontinuous-Galerkin-in-energy discretization of the slowing-down
+equation with exact cross sections and moments (provided $PL^{-1}$ is nonsingular on
+the trial space, so that $PL^{-1}r=0$ implies $r=0$). Its residual vanishes at the
+fixed point. Mean convergence additionally requires
+$\rho(I-PL^{-1}L_h)<1$, and geometric decay of the stochastic error requires
+contraction in mean square for the chosen proposal and history count; see
+\texttt{rmc\_math.tex}. The zero-residual property alone implies neither condition.
+\end{proposition}
+
+For $p=0$ this is the flat-weighted multigroup solution (with the Jensen bias in
+resonance bins described in \texttt{rmc\_math.tex}). For $p=1$ the approximation
+error can be one order higher in $\Delta E$ for sufficiently smooth fluxes
+under a stable Galerkin approximation.
+
+\subsection{Edge residual}
+
+The face jump inherits the energy dependence of $\tpsi$,
+$D_{fgj}(E) = D_{fgj,0} + D_{fgj,1}\,x_g(E)$, and $r_e = -\mu D(E)\,\delta(z-z_f)$.
+The mass uses the exact mean of $|D|$ over the bin,
+\begin{equation}
+  \frac1{\Delta E_g}\int_g|D|\dd E =
+  \begin{cases} |D_0|, & |D_1|\le|D_0|,\\[2pt]
+  \dfrac{D_0^2+D_1^2}{2|D_1|}, & \text{otherwise},\end{cases}
+  \qquad B_{fgj} = \Delta E_g\,\overline{|D|}\int_j|\mu|\dd\mu .
+\end{equation}
+$E$ is sampled uniformly in the bin and $\mu\propto|\mu|$. The density is
+$q = (B_{fgj}/B)\,\Delta E_g^{-1}\,|\mu|/\!\int_j|\mu|\dd\mu$, so
+\begin{equation}
+  w = \frac{N}{N_c}\,\operatorname{sign}(-\mu)\,D(E)\,
+  \frac{B\,\Delta E_g\int_j|\mu|\dd\mu}{B_{fgj}} ,
+\end{equation}
+which reduces to $(N/N_c)\,B\operatorname{sign}(-\mu D)$ for a constant jump.
+
+\subsection{Scattering and fission corrections}
+
+The remainder $r_s = T - \Sbar$ now has a linear $\Sbar(E) = \sum_a\Sbar_aP_a(x_g(E))$,
+and the pointwise in-scatter density uses the linear incident flux:
+\begin{equation}
+  T(E,\mu) = \sum_{g'j'}\int_{g'}\dd E'\;
+  \tpsi_{kg'j'}(E')\,U_{j'}(E'\!\to E,\mu),\qquad
+  \tpsi_{kg'j'}(E') = \sum_{a'}\tpsi_{kg'j',a'}P_{a'}\big(x_{g'}(E')\big).
+\end{equation}
+\begin{itemize}
+  \item \emph{Integrated sampler} (default): unchanged apart from these two
+  evaluations; the pilot masses use $|T-\Sbar(E)|$ at $2\times2$ Gauss points plus the
+  floor $0.1\,h\Delta E\Delta\mu\sum_a|\Sbar_a|$. For exact moments,
+  $\int_g\dd E\int_j\dd\mu\,P_a(x_g(E))r_s=0$ for $a=0,1$, so $r_s$ carries
+  the shape beyond linear. Signed cancellation can make both coefficients and
+  all pilot samples zero while $r_s\ne0$ elsewhere: the floor is not a support
+  guarantee. An independent proposal positive on the possible support is needed
+  if that support is not otherwise established. Finite quadrature qualifies
+  both the moment identities and unbiasedness.
+  \item \emph{Pointwise sampler}: the subtracted density per unit $E'$ is
+  \begin{equation}
+    \tilde s(E',E) = \frac{1}{\Delta E_g\Delta\mu_j\Delta E_{g'}}
+    \sum_{a'j'a}(2a+1)\,P_a\big(x_g(E)\big)\,M_{a'g'j',agj}\,\tpsi_{kg'j',a'} ,
+  \end{equation}
+  whose $E'$ integral over $g'$, summed over $g'$, is $\Sbar(E)$. The defensive proposal
+  must stay positive wherever the integrand can be nonzero: $q_S$ selects bins
+  $\propto h\sum_a(2a+1)\big|\sum_{a'j'}M\tpsi\big|$ (an upper bound of $|\tilde s|$
+  times the bin volume), and $q_T$ selects $j'$ $\propto\sum_a|\tpsi_{kg'j',a}|\Delta\mu_{j'}$,
+  which is positive wherever $\tpsi_{kg'j'}(E')\ne 0$.
+\end{itemize}
+
+\section{Verification}
+
+The tests and numerical results below describe existing verification artifacts;
+they have not been rerun for this mathematical revision.
+
+\paragraph{Unit tests.}
+\begin{itemize}
+  \item \texttt{test\_abs\_quadratic\_integral}, \texttt{test\_collision\_residual\_mass}:
+  the exact $|r_c|$ integrals against fine trapezoid rules (constant and linear
+  coefficients, rel.\ $10^{-8}$).
+  \item \texttt{test\_projected\_removal}, \texttt{test\_binned\_source}: $R$ and $\Sbar_a$
+  against direct sums and integrals.
+  \item \texttt{test\_collision\_edge\_unbiased[P=2]}: the mean weight of the collision
+  and edge particles per bin equals the exact bin integral of $r_c$ and $r_e$ (5$\sigma$).
+  \item \texttt{test\_elastic\_row\_linear\_basis}: the moment checks above.
+  \item \texttt{test\_analytic\_slowing\_down\_A1\_linear}: end to end, below.
+\end{itemize}
+
+\paragraph{Analytic slowing down.} $A=1$, $\sigma_s=\sigma_c$ constant, isotropic
+scattering, unit source at $E_0=101$\,eV smeared over $[E_0-0.1, E_0]$; below the
+source, the classical line-source limit is
+$\phi(E) = \tfrac{c}{\Sigt E_0}(E_0/E)^c$ with $c=1/2$.
+For the stated uniform unit source on $[E_a,E_b]=[100.9,101]$\,eV, its exact
+classical expression below $E_a$ is
+$\phi(E)=(E_b^c-E_a^c)/[\Sigt(E_b-E_a)E^c]$.
+The scaling and sampler-kinematics qualifications in \texttt{rmc\_math.tex} apply.
+There are 20 log-spaced
+bins over $[1, 100.9]$\,eV, 2 polar bins, and 500 histories per bin per iteration.
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+ & constant & linear \\
+\midrule
+Collision-only fixed point, max.\ rel.\ error of bin averages & $3\times10^{-3}$ & $2.5\times10^{-4}$ \\
+\quad max.\ rel.\ error of $P_1$ coefficients & -- & $9\times10^{-4}$ \\
+Full-residual iterations, $\|\teps\|$ before the stall
+  & $3.5,\ 1.3\!\times\!10^{-2},\ 7.8\!\times\!10^{-4}$
+  & $3.5,\ 0.19,\ 1.2\!\times\!10^{-2},\ 5.3\!\times\!10^{-4},\ 8.5\!\times\!10^{-5}$ \\
+\quad stall level of $\|\teps\|$ & $\sim10^{-3}$ & $\sim7\times10^{-5}$ \\
+\quad rms rel.\ error of bin averages, iterations 0--3
+  & $6.3,\ 1.0,\ 1.1,\ 0.84\ (\times10^{-2})$
+  & $6.3,\ 1.4,\ 0.15,\ 0.035\ (\times10^{-2})$ \\
+\quad rms rel.\ error at the stall & $0.7$--$1\times10^{-2}$ & $\approx5\times10^{-4}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The full-residual iteration (collision, edge and integrated scattering
+correction in every iteration) converges for four iterations with the linear basis
+against two with the constant basis, and stalls about $15\times$ lower in
+$\|\teps\|$ and $15$--$20\times$ lower in the true error of the bin averages, consistent
+with $\|r_\infty\|$ dropping from $O(\Delta E)$ to $O(\Delta E^2)$. The collision-only
+iteration reduces $\|\teps\|$ by about $10\times$ per iteration (the constant basis by
+about $20\times$).
+
+\noindent These are previously recorded results, not new verification of the
+corrected mathematical statements. In particular, a source projection and the
+classical reference model must be distinguished from the exact physical residual
+and the implemented elastic sampler.
+
+\begin{thebibliography}{9}
+\bibitem{peterson} J.~R.~Peterson, J.~E.~Morel and J.~C.~Ragusa,
+  \emph{Residual Monte Carlo for the One-Dimensional Particle Transport Equation},
+  SIAM J.\ Sci.\ Comput.\ \textbf{38}(6), B941--B961 (2016),
+  \href{https://doi.org/10.1137/16M1057619}{doi:10.1137/16M1057619}.
+\bibitem{vermaak} J.~I.~C.~Vermaak and J.~E.~Morel,
+  \emph{Transport Error Estimation Using Residual Monte Carlo},
+  J.\ Comput.\ Phys.\ (2022),
+  \href{https://doi.org/10.1016/j.jcp.2022.111306}{doi:10.1016/j.jcp.2022.111306},
+  Secs.~3.4 and 4.1.
+\end{thebibliography}
+
+\end{document}

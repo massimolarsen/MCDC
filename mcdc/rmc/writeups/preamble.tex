@@ -12,6 +12,13 @@
 \newcommand{\mucm}{\mu_{c}}
 \newcommand{\mulab}{\mu_0}
 
+\newcommand{\acespec}[1]{J.~L.~Conlin and P.~Romano,
+\href{https://mcnp-green.lanl.gov/pdf_files/TechReport_2019_LANL_LA-UR-19-29016_ConlinRomano.pdf}
+{\emph{A Compact ENDF (ACE) Format Specification}}, LA-UR-19-29016 (2019),
+Sec.~#1}
+\newcommand{\endfspec}[1]{\href{https://www.nndc.bnl.gov/endfdocs/ENDF-102-2023.pdf}
+{\emph{ENDF-6 Formats Manual}} (2023), #1}
+
 % Common closing section: how the verification figures are produced
 \newcommand{\verificationmethod}{%
 Each figure is produced by \texttt{verification/verify\_laws.py}. For an incident
@@ -21,10 +28,27 @@ or \texttt{sample\_fission}), and every emitted neutron is histogrammed in
 $48 \times 24$ bins of $(\Eout, \mulab)$, with $\mulab$ the lab cosine to $+z$. The
 inverted kernel used by RMC is integrated over the same bins (Gauss--Legendre panels;
 two-body lines are split where $\mulab^*(\Eout)$ crosses a cosine edge), multiplied by
-the number of collisions, and compared with a $\chi^2$ test over bins with at least 5
-expected counts (the rest pooled into one bin). The tables list $\chi^2/\mathrm{dof}$,
-its $p$-value, the emitted neutrons per collision (sampled vs.\ the integral of the
+the number of collisions, and compared with a Pearson-type $\chi^2$ diagnostic
+over bins with at least 5 expected counts (the rest pooled into one bin).
+The existing tables list the script's $\chi^2/\mathrm{dof}$ and nominal $p$-value,
+the emitted neutrons per collision (sampled vs.\ the integral of the
 inverted kernel), and the largest relative change of a bin integral when the
 quadrature panels are doubled. Left panels: outgoing-energy marginal; middle:
 lab-cosine marginal; right: per-bin $z = (\text{sampled} - \text{inverted}) /
-\sqrt{\text{inverted}}$.}
+\sqrt{\text{inverted}}$.
+
+\noindent These figures check agreement with the MC/DC sampler, not independent
+physical validity. Their existing $p$-values are not calibrated goodness-of-fit
+probabilities: the script uses $B$ degrees of freedom, whereas a fixed-total
+multinomial histogram with $B$ categories and no fitted parameters uses $B-1$.
+Random multiplicities and spectrum assignments can also change the collision-level
+covariance from independent Poisson counts; $z$ is then only a count diagnostic.
+See \href{https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.chisquare.html}
+{the Pearson test's sampling assumptions}.
+Energy bins use the sample extrema, so unsampled tails are excluded and the
+reported inverted yield is an integral over that observed window. A formal test
+needs independently specified bins, explicit tail categories, and a covariance or
+resampling model appropriate to independent collisions. Zero expected density
+with observed emissions must be reported rather than discarded. Doubling quadrature
+panels gives a convergence indicator, not a rigorous error bound. The stored
+figures and tables have not been regenerated for these qualifications.}
