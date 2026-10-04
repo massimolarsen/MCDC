@@ -28,7 +28,7 @@ finish() {
 }
 trap finish EXIT
 
-cp inputCE_G4SUBMIT.py cubesat_G4_devices_1um.py "$archive/"
+cp inputCE_G4SUBMIT_1um.py cubesat_G4_devices_1um.py "$archive/"
 python -m pip freeze > "$archive/python-packages.txt"
 git rev-parse HEAD > "$archive/mcdc-revision.txt"
 
@@ -37,4 +37,4 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 mpirun -n "$SLURM_NTASKS" -bind-to none \
-    python -u inputCE_G4SUBMIT.py --mode=numba
+    python -u inputCE_G4SUBMIT_1um.py --mode=numba

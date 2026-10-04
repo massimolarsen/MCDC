@@ -368,7 +368,7 @@ for ace_name in pbar:
             if not isinstance(data, ACEtk.continuous.MultiDistributionData):
                 # Probabilities
                 dataset = group.create_dataset(
-                    f"MT-{MT:03}/spectrum_probability_grid", data=np.array([0.0, 30.0])
+                    f"MT-{MT:03}/spectrum_probability_grid", data=np.array([0.0, xs_energy[-1]])
                 )
                 dataset.attrs["unit"] = "MeV"
                 dataset = group.create_dataset(
@@ -393,7 +393,7 @@ for ace_name in pbar:
                     )
                     == 0
                 ):
-                    probability_grid = np.array([0.0, 30.0])
+                    probability_grid = np.array([0.0, xs_energy[-1]])
                     probability = np.zeros((1, N_dist))
                     for i in range(N_dist):
                         probability[0, i] = max(data.probability(i + 1).probabilities)

@@ -329,7 +329,7 @@ class Material(MCDCObject):
 
 
 # Currently supported temperatures
-TEMPERATURES = [0.0, 0.1, 233.15, 273.15, 293.6, 600.0, 900.0, 1200.0, 2500.0]
+TEMPERATURES = [0.0, 0.1, 233.15, 273.15, 293.6, 300.0, 600.0, 900.0, 1200.0, 2500.0]
 
 # ======================================================================================
 # Native-composition helpers

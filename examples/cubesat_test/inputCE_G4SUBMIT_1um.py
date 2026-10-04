@@ -7,6 +7,8 @@ import mcdc
 from cubesat_G4_devices_1um import build_detector_sizes_mm, build_device_components
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
+os.environ["MCDC_LIB"] = str(EXAMPLE_DIR.parents[1] / "hdf5lib-JENDL")
+XS_TEMPERATURE_K = 300.0
 RUN_DIR = Path(os.environ.get("MCDC_RUN_DIR", EXAMPLE_DIR)).resolve()
 RUN_DIR.mkdir(parents=True, exist_ok=True)
 os.chdir(RUN_DIR)
@@ -19,7 +21,7 @@ os.chdir(RUN_DIR)
 # vertically centered in that rail height. A 15 cm boundary cube surrounds the
 # model and is centered at (5, 5, 5).
 #
-# Continuous-energy materials use the local HDF5 nuclear data library.
+# Continuous-energy materials use the JENDL-5 HDF5 library at 300 K.
 # Nuclide compositions are atom densities in atoms/barn-cm.
 # =============================================================================
 
@@ -30,6 +32,7 @@ os.chdir(RUN_DIR)
 # Al7075, rho=2.81 g/cm3, wt%: 90 Al-27, 5 Zn-64, 3 Mg-24, 2 Cu-63.
 m_al7075 = mcdc.Material(
     name="Al7075",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Al27": 0.056445980580537,
         "Zn64": 0.0013235134207385,
@@ -40,6 +43,7 @@ m_al7075 = mcdc.Material(
 # Al6061, rho=2.70 g/cm3, wt%: 98 Al-27, 1.2 Mg-24, 0.8 Si-28.
 m_al6061 = mcdc.Material(
     name="Al6061",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Al27": 0.059057360465045,
         "Mg24": 0.00081349602416576,
@@ -49,6 +53,7 @@ m_al6061 = mcdc.Material(
 # FR4 proxy, rho=1.85 g/cm3, wt%: 28.0 Si-28, 51.9 O-16, 18.3 C-12, 1.8 H-1.
 m_epoxy = mcdc.Material(
     name="FR4_proxy",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Si28": 0.01115014871193,
         "O16": 0.036149980092044,
@@ -57,10 +62,11 @@ m_epoxy = mcdc.Material(
     },
 )
 # Silicon, rho=2.329 g/cm3, wt%: 100 Si-28.
-m_silicon = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 0.050132618436459})
+m_silicon = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 0.050132618436459}, temperature=XS_TEMPERATURE_K)
 # LiCoO2 proxy, rho=5.05 g/cm3, wt%: 6.661 Li-7, 60.551 Co-59, 32.788 O-16.
 m_licoo2 = mcdc.Material(
     name="LiCoO2_proxy",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Li7": 0.028874848294873,
         "Co59": 0.031246477802075,
@@ -70,13 +76,14 @@ m_licoo2 = mcdc.Material(
 # Copper, rho=8.96 g/cm3, wt%: 68.4792 Cu-63, 31.5208 Cu-65.
 m_copper = mcdc.Material(
     name="Copper",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Cu63": 0.058716830763647,
         "Cu65": 0.026195433536638,
     },
 )
 # Void, rho=0.0 g/cm3, wt%: 100 void.
-m_void = mcdc.Material(name="Void", nuclide_composition={"Si28": 0.0})
+m_void = mcdc.Material(name="Void", nuclide_composition={"Si28": 0.0}, temperature=XS_TEMPERATURE_K)
 
 # =============================================================================
 # BOX HELPER
@@ -312,9 +319,11 @@ azi_bins = np.linspace(-np.pi, np.pi, 9)
 surface_mesh = (5, 5)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
 
-# Currently truncated to 20Mev, data is from the default 100km altitude. Data can be scaled
+# Truncated and renormalized at 200 MeV; data is from the default 100 km altitude.
+# Li7 cross sections in this JENDL library extend only to 20 MeV.
+# Data can be scaled
 # to realistic flight altitudes but it does not change the distribution, only the absolute flux values
-source_spectrum_path = EXAMPLE_DIR / "ecss_20MeV.csv"
+source_spectrum_path = EXAMPLE_DIR / "ecss_200MeV.csv"
 source_energy_ev, source_energy_pdf = np.loadtxt(
     source_spectrum_path, delimiter=",", skiprows=1, unpack=True
 )
