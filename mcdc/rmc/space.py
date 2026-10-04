@@ -9,7 +9,8 @@ piecewise-constant scheme (polar bins j, energy polynomials a).
 
 Boundary conditions are imposed on the trial space (exactly satisfied by the solution):
   - vacuum: incoming nodal values are zero (mu > 0 at z_0, mu < 0 at z_K);
-  - reflective: the boundary node's value of a polar bin equals that of its mirror bin.
+  - reflective: the boundary node's value of a polar bin equals that of its mirror bin
+    (for the angular slope coefficients, minus it: y_j*(-mu) = -y_j(mu)).
 With them, and with continuity inside, the residual has no face terms.
 
 The projection of a function f is the L2 projection onto that constrained space. With
@@ -25,7 +26,12 @@ import numpy as np
 
 ####
 
-from mcdc.rmc.residual import BOUNDARY_REFLECTIVE, BOUNDARY_VACUUM, mirror_index
+from mcdc.rmc.residual import (
+    BOUNDARY_REFLECTIVE,
+    BOUNDARY_VACUUM,
+    coefficient_norms,
+    mirror_index,
+)
 
 
 def mass_matrix(z_edges):
@@ -41,10 +47,11 @@ def mass_matrix(z_edges):
     return M
 
 
-def constraint_map(K, mu_edges, boundary_low, boundary_high):
+def constraint_map(K, mu_edges, boundary_low, boundary_high, odd=False):
     """
     T[(j, i), u]: nodal values from the reduced unknowns, with the full index
-    j * (K + 1) + i (polar bin j, node i).
+    j * (K + 1) + i (polar bin j, node i). odd: the coefficients of an odd angular
+    polynomial, tied to minus their mirror at a reflective boundary.
     """
     J = len(mu_edges) - 1
     mu_center = 0.5 * (mu_edges[:-1] + mu_edges[1:])
@@ -52,8 +59,10 @@ def constraint_map(K, mu_edges, boundary_low, boundary_high):
     if BOUNDARY_REFLECTIVE in (boundary_low, boundary_high):
         mirror = mirror_index(mu_edges)
 
-    # reduced[j, i]: reduced unknown of nodal value (j, i), or -1 if fixed to zero
+    # reduced[j, i]: reduced unknown of nodal value (j, i), or -1 if fixed to zero;
+    #   sign[j, i]: -1 for an odd coefficient tied to its mirror
     reduced = -np.ones((J, K + 1), dtype=np.int64)
+    sign = np.ones((J, K + 1))
     N = 0
     for j in range(J):
         for i in range(K + 1):
@@ -66,6 +75,7 @@ def constraint_map(K, mu_edges, boundary_low, boundary_high):
             )
             if reflective and mirror[j] < j:
                 reduced[j, i] = reduced[mirror[j], i]
+                sign[j, i] = -1.0 if odd else 1.0
                 continue
             reduced[j, i] = N
             N += 1
@@ -74,7 +84,7 @@ def constraint_map(K, mu_edges, boundary_low, boundary_high):
     for j in range(J):
         for i in range(K + 1):
             if reduced[j, i] >= 0:
-                T[j * (K + 1) + i, reduced[j, i]] = 1.0
+                T[j * (K + 1) + i, reduced[j, i]] = sign[j, i]
     return T
 
 
@@ -87,19 +97,32 @@ class LinearZProjection:
         self.J = len(mu_edges) - 1
         self.dE = np.diff(E_edges)
         dmu = np.diff(mu_edges)
-        self.T = constraint_map(self.K, mu_edges, boundary_low, boundary_high)
         full = np.kron(np.diag(dmu), mass_matrix(z_edges))
-        self.A = self.T.T @ full @ self.T
+        # Even and odd angular polynomials (different reflective ties)
+        self.T = [
+            constraint_map(self.K, mu_edges, boundary_low, boundary_high, odd)
+            for odd in (False, True)
+        ]
+        self.A = [T.T @ full @ T for T in self.T]
 
-    def project(self, t):
-        """Nodal coefficients Phi[i, g, j, a] from moments t[i, g, j, a]."""
-        K1, G, J, P = t.shape
-        scale = (2.0 * np.arange(P) + 1.0)[None, :] / self.dE[:, None]  # (G, P)
-        rhs = np.transpose(t, (2, 0, 1, 3)) * scale[None, None]  # (J, K+1, G, P)
-        rhs = rhs.reshape(J * K1, G * P)
-        u = np.linalg.solve(self.A, self.T.T @ rhs)
-        Phi = (self.T @ u).reshape(J, K1, G, P)
-        return np.ascontiguousarray(np.transpose(Phi, (1, 2, 0, 3)))
+    def project(self, t, P=None):
+        """
+        Nodal coefficients Phi[i, g, j, c] from moments t[i, g, j, c] =
+        int f h_i P_a P_b, c = b P + a (P energy polynomials; default: all).
+        """
+        K1, G, J, C = t.shape
+        P = P or C
+        norms = coefficient_norms(C, P)
+        Phi = np.empty_like(t)
+        for b in range(C // P):
+            cs = slice(b * P, (b + 1) * P)
+            T, A = self.T[b % 2], self.A[b % 2]
+            scale = norms[cs][None, :] / self.dE[:, None]  # (G, P)
+            rhs = np.transpose(t[..., cs], (2, 0, 1, 3)) * scale[None, None]
+            rhs = rhs.reshape(J * K1, G * P)
+            u = np.linalg.solve(A, T.T @ rhs)
+            Phi[..., cs] = np.transpose((T @ u).reshape(J, K1, G, P), (1, 2, 0, 3))
+        return np.ascontiguousarray(Phi)
 
 
 def node_moments(m0, m1):

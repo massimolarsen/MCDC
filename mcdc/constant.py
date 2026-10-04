@@ -177,11 +177,20 @@ SCORE_DENSITY = 1
 SCORE_COLLISION = 2
 SCORE_CAPTURE = 3
 SCORE_FISSION = 4
-# Flux times the bin's linear Legendre polynomial in energy (energy filter required),
-#   in z within the mesh cell (structured mesh required), and in both
+# Flux times the bins' linear Legendre polynomials: score - SCORE_FLUX_MOMENT is a bit
+#   field of energy (1, energy filter required), z within the mesh cell (2, structured
+#   mesh required), and the polar cosine within the polar bin (4, polar filter)
+SCORE_FLUX_MOMENT = 4
 SCORE_FLUX_ENERGY_SLOPE = 5
 SCORE_FLUX_Z_SLOPE = 6
 SCORE_FLUX_Z_ENERGY_SLOPE = 7
+SCORE_FLUX_MU_SLOPE = 8
+SCORE_FLUX_MU_ENERGY_SLOPE = 9
+SCORE_FLUX_MU_Z_SLOPE = 10
+SCORE_FLUX_MU_Z_ENERGY_SLOPE = 11
+MOMENT_ENERGY = 1
+MOMENT_Z = 2
+MOMENT_MU = 4
 
 # Surface-crossing scores
 SCORE_CURRENT_NET = 100
@@ -202,6 +211,10 @@ SUPPORTED_SCORES_TRACKLENGTH = {
     "flux-energy-slope",
     "flux-z-slope",
     "flux-z-energy-slope",
+    "flux-mu-slope",
+    "flux-mu-energy-slope",
+    "flux-mu-z-slope",
+    "flux-mu-z-energy-slope",
 }
 SUPPORTED_SCORES_COLLISION = {"energy_deposition"}
 SUPPORTED_SCORES = (

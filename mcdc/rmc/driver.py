@@ -65,6 +65,7 @@ from mcdc.rmc.residual import (
     BOUNDARY_VACUUM,
     Residual,
     ResidualLinearZ,
+    coefficient_norms,
     material_total_xs,
     projected_removal,
 )
@@ -102,6 +103,7 @@ class RMCResult:
         mu_edges,
         energy_basis="constant",
         spatial_basis="constant",
+        angular_basis="constant",
     ):
         self.z_edges = z_edges
         self.E_edges = E_edges
@@ -110,6 +112,8 @@ class RMCResult:
         # Spatial basis "linear": psi~ arrays hold nodal values on z_edges (K + 1),
         #   and psi_cell the cell averages; "constant": cell values (K)
         self.spatial_basis = spatial_basis
+        self.angular_basis = angular_basis
+        self.psi_mu_slope = None  # P_1 coefficients in the polar cosine (linear)
         # Bin averages psi~[k, g, j]; with the linear energy basis also the P_1
         #   coefficients (psi~(E) = psi + psi_slope x_g(E)), else None
         self.psi = None  # final answer (fixed point + averaged correction)
@@ -167,6 +171,9 @@ class RMCResult:
         group.attrs["N_history"] = self.N_history
         group.attrs["energy_basis"] = self.energy_basis
         group.attrs["spatial_basis"] = self.spatial_basis
+        group.attrs["angular_basis"] = self.angular_basis
+        if self.psi_mu_slope is not None:
+            group.create_dataset("psi_mu_slope", data=self.psi_mu_slope)
         if self.spatial_basis == "linear":
             group.create_dataset("psi_cell", data=self.psi_cell)
         group.attrs["time_precompute"] = self.time_precompute
@@ -182,6 +189,19 @@ class RMCResult:
 MOMENT_FORMAT_VERSION = 3
 ENERGY_BASES = {"constant": 0, "linear": 1}
 SPATIAL_BASES = ("constant", "linear")
+ANGULAR_BASES = {"constant": 0, "linear": 1}
+# Tally scores of flux x P_a(energy) x P_s(z in the cell) x P_b(polar cosine), by the
+#   (a, s, b) moment orders
+MOMENT_SCORES = {
+    (0, 0, 0): "flux",
+    (1, 0, 0): "flux-energy-slope",
+    (0, 1, 0): "flux-z-slope",
+    (1, 1, 0): "flux-z-energy-slope",
+    (0, 0, 1): "flux-mu-slope",
+    (1, 0, 1): "flux-mu-energy-slope",
+    (0, 1, 1): "flux-mu-z-slope",
+    (1, 1, 1): "flux-mu-z-energy-slope",
+}
 
 _fingerprints = {}
 
@@ -206,7 +226,7 @@ def nuclide_data_path(nuclide):
 
 
 def _cache_provenance(
-    nuclide, fingerprint, E_edges, mu_edges, tol, tol_low, energy_order
+    nuclide, fingerprint, E_edges, mu_edges, tol, tol_low, energy_order, angular_order
 ):
     """
     Everything the moments depend on: the data contents, the moment-format version,
@@ -223,6 +243,7 @@ def _cache_provenance(
         "N_theta": N_THETA_DEFAULT,
         "max_depth": MAX_DEPTH,
         "energy_order": int(energy_order),
+        "angular_order": int(angular_order),
     }
 
 
@@ -293,7 +314,14 @@ def nuclide_moments(
         if comm.Get_rank() == 0:
             fingerprint = data_fingerprint(nuclide_data_path(nuclide))
             provenance = _cache_provenance(
-                nuclide, fingerprint, E_edges, mu_edges, tol, tol_low, energy_order
+                nuclide,
+                fingerprint,
+                E_edges,
+                mu_edges,
+                tol,
+                tol_low,
+                energy_order,
+                table.shape[0] - 1,
             )
         provenance = comm.bcast(provenance, root=0)
         key = _cache_key(provenance, E_edges, mu_edges)
@@ -412,6 +440,7 @@ class RMCSolver:
         correction_sampler="integrated",
         energy_basis="constant",
         spatial_basis="constant",
+        angular_basis="constant",
     ):
         z_edges = np.asarray(z_edges, dtype=float)
         E_edges = np.asarray(E_edges, dtype=float)
@@ -428,16 +457,21 @@ class RMCSolver:
         if spatial_basis not in SPATIAL_BASES:
             print_error(f"RMC: unknown spatial_basis {spatial_basis}")
         linear_z = spatial_basis == "linear"
-        if linear_z and correction_sampler == "pointwise":
-            print_error(
-                "RMC: the linear spatial basis supports the integrated correction "
-                "sampler only"
-            )
+        if angular_basis not in ANGULAR_BASES:
+            print_error(f"RMC: unknown angular_basis {angular_basis}")
         P = ENERGY_BASES[energy_basis] + 1
-        if Q.shape == (K, G, J):
-            Q = np.concatenate((Q[..., None], np.zeros((K, G, J, P - 1))), axis=-1)
-        if Q.shape != (K, G, J, P):
-            print_error(f"RMC: Q must have shape {(K, G, J)} or {(K, G, J, P)}")
+        B = ANGULAR_BASES[angular_basis] + 1
+        C = P * B  # coefficients c = b P + a per bin
+        if (linear_z or B > 1) and correction_sampler == "pointwise":
+            print_error(
+                "RMC: the linear spatial and angular bases support the integrated "
+                "correction sampler only"
+            )
+        if Q.ndim == 3:
+            Q = Q[..., None]
+        if Q.shape[:3] != (K, G, J) or Q.shape[3] > C:
+            print_error(f"RMC: Q must have shape {(K, G, J)} or {(K, G, J, C)}")
+        Q = np.concatenate((Q, np.zeros((K, G, J, C - Q.shape[3]))), axis=-1)
         if len(cell_materials) != K:
             print_error("RMC: one material per trial-space z cell is required")
         if not np.any(np.isclose(mu_edges, 0.0)):
@@ -474,10 +508,12 @@ class RMCSolver:
         settings.use_progress_bar = False
 
         mesh = mcdc.MeshStructured("rmc-trial-space", z=z_edges)
-        # Scores: flux x P_a(energy) x P_b(z within the cell), a < P, b < 1 or 2
-        scores = ["flux", "flux-energy-slope"][:P]
-        if linear_z:
-            scores += ["flux-z-slope", "flux-z-energy-slope"][:P]
+        # Scores: flux x P_a(energy) x P_s(z within the cell) x P_b(polar cosine)
+        S_z = 2 if linear_z else 1
+        moment_orders = [
+            (a, sz, b) for b in range(B) for sz in range(S_z) for a in range(P)
+        ]
+        scores = [MOMENT_SCORES[order] for order in moment_orders]
         epsilon_tally = mcdc.Tally(
             mesh=mesh, scores=scores, energy=E_edges, mu=mu_edges
         )
@@ -518,10 +554,10 @@ class RMCSolver:
         # Transfer moments, cross sections, and reaction tables per material
         # ==============================================================================
 
-        table = build_angular_transfer_table(mu_edges, N_THETA_DEFAULT)
+        table = build_angular_transfer_table(mu_edges, N_THETA_DEFAULT, B - 1)
         nuclide_cache = {}
-        M_scatter = np.zeros((len(unique_materials), P, G, J, P, G, J))
-        M_fission = np.zeros((len(unique_materials), P, G, J, P, G, J))
+        M_scatter = np.zeros((len(unique_materials), C, G, J, C, G, J))
+        M_fission = np.zeros((len(unique_materials), C, G, J, C, G, J))
         xs = []
         for i, m in enumerate(unique_materials):
             material = program["materials"][m]
@@ -550,8 +586,11 @@ class RMCSolver:
         # Store the state
         self.z_edges, self.E_edges, self.mu_edges = z_edges, E_edges, mu_edges
         # psi~ holds cell values (K) or, for the linear spatial basis, nodal values
-        self.shape = (K + 1 if linear_z else K, G, J, P)
+        self.shape = (K + 1 if linear_z else K, G, J, C)
         self.K = K
+        self.P, self.B = P, B
+        self.moment_index = {order: i for i, order in enumerate(moment_orders)}
+        self.angular_basis = angular_basis
         self.energy_basis = energy_basis
         self.spatial_basis = spatial_basis
         self.linear_z = linear_z
@@ -585,7 +624,16 @@ class RMCSolver:
         self.removal = None
         self.xs_arrays_iteration = self.xs_arrays
         if collision_xs == "binned":
-            self.removal = [projected_removal(x, E_edges, P) for x in xs]
+            # Removal acts on energy only: block-diagonal over the angular polynomials
+            self.removal = [
+                np.stack(
+                    [
+                        np.kron(np.eye(B), R_g)
+                        for R_g in projected_removal(x, E_edges, P)
+                    ]
+                )
+                for x in xs
+            ]
             no_xs = (np.array([E_edges[0], E_edges[-1]]), np.zeros(2))
             self.xs_arrays_iteration = _xs_arrays([no_xs] * len(xs))
         self.tables_scatter = _reaction_tables(program, data, unique_materials, False)
@@ -616,6 +664,7 @@ class RMCSolver:
                 self.mu_edges,
                 cm,
                 removal=None if corrections else self.removal,
+                n_energy=self.P,
             )
         removal = None
         if not corrections and self.removal is not None:
@@ -630,6 +679,7 @@ class RMCSolver:
             self.mu_edges,
             *self.boundary,
             removal=removal,
+            n_energy=self.P,
         )
 
     def iterate(self, psi, n, corrections=True):
@@ -660,12 +710,12 @@ class RMCSolver:
                 (self.M_fission, self.tables_fission),
             ):
                 S_bar = binned_in_scatter(
-                    psi_left, M_term, cm, self.E_edges, self.mu_edges
+                    psi_left, M_term, cm, self.E_edges, self.mu_edges, self.P
                 )
                 S_right = S_bar
                 if self.linear_z:
                     S_right = binned_in_scatter(
-                        psi_right, M_term, cm, self.E_edges, self.mu_edges
+                        psi_right, M_term, cm, self.E_edges, self.mu_edges, self.P
                     )
                 mass = correction_masses(
                     psi_left,
@@ -680,6 +730,7 @@ class RMCSolver:
                     *tables,
                     program,
                     data,
+                    self.P,
                 )
                 terms.append((S_bar, S_right, mass))
             size_scatter = np.sum(terms[0][2])
@@ -748,7 +799,8 @@ class RMCSolver:
                 *xs_arrays,
                 cm,
                 program,
-                self.shape[3] > 1,  # antithetic energy pairs for the linear basis
+                self.P > 1,  # antithetic energy pairs for the linear energy basis
+                self.P,
             )
         else:
             mass = np.concatenate(
@@ -813,7 +865,8 @@ class RMCSolver:
             *xs_arrays,
             cm,
             program,
-            self.shape[3] > 1,  # antithetic energy pairs for the linear basis
+            self.P > 1,  # antithetic energy pairs for the linear energy basis
+            self.P,
         )
 
     def _sample_corrections(
@@ -857,6 +910,7 @@ class RMCSolver:
                     *tables,
                     program,
                     data,
+                    self.P,
                 )
                 offset += N_term
                 continue
@@ -889,23 +943,26 @@ class RMCSolver:
         mean = data[start : start + record["bin_length"]].reshape(
             self.epsilon_tally.bin_shape
         )
-        # bin shape: (mu, azi, energy, time, x, y, z, score); score index b P + a is
-        #   the flux times P_a(energy) times P_b(z in the cell)
-        P = self.shape[3]
+        # bin shape: (mu, azi, energy, time, x, y, z, score); the scores are the flux
+        #   times P_a(energy) P_s(z in the cell) P_b(polar cosine), indexed by (a, s, b)
+        P, B = self.P, self.B
 
-        def moment(a, b):
-            return np.transpose(mean[:, 0, :, 0, 0, 0, :, b * P + a], (2, 1, 0))
+        def moment(c, s):
+            index = self.moment_index[(c % P, s, c // P)]
+            return np.transpose(mean[:, 0, :, 0, 0, 0, :, index], (2, 1, 0))
 
+        C = P * B
         if self.linear_z:
-            # Hat-function moments t[i] = int eps h_i P_a, then the L2 projection
-            m0 = np.stack([moment(a, 0) for a in range(P)], axis=-1)
-            m1 = np.stack([moment(a, 1) for a in range(P)], axis=-1)
-            epsilon = self.projection.project(node_moments(m0, m1))
+            # Hat-function moments t[i] = int eps h_i P_a P_b, then the L2 projection
+            m0 = np.stack([moment(c, 0) for c in range(C)], axis=-1)
+            m1 = np.stack([moment(c, 1) for c in range(C)], axis=-1)
+            epsilon = self.projection.project(node_moments(m0, m1), P)
         else:
-            # Coefficient (2a + 1) score / volume
+            # Coefficient (2a + 1)(2b + 1) score / volume
+            norms = coefficient_norms(C, P)
             epsilon = np.empty(self.shape)
-            for a in range(P):
-                epsilon[..., a] = (2 * a + 1) * moment(a, 0) / self.volume
+            for c in range(C):
+                epsilon[..., c] = norms[c] * moment(c, 0) / self.volume
         epsilon = np.ascontiguousarray(epsilon)
         MPI.COMM_WORLD.Bcast(epsilon, root=0)
         return epsilon
@@ -935,6 +992,7 @@ def run(
     correction_sampler="integrated",
     energy_basis="constant",
     spatial_basis="constant",
+    angular_basis="constant",
 ):
     """
     Solve a fixed-source CE problem with Residual Monte Carlo, in two phases:
@@ -1001,6 +1059,10 @@ def run(
         linear on the nodes z_edges with the boundary conditions imposed on it (no
         face residual; result.psi then holds nodal values and result.psi_cell the
         cell averages). See writeups/continuous_linear_space.tex.
+    angular_basis : {"constant", "linear"}
+        Trial space in the polar cosine on each bin: constant, or linear
+        discontinuous (result.psi_mu_slope holds the P_1 coefficients). See
+        writeups/linear_discontinuous_angle.tex.
 
     Returns
     -------
@@ -1029,22 +1091,32 @@ def run(
         correction_sampler,
         energy_basis,
         spatial_basis,
+        angular_basis,
     )
     result = RMCResult(
-        solver.z_edges, solver.E_edges, solver.mu_edges, energy_basis, spatial_basis
+        solver.z_edges,
+        solver.E_edges,
+        solver.mu_edges,
+        energy_basis,
+        spatial_basis,
+        angular_basis,
     )
     result.N_history = solver.N_total
     result.time_precompute = MPI.Wtime() - time_start
 
-    # L2 norm of a trial-space function (per unit bin volume): P_a has mean square
-    #   1 / (2a + 1) on a bin
-    P = solver.shape[3]
+    # L2 norm of a trial-space function (per unit bin volume): P_a P_b has mean
+    #   square 1 / ((2a + 1)(2b + 1)) on a bin
+    P, B = solver.P, solver.B
+    norms = coefficient_norms(P * B, P)
 
     def norm(coefficients):
-        return np.sqrt(np.sum(coefficients**2 / (2.0 * np.arange(P) + 1.0)))
+        return np.sqrt(np.sum(coefficients**2 / norms))
 
     def slope(coefficients):
         return coefficients[..., 1].copy() if P > 1 else None
+
+    def mu_slope(coefficients):
+        return coefficients[..., P].copy() if B > 1 else None
 
     # Phase 1: collision-only iterations
     psi = np.zeros(solver.shape)
@@ -1073,4 +1145,5 @@ def run(
         psi = psi + np.mean(corrections, axis=0)
     result.psi = psi[..., 0].copy()
     result.psi_slope = slope(psi)
+    result.psi_mu_slope = mu_slope(psi)
     return result

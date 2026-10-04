@@ -33,8 +33,16 @@ from mcdc.constant import (
     SCORE_CAPTURE,
     SCORE_FISSION,
     SCORE_FLUX_ENERGY_SLOPE,
+    SCORE_FLUX_MOMENT,
+    SCORE_FLUX_MU_ENERGY_SLOPE,
+    SCORE_FLUX_MU_SLOPE,
+    SCORE_FLUX_MU_Z_ENERGY_SLOPE,
+    SCORE_FLUX_MU_Z_SLOPE,
     SCORE_FLUX_Z_ENERGY_SLOPE,
     SCORE_FLUX_Z_SLOPE,
+    MOMENT_ENERGY,
+    MOMENT_MU,
+    MOMENT_Z,
     SCORE_CURRENT_NET,
     SCORE_ENERGY_DEPOSITION,
     SCORE_CURRENT_IN,
@@ -65,8 +73,10 @@ class Tally(MCDCPolymorphic):
         (flux times (2E - E_low - E_high) / (E_high - E_low) of the energy bin;
         requires ``energy``), ``"flux-z-slope"`` (flux times the same linear
         Legendre polynomial of z in the mesh cell, at the track segment's midpoint;
-        requires a structured ``mesh``), and ``"flux-z-energy-slope"`` (both);
-        surface-crossing
+        requires a structured ``mesh``), ``"flux-mu-slope"`` (of the polar cosine
+        in the polar bin; requires ``mu``), and their products
+        ``"flux-z-energy-slope"``, ``"flux-mu-energy-slope"``, ``"flux-mu-z-slope"``
+        and ``"flux-mu-z-energy-slope"``; surface-crossing
         scores are ``"current-net"``, ``"current-in"``, and ``"current-out"``;
         the collision score is ``"energy_deposition"``, scored in eV. Scores
         from different estimator families cannot be mixed.
@@ -312,6 +322,14 @@ class Tally(MCDCPolymorphic):
                 self.scores.append(SCORE_FLUX_Z_SLOPE)
             elif score == "flux-z-energy-slope":
                 self.scores.append(SCORE_FLUX_Z_ENERGY_SLOPE)
+            elif score == "flux-mu-slope":
+                self.scores.append(SCORE_FLUX_MU_SLOPE)
+            elif score == "flux-mu-energy-slope":
+                self.scores.append(SCORE_FLUX_MU_ENERGY_SLOPE)
+            elif score == "flux-mu-z-slope":
+                self.scores.append(SCORE_FLUX_MU_Z_SLOPE)
+            elif score == "flux-mu-z-energy-slope":
+                self.scores.append(SCORE_FLUX_MU_Z_ENERGY_SLOPE)
             elif score == "current-net":
                 self.scores.append(SCORE_CURRENT_NET)
             elif score == "current-in":
@@ -368,11 +386,17 @@ class Tally(MCDCPolymorphic):
         if time is not None:
             self.time = np.array(time)
             self.filter_time = True
-        energy_slope = (SCORE_FLUX_ENERGY_SLOPE, SCORE_FLUX_Z_ENERGY_SLOPE)
-        if any(score in self.scores for score in energy_slope) and (
+        moments = [
+            score - SCORE_FLUX_MOMENT
+            for score in self.scores
+            if SCORE_FLUX_MOMENT < score <= SCORE_FLUX_MU_Z_ENERGY_SLOPE
+        ]
+        if any(m & MOMENT_ENERGY for m in moments) and (
             not self.filter_energy or self._energy_all
         ):
             print_error("Tally energy-slope scores need an energy grid")
+        if any(m & MOMENT_MU for m in moments) and mu is None:
+            print_error("Tally mu-slope scores need a polar-cosine grid")
 
         # Determine bin shape
         N_mu = len(self.mu) - 1
@@ -492,6 +516,14 @@ def decode_score_type(type_, lower_case=False):
         return "Flux z slope" if not lower_case else "flux-z-slope"
     elif type_ == SCORE_FLUX_Z_ENERGY_SLOPE:
         return "Flux z energy slope" if not lower_case else "flux-z-energy-slope"
+    elif type_ == SCORE_FLUX_MU_SLOPE:
+        return "Flux mu slope" if not lower_case else "flux-mu-slope"
+    elif type_ == SCORE_FLUX_MU_ENERGY_SLOPE:
+        return "Flux mu energy slope" if not lower_case else "flux-mu-energy-slope"
+    elif type_ == SCORE_FLUX_MU_Z_SLOPE:
+        return "Flux mu z slope" if not lower_case else "flux-mu-z-slope"
+    elif type_ == SCORE_FLUX_MU_Z_ENERGY_SLOPE:
+        return "Flux mu z energy slope" if not lower_case else "flux-mu-z-energy-slope"
     elif type_ == SCORE_CURRENT_NET:
         return "Current net" if not lower_case else "current-net"
     elif type_ == SCORE_CURRENT_IN:
@@ -829,8 +861,13 @@ class TallyTracklength(Tally):
             cell.tracklength_tallies.append(self)
 
         # Mesh filter
-        z_slope = (SCORE_FLUX_Z_SLOPE, SCORE_FLUX_Z_ENERGY_SLOPE)
-        if any(score in self.scores for score in z_slope) and not mesh:
+        z_slope = [
+            score
+            for score in self.scores
+            if SCORE_FLUX_MOMENT < score <= SCORE_FLUX_MU_Z_ENERGY_SLOPE
+            and (score - SCORE_FLUX_MOMENT) & MOMENT_Z
+        ]
+        if z_slope and not mesh:
             print_error("Tally z-slope scores need a mesh")
         if mesh:
             self.mesh_filtered = True

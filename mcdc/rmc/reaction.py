@@ -43,6 +43,7 @@ from mcdc.rmc.evaluate import (
     evaluate_distribution,
 )
 from mcdc.rmc.kinematics import (
+    azimuthal_bin_moments,
     azimuthal_bin_probability,
     com_to_lab_jacobian,
     elastic_dmu_cm_dE_out,
@@ -581,27 +582,66 @@ TAU_MAX_DEPTH = 40
 def emission_kernel_bin(
     E_in, E_out, mu_out, mu_low, mu_high, reaction, ktype, nuclide, simulation, data
 ):
-    """
-    tau_bar_r: emitted neutrons per reaction per unit E_out and per unit outgoing polar
-    cosine mu_out, integrated over incident polar cosines mu_in in [mu_low, mu_high]
-    (azimuths integrated). The azimuthal kernel is symmetric in (mu_in, mu_out), so
+    """tau_bar_r of `emission_kernel_bin_moments` (its b = 0 moment)."""
+    out = np.zeros(1)
+    emission_kernel_bin_moments(
+        E_in,
+        E_out,
+        mu_out,
+        mu_low,
+        mu_high,
+        reaction,
+        ktype,
+        nuclide,
+        simulation,
+        data,
+        out,
+    )
+    return out[0]
 
-        tau_bar = int dmu0 f_L(E_out, mu0 | E_in) Pi(mu_out, mu0; mu_low, mu_high),
 
-    with Pi the analytic bin probability (bounded). Delta laws: g(E_out) Pi(mu0*).
-    Continuous laws: adaptive Gauss-Kronrod over the supported mu0 range, split at the
-    kinks of Pi and cosine-mapped on each piece.
+@njit(cache=True)
+def emission_kernel_bin_moments(
+    E_in,
+    E_out,
+    mu_out,
+    mu_low,
+    mu_high,
+    reaction,
+    ktype,
+    nuclide,
+    simulation,
+    data,
+    out,
+):
     """
+    out[b] = tau_bar_r^b: emitted neutrons per reaction per unit E_out and per unit
+    outgoing polar cosine mu_out, integrated over incident polar cosines mu_in in
+    [mu_low, mu_high] weighted by the bin's Legendre polynomial P_b(y(mu_in)) (azimuths
+    integrated), for b < len(out). The azimuthal kernel is symmetric in (mu_in, mu_out),
+    so
+
+        tau_bar^b = int dmu0 f_L(E_out, mu0 | E_in) Pi^b(mu_out, mu0; mu_low, mu_high),
+
+    with Pi^b the analytic bin moments (`azimuthal_bin_moments`). Delta laws:
+    g(E_out) Pi^b(mu0*). Continuous laws: adaptive Gauss-Kronrod over the supported mu0
+    range (accepted on the b = 0 moment), split at the kinks of Pi and cosine-mapped
+    on each piece.
+    """
+    out[:] = 0.0
+    B = len(out)
     low, high = lab_energy_support(E_in, reaction, nuclide, simulation, data)
     if E_out < low or E_out > high:
-        return 0.0
+        return
 
     free_gas = is_free_gas(E_in, reaction, nuclide)
     if ktype != KERNEL_CONTINUOUS and not free_gas:
         g, mu0 = delta_lab_line(E_in, E_out, reaction, nuclide, simulation, data)
         if g == 0.0:
-            return 0.0
-        return g * azimuthal_bin_probability(mu_out, mu0, mu_low, mu_high)
+            return
+        azimuthal_bin_moments(mu_out, mu0, mu_low, mu_high, out)
+        out *= g
+        return
 
     # Lab-cosine support: for COM laws, E_cm = E_out + s_A^2 - 2 mu0 s_A sqrt(E_out)
     #   (s_A = sqrt(E_in)/(A+1)) must lie in the spectra's E_cm range
@@ -613,7 +653,7 @@ def emission_kernel_bin(
         mu0_low = max(mu0_low, (E_out + s_A * s_A - E_cm_high) / denominator)
         mu0_high = min(mu0_high, (E_out + s_A * s_A - E_cm_low) / denominator)
     if mu0_high <= mu0_low:
-        return 0.0
+        return
 
     # Pieces: kinks of Pi in mu0 at b mu_out +- sqrt(1 - b^2) sqrt(1 - mu_out^2)
     points = np.empty(8)
@@ -635,7 +675,9 @@ def emission_kernel_bin(
                 N += 1
     points = np.sort(points[:N])
 
-    total = 0.0
+    moments = np.zeros(B)
+    K = np.zeros(B)
+    Gs = np.zeros(B)
     stack_a = np.empty(TAU_MAX_DEPTH + 2)
     stack_b = np.empty(TAU_MAX_DEPTH + 2)
     stack_d = np.empty(TAU_MAX_DEPTH + 2, dtype=np.int64)
@@ -656,8 +698,8 @@ def emission_kernel_bin(
             depth = stack_d[top]
             half = 0.5 * (b - a)
             center = 0.5 * (b + a)
-            K = 0.0
-            Gs = 0.0
+            K[:] = 0.0
+            Gs[:] = 0.0
             for q in range(15):
                 t = center + half * _XK[q]
                 mu0 = c + 0.5 * (d - c) * (1.0 - math.cos(math.pi * t))
@@ -665,16 +707,22 @@ def emission_kernel_bin(
                 f = continuous_lab_density(
                     E_in, E_out, mu0, reaction, nuclide, simulation, data
                 )
-                if f != 0.0:
-                    f *= dmu0 * azimuthal_bin_probability(mu_out, mu0, mu_low, mu_high)
-                K += half * _WK[q] * f
-                Gs += half * _WG[q] * f
+                if f == 0.0:
+                    continue
+                if B == 1:
+                    moments[0] = azimuthal_bin_probability(mu_out, mu0, mu_low, mu_high)
+                else:
+                    azimuthal_bin_moments(mu_out, mu0, mu_low, mu_high, moments)
+                for m in range(B):
+                    value = f * dmu0 * moments[m]
+                    K[m] += half * _WK[q] * value
+                    Gs[m] += half * _WG[q] * value
             if (
-                (K != 0.0 and abs(K - Gs) <= TAU_TOLERANCE * abs(K))
+                (K[0] != 0.0 and abs(K[0] - Gs[0]) <= TAU_TOLERANCE * abs(K[0]))
                 or depth >= TAU_MAX_DEPTH
-                or (K == 0.0 and depth >= 3)
+                or (K[0] == 0.0 and depth >= 3)
             ):
-                total += K
+                out += K
             else:
                 stack_a[top] = a
                 stack_b[top] = center
@@ -683,7 +731,6 @@ def emission_kernel_bin(
                 stack_b[top + 1] = b
                 stack_d[top + 1] = depth + 1
                 top += 2
-    return total
 
 
 @njit(cache=True)

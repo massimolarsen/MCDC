@@ -27,7 +27,7 @@ from numba import njit
 ####
 
 from mcdc.constant import PI
-from mcdc.rmc.kinematics import azimuthal_bin_probability
+from mcdc.rmc.kinematics import azimuthal_bin_moments, azimuthal_bin_probability
 
 N_THETA_DEFAULT = 8193
 
@@ -35,8 +35,12 @@ _GL_X, _GL_W = np.polynomial.legendre.leggauss(40)
 
 
 @njit(cache=True)
-def angular_transfer_exact(mu0, mu_edges, j, jp):
-    """A_{j j'}(mu0), evaluated to round-off."""
+def angular_transfer_exact(mu0, mu_edges, j, jp, bp=0, b=0):
+    """
+    A^{b' b}_{j j'}(mu0) = int_{bin j'} P_b'(y_j'(mu_in)) Pi^b_j(mu_in, mu0) dmu_in,
+    evaluated to round-off (b' = b = 0: the bin-to-bin transfer A_{j j'}; b, b' = 1:
+    the angular Legendre moments of the linear discontinuous angular basis).
+    """
     low = mu_edges[jp]
     high = mu_edges[jp + 1]
 
@@ -54,6 +58,7 @@ def angular_transfer_exact(mu0, mu_edges, j, jp):
                 N += 1
     points = np.sort(points[:N])
 
+    moments = np.zeros(b + 1)
     total = 0.0
     for p in range(N - 1):
         c = points[p]
@@ -64,37 +69,52 @@ def angular_transfer_exact(mu0, mu_edges, j, jp):
             t = 0.5 * (_GL_X[q] + 1.0)
             x = c + 0.5 * (d - c) * (1.0 - math.cos(PI * t))
             dx = 0.5 * (d - c) * PI * math.sin(PI * t)
-            total += (
-                0.5
-                * _GL_W[q]
-                * dx
-                * azimuthal_bin_probability(x, mu0, mu_edges[j], mu_edges[j + 1])
-            )
+            if b == 0:
+                Pi = azimuthal_bin_probability(x, mu0, mu_edges[j], mu_edges[j + 1])
+            else:
+                azimuthal_bin_moments(x, mu0, mu_edges[j], mu_edges[j + 1], moments)
+                Pi = moments[b]
+            if bp == 1:
+                Pi *= (2.0 * x - low - high) / (high - low)
+            total += 0.5 * _GL_W[q] * dx * Pi
     return total
 
 
 @njit(cache=True)
-def build_angular_transfer_table(mu_edges, N_theta):
-    """Table A[j, j', k] at theta0_k = pi k / (N_theta - 1), mu0 = cos(theta0_k)."""
+def build_angular_transfer_table(mu_edges, N_theta, angular_order=0):
+    """
+    Table A[b', b, j, j', k] at theta0_k = pi k / (N_theta - 1), mu0 = cos(theta0_k),
+    for angular Legendre orders b', b <= angular_order (incident, outgoing).
+    """
     J = len(mu_edges) - 1
-    table = np.zeros((J, J, N_theta))
+    B = angular_order + 1
+    table = np.zeros((B, B, J, J, N_theta))
     for k in range(N_theta):
         mu0 = math.cos(PI * k / (N_theta - 1))
-        for j in range(J):
-            for jp in range(J):
-                table[j, jp, k] = angular_transfer_exact(mu0, mu_edges, j, jp)
+        for bp in range(B):
+            for b in range(B):
+                for j in range(J):
+                    for jp in range(J):
+                        table[bp, b, j, jp, k] = angular_transfer_exact(
+                            mu0, mu_edges, j, jp, bp, b
+                        )
     return table
 
 
 @njit(cache=True)
 def angular_transfer(mu0, table, out):
-    """Fill out[j, j'] with A_{j j'}(mu0) by linear interpolation in theta0."""
-    N_theta = table.shape[2]
+    """Fill out[b', b, j, j'] with A^{b' b}_{j j'}(mu0) by linear interpolation in theta0."""
+    N_theta = table.shape[4]
     mu0 = min(1.0, max(-1.0, mu0))
     x = math.acos(mu0) / PI * (N_theta - 1)
     k = min(int(x), N_theta - 2)
     f = x - k
-    J = table.shape[0]
-    for j in range(J):
-        for jp in range(J):
-            out[j, jp] = (1.0 - f) * table[j, jp, k] + f * table[j, jp, k + 1]
+    B = table.shape[0]
+    J = table.shape[2]
+    for bp in range(B):
+        for b in range(B):
+            for j in range(J):
+                for jp in range(J):
+                    out[bp, b, j, jp] = (1.0 - f) * table[bp, b, j, jp, k] + f * (
+                        table[bp, b, j, jp, k + 1]
+                    )

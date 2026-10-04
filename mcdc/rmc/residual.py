@@ -121,6 +121,56 @@ def _trial_value(coefficients, E, E_a, E_b):
 
 
 @njit(cache=True)
+def _basis_value(coeffs, E, E_a, E_b, mu, mu_a, mu_b, P):
+    """
+    sum_c coeffs[c] P_a(x(E)) P_b(y(mu)) on the energy bin [E_a, E_b] and polar bin
+    [mu_a, mu_b], with c = b P + a (energy polynomial a < P, angular polynomial b).
+    """
+    if len(coeffs) == P:
+        return _trial_value(coeffs, E, E_a, E_b)
+    y = (2.0 * mu - mu_a - mu_b) / (mu_b - mu_a)
+    return _trial_value(coeffs[:P], E, E_a, E_b) + y * _trial_value(
+        coeffs[P : 2 * P], E, E_a, E_b
+    )
+
+
+@njit(cache=True)
+def collision_residual_mass_angle(c, psi, P, E_a, E_b, mu_a, mu_b, E_grid, Sigma):
+    """
+    int_{E_a}^{E_b} int_{mu_a}^{mu_b} |c(E, mu) - psi~(E, mu) Sigma_t(E)| dmu dE for the
+    linear angular basis: exact in mu (the residual is linear in y for fixed E),
+    Simpson on the union-grid intervals in E (only shapes the proposal).
+    """
+    i0 = np.searchsorted(E_grid, E_a, side="right")
+    i1 = np.searchsorted(E_grid, E_b, side="left")
+    x_prev = E_a
+    total = 0.0
+    for i in range(i0, i1 + 1):
+        x = E_grid[i] if i < i1 else E_b
+        if x > x_prev:
+            panel = 0.0
+            for n in range(3):
+                E = x_prev + 0.5 * n * (x - x_prev)
+                S = np.interp(E, E_grid, Sigma)
+                # r = alpha + beta y on y in [-1, 1]
+                alpha = _trial_value(c[:P], E, E_a, E_b) - S * _trial_value(
+                    psi[:P], E, E_a, E_b
+                )
+                beta = _trial_value(c[P : 2 * P], E, E_a, E_b) - S * _trial_value(
+                    psi[P : 2 * P], E, E_a, E_b
+                )
+                inner = (
+                    0.5
+                    * (mu_b - mu_a)
+                    * _abs_linear_integral(-1.0, 1.0, alpha - beta, alpha + beta)
+                )
+                panel += (4.0 if n == 1 else 1.0) * inner
+            total += panel * (x - x_prev) / 6.0
+        x_prev = x
+    return total
+
+
+@njit(cache=True)
 def collision_residual_mass(c, psi, E_a, E_b, E_grid, Sigma):
     """
     int_{E_a}^{E_b} |c(E) - psi~(E) Sigma_t(E)| dE with c, psi~ the energy coefficients
@@ -149,17 +199,25 @@ def collision_residual_mass(c, psi, E_a, E_b, E_grid, Sigma):
 # ======================================================================================
 
 
-def binned_source(M, psi, E_edges, mu_edges):
+def coefficient_norms(C, P):
+    """(2a + 1)(2b + 1) for the coefficients c = b P + a."""
+    c = np.arange(C)
+    return (2.0 * (c % P) + 1.0) * (2.0 * (c // P) + 1.0)
+
+
+def binned_source(M, psi, E_edges, mu_edges, P=None):
     """
-    S_bar[g, j, a] = (2a + 1)/(dE_g dmu_j)
-                     sum_{a', g', j'} M[a', g', j', a, g, j] psi[g', j', a'].
+    S_bar[g, j, c] = (2a + 1)(2b + 1)/(dE_g dmu_j)
+                     sum_{c', g', j'} M[c', g', j', c, g, j] psi[g', j', c'],
+    with c = b P + a (energy polynomial a < P, angular polynomial b; P defaults to
+    all coefficients, i.e. a constant angular basis).
     """
     dE = np.diff(E_edges)
     dmu = np.diff(mu_edges)
-    P = psi.shape[-1]
+    C = psi.shape[-1]
     return (
         np.einsum("bpqagj,pqb->gja", M, psi)
-        * (2.0 * np.arange(P) + 1.0)
+        * coefficient_norms(C, P or C)
         / np.outer(dE, dmu)[:, :, None]
     )
 
@@ -197,11 +255,12 @@ def mirror_index(mu_edges):
     return J - 1 - np.arange(J)
 
 
-def face_jumps(psi, mu_edges, boundary_low, boundary_high):
+def face_jumps(psi, mu_edges, boundary_low, boundary_high, P=None):
     """
-    Jump D[f, g, j, a] = psi~_R - psi~_L across faces f = 0..K of the slab, where the
+    Jump D[f, g, j, c] = psi~_R - psi~_L across faces f = 0..K of the slab, where the
     edge residual is -mu D delta(z - z_f). Only incoming directions carry a jump at
-    the boundary faces (mu > 0 at f = 0, mu < 0 at f = K).
+    the boundary faces (mu > 0 at f = 0, mu < 0 at f = K). A reflective boundary
+    mirrors the polar bin; the angular slope coefficients (c >= P) change sign.
     """
     K = psi.shape[0]
     D = np.zeros((K + 1,) + psi.shape[1:])
@@ -220,13 +279,52 @@ def face_jumps(psi, mu_edges, boundary_low, boundary_high):
         else None
     )
 
+    C = psi.shape[-1] if psi.ndim == 4 else 1
+    P = P or C
+    sign = np.where(np.arange(C) < P, 1.0, -1.0)
+    if psi.ndim != 4:
+        sign = 1.0
+
     # z_low boundary: outside value is the boundary condition
-    outside = psi[0][:, mirror] if boundary_low == BOUNDARY_REFLECTIVE else 0.0
+    outside = psi[0][:, mirror] * sign if boundary_low == BOUNDARY_REFLECTIVE else 0.0
     D[0][:, incoming_low] = (psi[0] - outside)[:, incoming_low]
     # z_high boundary
-    outside = psi[-1][:, mirror] if boundary_high == BOUNDARY_REFLECTIVE else 0.0
+    outside = psi[-1][:, mirror] * sign if boundary_high == BOUNDARY_REFLECTIVE else 0.0
     D[K][:, incoming_high] = (outside - psi[-1])[:, incoming_high]
     return D
+
+
+_EDGE_X, _EDGE_W = np.polynomial.legendre.leggauss(8)
+
+
+def edge_mass_angle(jump, E_edges, mu_edges, P):
+    """
+    int_g int_j |mu| |D(E, mu)| dmu dE per face and bin for the linear angular basis,
+    by 8 x 8 Gauss-Legendre (only shapes the proposal; zero only where D vanishes).
+    """
+    dE = np.diff(E_edges)
+    dmu = np.diff(mu_edges)
+    center = 0.5 * (mu_edges[:-1] + mu_edges[1:])
+    x = _EDGE_X
+    mu = center[:, None] + 0.5 * dmu[:, None] * x[None, :]  # (J, n)
+    energy = [np.ones_like(x), x][:P]
+    angle = [np.ones_like(x), x]
+    # D(E, mu) at the nodes: (faces, G, J, nE, nmu)
+    D = 0.0
+    for c in range(jump.shape[-1]):
+        a, b = c % P, c // P
+        D = D + (
+            jump[..., c][..., None, None]
+            * energy[a][None, None, None, :, None]
+            * angle[b][None, None, None, None, :]
+        )
+    integrand = np.abs(D) * np.abs(mu)[None, None, :, None, :]
+    weights = np.outer(_EDGE_W, _EDGE_W) / 4.0
+    return (
+        np.einsum("fgjxy,xy->fgj", integrand, weights)
+        * dE[None, :, None]
+        * dmu[None, None, :]
+    )
 
 
 def abs_mu_integral(mu_edges):
@@ -270,24 +368,41 @@ class Residual:
         boundary_low,
         boundary_high,
         removal=None,
+        n_energy=None,
     ):
-        K, G, J, P = psi.shape
+        K, G, J, C = psi.shape
+        P = n_energy or C
         h = np.diff(z_edges)
         dE = np.diff(E_edges)
         dmu = np.diff(mu_edges)
         no_xs = (np.array([E_edges[0], E_edges[-1]]), np.zeros(2))
 
         # Collision part: c = Q + S_bar (- P[Sigma_t psi~]), and |r_c| bin masses
-        self.c = np.zeros((K, G, J, P))
+        self.c = np.zeros((K, G, J, C))
         self.collision_mass = np.zeros((K, G, J))
         for k in range(K):
-            self.c[k] = Q[k] + binned_source(M[k], psi[k], E_edges, mu_edges)
+            self.c[k] = Q[k] + binned_source(M[k], psi[k], E_edges, mu_edges, P)
             E_grid, Sigma = xs[k]
             if removal is not None:
                 self.c[k] -= np.einsum("gab,gjb->gja", removal[k], psi[k])
                 E_grid, Sigma = no_xs
             for g in range(G):
                 for j in range(J):
+                    if C > P:
+                        self.collision_mass[k, g, j] = h[
+                            k
+                        ] * collision_residual_mass_angle(
+                            self.c[k, g, j],
+                            psi[k, g, j],
+                            P,
+                            E_edges[g],
+                            E_edges[g + 1],
+                            mu_edges[j],
+                            mu_edges[j + 1],
+                            E_grid,
+                            Sigma,
+                        )
+                        continue
                     self.collision_mass[k, g, j] = (
                         h[k]
                         * dmu[j]
@@ -302,7 +417,10 @@ class Residual:
                     )
 
         # Edge part: jumps and |r_e| face masses, int_g |D(E)| dE int_j |mu| dmu
-        self.jump = face_jumps(psi, mu_edges, boundary_low, boundary_high)
+        self.jump = face_jumps(psi, mu_edges, boundary_low, boundary_high, P)
+        if C > P:
+            self.edge_mass = edge_mass_angle(self.jump, E_edges, mu_edges, P)
+            return
         D0 = self.jump[..., 0]
         D1 = self.jump[..., 1] if P > 1 else np.zeros_like(D0)
         mean_abs = np.where(
@@ -329,15 +447,30 @@ _MU_X, _MU_W = np.polynomial.legendre.leggauss(8)
 
 @njit(cache=True)
 def collision_residual_mass_linear_z(
-    c_left, c_right, psi_left, psi_right, delta, h, E_a, E_b, mu_a, mu_b, E_grid, Sigma
+    c_left,
+    c_right,
+    psi_left,
+    psi_right,
+    delta,
+    h,
+    E_a,
+    E_b,
+    mu_a,
+    mu_b,
+    E_grid,
+    Sigma,
+    P=0,
 ):
     """
     Approximately int_cell int_bin int_bin |r_c| dz dE dmu for
         r_c = c(s, E) - Sigma_t(E) psi~(s, E) - mu delta(E),
     with c and psi~ linear in s between the cell's left and right nodal coefficients
     and delta = (Phi_{k+1} - Phi_k) / h. Exact in s for each (E, mu), Gauss-Legendre
-    in mu, Simpson on the union-grid intervals in E. Only shapes the proposal.
+    in mu, Simpson on the union-grid intervals in E. Only shapes the proposal. P is
+    the number of energy polynomials (0: all coefficients, a constant angular basis).
     """
+    if P == 0:
+        P = len(c_left)
     i0 = np.searchsorted(E_grid, E_a, side="right")
     i1 = np.searchsorted(E_grid, E_b, side="left")
     x_prev = E_a
@@ -349,16 +482,16 @@ def collision_residual_mass_linear_z(
             for n in range(3):
                 E = x_prev + 0.5 * n * (x - x_prev)
                 S = np.interp(E, E_grid, Sigma)
-                left = _trial_value(c_left, E, E_a, E_b) - S * _trial_value(
-                    psi_left, E, E_a, E_b
-                )
-                right = _trial_value(c_right, E, E_a, E_b) - S * _trial_value(
-                    psi_right, E, E_a, E_b
-                )
-                stream = _trial_value(delta, E, E_a, E_b)
                 inner = 0.0
                 for q in range(len(_MU_X)):
                     mu = 0.5 * (mu_b - mu_a) * _MU_X[q] + 0.5 * (mu_b + mu_a)
+                    left = _basis_value(
+                        c_left, E, E_a, E_b, mu, mu_a, mu_b, P
+                    ) - S * _basis_value(psi_left, E, E_a, E_b, mu, mu_a, mu_b, P)
+                    right = _basis_value(
+                        c_right, E, E_a, E_b, mu, mu_a, mu_b, P
+                    ) - S * _basis_value(psi_right, E, E_a, E_b, mu, mu_a, mu_b, P)
+                    stream = _basis_value(delta, E, E_a, E_b, mu, mu_a, mu_b, P)
                     inner += (
                         0.5
                         * (mu_b - mu_a)
@@ -389,15 +522,26 @@ class ResidualLinearZ:
     """
 
     def __init__(
-        self, psi, Q, M, xs, z_edges, E_edges, mu_edges, cell_material, removal=None
+        self,
+        psi,
+        Q,
+        M,
+        xs,
+        z_edges,
+        E_edges,
+        mu_edges,
+        cell_material,
+        removal=None,
+        n_energy=None,
     ):
-        K1, G, J, P = psi.shape
+        K1, G, J, C = psi.shape
+        P = n_energy or C
         K = K1 - 1
         h = np.diff(z_edges)
         self.psi_left = np.ascontiguousarray(psi[:-1])
         self.psi_right = np.ascontiguousarray(psi[1:])
-        self.c_left = np.zeros((K, G, J, P))
-        self.c_right = np.zeros((K, G, J, P))
+        self.c_left = np.zeros((K, G, J, C))
+        self.c_right = np.zeros((K, G, J, C))
         self.delta = (self.psi_right - self.psi_left) / h[:, None, None, None]
         self.collision_mass = np.zeros((K, G, J))
         no_xs = (np.array([E_edges[0], E_edges[-1]]), np.zeros(2))
@@ -407,7 +551,7 @@ class ResidualLinearZ:
                 (0, self.psi_left[k], self.c_left),
                 (1, self.psi_right[k], self.c_right),
             ):
-                c[k] = Q[k] + binned_source(M[m], nodal, E_edges, mu_edges)
+                c[k] = Q[k] + binned_source(M[m], nodal, E_edges, mu_edges, P)
                 if removal is not None:
                     c[k] -= np.einsum("gab,gjb->gja", removal[m], nodal)
             E_grid, Sigma = xs[m] if removal is None else no_xs
@@ -426,6 +570,7 @@ class ResidualLinearZ:
                         mu_edges[j + 1],
                         E_grid,
                         Sigma,
+                        P,
                     )
 
     @property

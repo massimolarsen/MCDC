@@ -378,7 +378,8 @@ def slab_model(material_a, material_b, E0, delta, smc):
     return simulation
 
 
-def test_slab_against_smc(tmp_path, monkeypatch):
+@pytest.mark.parametrize("angular_basis", ["constant", "linear"])
+def test_slab_against_smc(tmp_path, monkeypatch, angular_basis):
     """1D two-material slab with vacuum boundaries: RMC (stagnated iterates) vs SMC."""
     import h5py
 
@@ -431,6 +432,7 @@ def test_slab_against_smc(tmp_path, monkeypatch):
         200,
         N_correction=8,
         boundary=("vacuum", "vacuum"),
+        angular_basis=angular_basis,
     )
     norms = np.array(result.epsilon_norm)
     dmu = np.diff(mu_edges)
@@ -442,7 +444,7 @@ def test_slab_against_smc(tmp_path, monkeypatch):
     se_rmc = corrections.std(axis=0, ddof=1) / np.sqrt(len(corrections))
     z = (phi_rmc - phi_smc) / np.sqrt(sd_smc**2 + se_rmc**2)
     print(
-        "slab: eps",
+        f"slab ({angular_basis} angle): eps",
         norms,
         "z rms",
         np.sqrt(np.mean(z**2)),
@@ -456,7 +458,8 @@ def test_slab_against_smc(tmp_path, monkeypatch):
     assert np.all(np.abs(z) < 5.0), z
 
 
-def test_slab_against_smc_linear_z(tmp_path, monkeypatch):
+@pytest.mark.parametrize("angular_basis", ["constant", "linear"])
+def test_slab_against_smc_linear_z(tmp_path, monkeypatch, angular_basis):
     """
     The two-material vacuum slab above on the continuous piecewise-linear spatial
     basis: no face residual (vacuum conditions in the trial space). RMC converges to
@@ -522,6 +525,7 @@ def test_slab_against_smc_linear_z(tmp_path, monkeypatch):
         N_correction=8,
         boundary=("vacuum", "vacuum"),
         spatial_basis="linear",
+        angular_basis=angular_basis,
     )
     norms = np.array(result.epsilon_norm)
     dmu = np.diff(mu_edges)
@@ -541,7 +545,7 @@ def test_slab_against_smc_linear_z(tmp_path, monkeypatch):
     z = ((t_rmc - t_smc) / np.sqrt(sd_smc**2 + se_rmc**2))[1:-1]
     assert result.scalar_flux.shape == (K, G)
     print(
-        "slab linear z: eps",
+        f"slab linear z ({angular_basis} angle): eps",
         norms,
         "z rms",
         np.sqrt(np.mean(z**2)),

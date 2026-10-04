@@ -182,6 +182,47 @@ def azimuthal_bin_probability(mu_in, mu0, mu_low, mu_high):
 
 
 @njit(cache=True)
+def azimuthal_bin_moments(mu_in, mu0, mu_low, mu_high, out):
+    """
+    out[b] = average over the azimuth of P_b(y(mu_out)) 1[mu_out in bin], b < len(out),
+    with y = (2 mu_out - mu_low - mu_high) / (mu_high - mu_low) and
+    mu_out = c + d cos(theta), c = mu_in mu0, d = sqrt(1 - mu_in^2) sqrt(1 - mu0^2):
+
+        out[0] = (theta_hi - theta_lo) / pi       (azimuthal_bin_probability),
+        out[1] = 2 / (pi dmu) [(c - mu_center)(theta_hi - theta_lo)
+                               + d (sin theta_hi - sin theta_lo)],
+
+    theta_lo / theta_hi the azimuths where mu_out leaves the bin at its top / bottom.
+    The azimuthal kernel is symmetric in (mu_in, mu_out), so the same expression with
+    the roles swapped gives the moments over an incident bin.
+    """
+    out[0] = azimuthal_bin_probability(mu_in, mu0, mu_low, mu_high)
+    if len(out) < 2:
+        return
+    center = mu_in * mu0
+    half_width = math.sqrt(max(0.0, 1.0 - mu_in * mu_in)) * math.sqrt(
+        max(0.0, 1.0 - mu0 * mu0)
+    )
+    width = mu_high - mu_low
+    mid = 0.5 * (mu_low + mu_high)
+    if half_width == 0.0:
+        out[1] = 2.0 * (center - mid) / width if mu_low <= center < mu_high else 0.0
+        return
+    t_low = min(1.0, max(-1.0, (mu_low - center) / half_width))
+    t_high = min(1.0, max(-1.0, (mu_high - center) / half_width))
+    # theta_hi = acos(t_low), theta_lo = acos(t_high); sin(acos(t)) = sqrt(1 - t^2)
+    out[1] = (
+        2.0
+        / (PI * width)
+        * (
+            (center - mid) * PI * out[0]
+            + half_width
+            * (math.sqrt(1.0 - t_low * t_low) - math.sqrt(1.0 - t_high * t_high))
+        )
+    )
+
+
+@njit(cache=True)
 def mu0_from_theta(mu_in, mu_out, theta):
     """
     Substitution mu0 = mu_in mu_out + s_in s_out cos(theta), theta in [0, pi].

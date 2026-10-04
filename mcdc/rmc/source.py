@@ -42,13 +42,13 @@ from mcdc.constant import (
 )
 from mcdc.rmc.kernel import GK_WG, GK_WK, GK_X, _pieces, _support_crossings
 from mcdc.rmc.kinematics import com_to_lab, elastic_E_out, elastic_mu_lab
-from mcdc.rmc.residual import _trial_value
+from mcdc.rmc.residual import _basis_value, _trial_value
 from mcdc.rmc.reaction import (
     KERNEL_ELASTIC,
     KERNEL_LEVEL,
     _inelastic_spectrum,
     _spectrum_weight,
-    emission_kernel_bin,
+    emission_kernel_bin_moments,
     fission_yield,
     inelastic_yield,
     is_free_gas,
@@ -147,10 +147,12 @@ def sample_collision_edge(
     cell_material,
     simulation,
     antithetic=False,
+    n_energy=0,
 ):
     """
     Bank sample indices [i_start, i_end) of the N_term particles drawn from r_c
-    (mass[:K*G*J]) and r_e (mass[K*G*J:]).
+    (mass[:K*G*J]) and r_e (mass[K*G*J:]). Coefficients c = b P + a with
+    P = n_energy energy polynomials (0: all, a constant angular basis).
 
     antithetic: indices 2m and 2m + 1 are drawn from the same random numbers, the
     second with its energy mirrored in the bin (x -> -x). Each particle is still a
@@ -163,6 +165,7 @@ def sample_collision_edge(
     and jump carry the energy coefficients of each bin in their last axis.
     """
     K, G, J = psi.shape[:3]
+    P = n_energy if n_energy > 0 else psi.shape[3]
     N_collision = K * G * J
     cdf = np.zeros(len(mass) + 1)
     cdf[1:] = np.cumsum(mass)
@@ -196,9 +199,11 @@ def sample_collision_edge(
             Sigma = np.interp(E, xs_energy[start:end], xs_total[start:end])
             E_a = E_edges[g]
             E_b = E_edges[g + 1]
-            r = _trial_value(c[k, g, j], E, E_a, E_b) - Sigma * _trial_value(
-                psi[k, g, j], E, E_a, E_b
-            )
+            mu_a = mu_edges[j]
+            mu_b = mu_edges[j + 1]
+            r = _basis_value(
+                c[k, g, j], E, E_a, E_b, mu, mu_a, mu_b, P
+            ) - Sigma * _basis_value(psi[k, g, j], E, E_a, E_b, mu, mu_a, mu_b, P)
             volume = (
                 (z_edges[k + 1] - z_edges[k])
                 * (E_edges[g + 1] - E_edges[g])
@@ -223,7 +228,7 @@ def sample_collision_edge(
                 mu = -math.sqrt(b * b + xi * (a * a - b * b))
             z = z_edges[f] + math.copysign(FACE_NUDGE, mu)
             # q = mass / total / dE * |mu| / int_j |mu| dmu
-            D = _trial_value(jump[f, g, j], E, E_edges[g], E_edges[g + 1])
+            D = _basis_value(jump[f, g, j], E, E_edges[g], E_edges[g + 1], mu, a, b, P)
             abs_mu = 0.5 * abs(b * abs(b) - a * abs(a))
             w = (
                 scale
@@ -260,6 +265,7 @@ def sample_collision_linear_z(
     cell_material,
     simulation,
     antithetic=False,
+    n_energy=0,
 ):
     """
     Bank sample indices [i_start, i_end) of the N_term particles drawn from r_c of the
@@ -273,6 +279,7 @@ def sample_collision_linear_z(
     Antithetic pairs mirror the energy in the bin, as in `sample_collision_edge`.
     """
     K, G, J = mass.shape
+    P = n_energy if n_energy > 0 else c_left.shape[3]
     if N_term == 0:
         return
     scale = N_total / N_term
@@ -305,13 +312,19 @@ def sample_collision_linear_z(
         start = xs_offsets[m]
         end = xs_offsets[m + 1]
         Sigma = np.interp(E, xs_energy[start:end], xs_total[start:end])
-        c = (1.0 - s) * _trial_value(c_left[k, g, j], E, E_a, E_b) + s * _trial_value(
-            c_right[k, g, j], E, E_a, E_b
+        mu_a = mu_edges[j]
+        mu_b = mu_edges[j + 1]
+        c = (1.0 - s) * _basis_value(
+            c_left[k, g, j], E, E_a, E_b, mu, mu_a, mu_b, P
+        ) + s * _basis_value(c_right[k, g, j], E, E_a, E_b, mu, mu_a, mu_b, P)
+        psi = (1.0 - s) * _basis_value(
+            psi_left[k, g, j], E, E_a, E_b, mu, mu_a, mu_b, P
+        ) + s * _basis_value(psi_right[k, g, j], E, E_a, E_b, mu, mu_a, mu_b, P)
+        r = (
+            c
+            - Sigma * psi
+            - mu * _basis_value(delta[k, g, j], E, E_a, E_b, mu, mu_a, mu_b, P)
         )
-        psi = (1.0 - s) * _trial_value(
-            psi_left[k, g, j], E, E_a, E_b
-        ) + s * _trial_value(psi_right[k, g, j], E, E_a, E_b)
-        r = c - Sigma * psi - mu * _trial_value(delta[k, g, j], E, E_a, E_b)
         volume = h * (E_b - E_a) * (mu_edges[j + 1] - mu_edges[j])
         w = scale * r * volume * total / mass[k, g, j]
         _bank(container, z, E, mu, w, simulation)
@@ -442,9 +455,15 @@ def _bin_kernels(
     data,
     out,
 ):
-    """out[j'] = U_j' = sum_r N_n sigma_r(E_in) tau_bar_{r, j'}(E_in -> E_out, mu_out)."""
+    """
+    out[b', j'] = U^b'_j' = sum_r N_n sigma_r(E_in) tau_bar^b'_{r, j'}(E_in -> E_out,
+    mu_out): the emission density from incident bin j' weighted by the incident
+    angular polynomial b' < out.shape[0].
+    """
     out[:] = 0.0
+    B = out.shape[0]
     J = len(mu_edges) - 1
+    moments = np.zeros(B)
     for i in range(start, end):
         reaction = simulation["neutron_reactions"][rx_ID[i]]
         nuclide = simulation["nuclides"][rx_nuclide[i]]
@@ -452,22 +471,21 @@ def _bin_kernels(
         if sigma <= 0.0:
             continue
         for jp in range(J):
-            out[jp] += (
-                rx_density[i]
-                * sigma
-                * emission_kernel_bin(
-                    E_in,
-                    E_out,
-                    mu_out,
-                    mu_edges[jp],
-                    mu_edges[jp + 1],
-                    reaction,
-                    rx_type[i],
-                    nuclide,
-                    simulation,
-                    data,
-                )
+            emission_kernel_bin_moments(
+                E_in,
+                E_out,
+                mu_out,
+                mu_edges[jp],
+                mu_edges[jp + 1],
+                reaction,
+                rx_type[i],
+                nuclide,
+                simulation,
+                data,
+                moments,
             )
+            for bp in range(B):
+                out[bp, jp] += rx_density[i] * sigma * moments[bp]
 
 
 @njit(cache=True)
@@ -520,7 +538,7 @@ def sample_correction(
     E_min = E_edges[0]
     E_max = E_edges[-1]
     L = math.log(E_max / E_min)
-    U = np.zeros(J)
+    U = np.zeros((1, J))
 
     # Defensive-mixture tables
     #   q_T: (k, g') ~ h sum_j' |psi~| dmu_j' int_g' Psi,  j' | (k, g') ~ |psi~| dmu_j',
@@ -694,7 +712,8 @@ def sample_correction(
         x_out = (2.0 * E_out - E_edges[g] - E_edges[g + 1]) / dE[g]
         for jp in range(J):
             T_bar += (
-                _trial_value(psi[k, gp, jp], E_in, E_edges[gp], E_edges[gp + 1]) * U[jp]
+                _trial_value(psi[k, gp, jp], E_in, E_edges[gp], E_edges[gp + 1])
+                * U[0, jp]
             )
             for b in range(P):
                 for a in range(P):
@@ -722,7 +741,7 @@ def sample_correction(
             if rate > 0.0:
                 angular = 0.0
                 for jp in range(J):
-                    angular += P_jp[k, gp, jp] / dmu[jp] * U[jp]
+                    angular += P_jp[k, gp, jp] / dmu[jp] * U[0, jp]
                 q_T = P_T[k * G + gp] / (h[k] * dE[gp]) * angular / rate
             q_S = h[k] * S_mass[k, gp, g, j] / Z_S / (h[k] * dE[gp] * dE[g] * dmu[j])
             q = defensive_fraction * q_T + (1.0 - defensive_fraction) * q_S
@@ -775,7 +794,11 @@ def _psi_weighted_kernels(
     data,
     U,
 ):
-    """sum_j' psi~[k, j'](E_in) U_j'(E_in -> E_out, mu_out)."""
+    """
+    sum_{j', b'} psi~[k, j', b'](E_in) U^b'_j'(E_in -> E_out, mu_out): the in-scatter
+    integrand, with psi~'s angular polynomial b' integrated against the kernel
+    (coefficients c = b' P + a, B = U.shape[0] angular polynomials).
+    """
     gp = _bin(E_in, E_edges)
     if gp < 0:
         return 0.0
@@ -794,11 +817,21 @@ def _psi_weighted_kernels(
         data,
         U,
     )
+    B = U.shape[0]
+    P = psi.shape[3] // B
     value = 0.0
-    for jp in range(len(U)):
-        value += (
-            _trial_value(psi[k, gp, jp], E_in, E_edges[gp], E_edges[gp + 1]) * U[jp]
-        )
+    for jp in range(U.shape[1]):
+        coefficients = psi[k, gp, jp]
+        for bp in range(B):
+            value += (
+                _trial_value(
+                    coefficients[bp * P : (bp + 1) * P],
+                    E_in,
+                    E_edges[gp],
+                    E_edges[gp + 1],
+                )
+                * U[bp, jp]
+            )
     return value
 
 
@@ -818,6 +851,7 @@ def in_scatter_density(
     rx_type,
     simulation,
     data,
+    n_angle=1,
 ):
     """
     T(E_out, mu_out): emission density (per unit z, E_out and mu_out) of a term's
@@ -828,7 +862,7 @@ def in_scatter_density(
     share of the total.
     """
     J = len(mu_edges) - 1
-    U = np.zeros(J)
+    U = np.zeros((n_angle, J))
     E_low = E_edges[0]
     E_high = E_edges[-1]
 
@@ -933,12 +967,14 @@ def in_scatter_density(
 
 
 @njit(cache=True)
-def binned_in_scatter(psi, M, cell_material, E_edges, mu_edges):
+def binned_in_scatter(psi, M, cell_material, E_edges, mu_edges, n_energy=0):
     """
-    S_bar[k, g, j, a] = (2a + 1) / (dE dmu)
-                        sum_{a', g', j'} M[m_k, a', g', j', a, g, j] psi~[k, g', j', a'].
+    S_bar[k, g, j, c] = (2a + 1)(2b + 1) / (dE dmu)
+                        sum_{c', g', j'} M[m_k, c', g', j', c, g, j] psi~[k, g', j', c'],
+    c = b P + a with P = n_energy energy polynomials (0: all, a constant angular basis).
     """
     K, G, J, P = psi.shape
+    n_E = n_energy if n_energy > 0 else P
     out = np.zeros((K, P, G, J))
     for k in range(K):
         Mk = M[cell_material[k]]
@@ -952,7 +988,8 @@ def binned_in_scatter(psi, M, cell_material, E_edges, mu_edges):
         for g in range(G):
             for j in range(J):
                 result[:, g, j, a] = (
-                    (2.0 * a + 1.0)
+                    (2.0 * (a % n_E) + 1.0)
+                    * (2.0 * (a // n_E) + 1.0)
                     * out[:, a, g, j]
                     / ((E_edges[g + 1] - E_edges[g]) * (mu_edges[j + 1] - mu_edges[j]))
                 )
@@ -985,6 +1022,7 @@ def correction_masses(
     rx_type,
     simulation,
     data,
+    n_energy=0,
 ):
     """
     Sampling masses A[k, g, j] ~ int_bin |T - S_bar| from 2 x 2 Gauss points per bin,
@@ -994,6 +1032,8 @@ def correction_masses(
     right nodal values, and the pilot is evaluated at the cell midpoint.
     """
     K, G, J = psi.shape[:3]
+    P = n_energy if n_energy > 0 else psi.shape[3]
+    B = psi.shape[3] // P
     A = np.zeros((K, G, J))
     x = np.array([-0.5773502691896258, 0.5773502691896258])
     for k in range(K):
@@ -1035,8 +1075,18 @@ def correction_masses(
                             rx_type,
                             simulation,
                             data,
+                            B,
                         )
-                        S = _trial_value(S_kgj, E_out, E_edges[g], E_edges[g + 1])
+                        S = _basis_value(
+                            S_kgj,
+                            E_out,
+                            E_edges[g],
+                            E_edges[g + 1],
+                            mu_out,
+                            mu_edges[j],
+                            mu_edges[j + 1],
+                            P,
+                        )
                         mean += 0.25 * abs(T - S)
                 A[k, g, j] = h * dE * dmu * (mean + 0.1 * floor)
     return A
@@ -1066,6 +1116,7 @@ def sample_correction_integrated(
     rx_type,
     simulation,
     data,
+    n_energy=0,
 ):
     """
     Bank sample indices [i_start, i_end) of N_term particles for one correction term:
@@ -1075,6 +1126,8 @@ def sample_correction_integrated(
     (psi_right, S_right) nodal values.
     """
     K, G, J = psi.shape[:3]
+    P = n_energy if n_energy > 0 else psi.shape[3]
+    B = psi.shape[3] // P
     if N_term == 0:
         return
     scale = N_total / N_term
@@ -1121,8 +1174,18 @@ def sample_correction_integrated(
             rx_type,
             simulation,
             data,
+            B,
         )
         q = mass[k, g, j] / total / (h * dE * dmu)
-        S = _trial_value(S_kgj, E_out, E_edges[g], E_edges[g + 1])
+        S = _basis_value(
+            S_kgj,
+            E_out,
+            E_edges[g],
+            E_edges[g + 1],
+            mu_out,
+            mu_edges[j],
+            mu_edges[j + 1],
+            P,
+        )
         w = scale * (T - S) / q
         _bank(container, z, E_out, mu_out, w, simulation)

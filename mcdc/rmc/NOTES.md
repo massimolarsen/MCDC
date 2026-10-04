@@ -283,3 +283,18 @@ Phase 2 supports the integrated sampler only.
   term (mu - mu_j) dPhi/dz is as large as the face residual it replaces. Linear
   discontinuous angle (writeups/linear_discontinuous_angle.tex) or more polar bins
   should address this; the face-cancellation pitfall itself is gone.
+
+## 10. Linear discontinuous angular basis (2026-10-04)
+
+`angular_basis="linear"` (writeups/linear_discontinuous_angle.tex), combinable with the
+energy and spatial bases: coefficients c = b P + a per bin (energy a < P, angle b < 2).
+Closed-form outgoing moment Pi^1 (`kinematics.azimuthal_bin_moments`, checked against
+brute force to 2e-6); angular transfer tables A^{b'b}; the correction kernel returns
+both incident moments from one adaptive integration; reflective boundaries flip the
+slope's sign; MC/DC scores flux-mu-slope and its products with the energy and z slopes.
+
+Slab tests (`examples/rmc/slab_bases`): all four spatial x angular combinations are
+unbiased against SMC. At 200 histories per bin none lowers the phase-1 plateau; linear
+angle plateaus slightly higher (eps ~0.08-0.13 vs 0.02-0.09). The plateau there is the
+single-iteration noise, which the slope coefficients (~sqrt(3) noisier tallies) raise;
+the trial-space gain needs more histories per bin to show.

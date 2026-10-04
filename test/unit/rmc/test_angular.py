@@ -46,15 +46,61 @@ def test_angular_transfer_against_adaptive_quadrature():
             )
 
 
-def test_angular_transfer_table_interpolation():
+@pytest.mark.parametrize("order", [0, 1])
+def test_angular_transfer_table_interpolation(order):
     edges = np.linspace(-1.0, 1.0, 3)
-    table = build_angular_transfer_table(edges, 2049)
-    out = np.zeros((2, 2))
+    B = order + 1
+    table = build_angular_transfer_table(edges, 2049, order)
+    out = np.zeros((B, B, 2, 2))
     rng = np.random.default_rng(1)
     for mu0 in rng.uniform(-1.0, 1.0, 50):
         angular_transfer(mu0, table, out)
-        for j in range(2):
-            for jp in range(2):
-                assert out[j, jp] == pytest.approx(
-                    angular_transfer_exact(mu0, edges, j, jp), abs=5e-8
+        for bp in range(B):
+            for b in range(B):
+                for j in range(2):
+                    for jp in range(2):
+                        # Linear interpolation in theta0 (2049 nodes): the slope
+                        #   blocks curve more in theta0
+                        tol = 5e-8 if bp == b == 0 else 3e-7
+                        assert out[bp, b, j, jp] == pytest.approx(
+                            angular_transfer_exact(mu0, edges, j, jp, bp, b), abs=tol
+                        )
+
+
+def test_angular_moments_against_quadrature():
+    """
+    A^{b' b}_{j j'}(mu0) = int_{j'} P_b'(y_j'(mu_in)) Pi^b_j dmu_in against a brute-force
+    double integral over mu_in and the azimuth, and the sum rule
+    sum_j A^{b' 0}_{j j'} = int_{j'} P_b' (= dmu_j' for b' = 0, 0 for b' = 1).
+    """
+    edges = np.array([-1.0, -0.3, 0.0, 0.5, 1.0])
+    J = len(edges) - 1
+    mu_in = (np.arange(4000) + 0.5) / 4000
+    theta = (np.arange(4000) + 0.5) / 4000 * math.pi
+    for mu0 in [-0.8, 0.1, 0.7]:
+        for jp in range(J):
+            low, high = edges[jp], edges[jp + 1]
+            m = low + (high - low) * mu_in
+            y_in = (2 * m - low - high) / (high - low)
+            mu_out = m[:, None] * mu0 + np.sqrt(1 - m[:, None] ** 2) * math.sqrt(
+                1 - mu0 * mu0
+            ) * np.cos(theta[None, :])
+            for bp in range(2):
+                total = sum(
+                    angular_transfer_exact(mu0, edges, j, jp, bp, 0) for j in range(J)
                 )
+                assert total == pytest.approx(
+                    (high - low) if bp == 0 else 0.0, abs=1e-12
+                )
+                for j in range(J):
+                    inside = (mu_out >= edges[j]) & (mu_out < edges[j + 1])
+                    y_out = (2 * mu_out - edges[j] - edges[j + 1]) / (
+                        edges[j + 1] - edges[j]
+                    )
+                    for b in range(2):
+                        brute = (high - low) * np.mean(
+                            (y_in**bp)[:, None] * (y_out**b) * inside
+                        )
+                        assert angular_transfer_exact(
+                            mu0, edges, j, jp, bp, b
+                        ) == pytest.approx(brute, abs=2e-4)

@@ -181,19 +181,36 @@ def _bin_range(E_edges, low, high):
 
 @njit(cache=True)
 def _add_outgoing(out, g, E_out, E_edges, weight, A):
-    """out[a, g] += weight P_a(x_g(E_out)) A for the energy polynomials a < len(out)."""
-    out[0, g] += weight * A
-    if out.shape[0] > 1:
+    """
+    out[b', c, g] += weight P_a(x_g(E_out)) A[b', b] for the outgoing coefficients
+    c = b P + a (energy polynomial a < P, angular polynomial b < B) and the incident
+    angular polynomials b' (A[b', b, j, j'] from `angular_transfer`).
+    """
+    B = A.shape[0]
+    P = out.shape[1] // B
+    x = 0.0
+    if P > 1:
         x = (2.0 * E_out - E_edges[g] - E_edges[g + 1]) / (E_edges[g + 1] - E_edges[g])
-        out[1, g] += (weight * x) * A
+    for bp in range(B):
+        for b in range(B):
+            out[bp, b * P, g] += weight * A[bp, b]
+            if P > 1:
+                out[bp, b * P + 1, g] += (weight * x) * A[bp, b]
 
 
 @njit(cache=True)
 def _add_incoming(K, f, weight, E_in, E_center, E_half):
-    """K[a'] += weight P_a'(x(E_in)) f on the incident bin (center, half width)."""
-    K[0] += weight * f
-    if K.shape[0] > 1:
-        K[1] += (weight * (E_in - E_center) / E_half) * f
+    """
+    K[c'] += weight P_a'(x(E_in)) f[b'] for the incident coefficients c' = b' P + a'
+    on the incident bin (center, half width); f[b'] carries the incident angular
+    polynomial b' through the angular transfer.
+    """
+    B = f.shape[0]
+    P = K.shape[0] // B
+    for bp in range(B):
+        K[bp * P] += weight * f[bp]
+        if P > 1:
+            K[bp * P + 1] += (weight * (E_in - E_center) / E_half) * f[bp]
 
 
 @njit(cache=True)
@@ -215,8 +232,9 @@ def _angle_breakpoints(E_in, angle_type, mu_ID, simulation, data):
 
 
 # ======================================================================================
-# Inner integrals at fixed E_in: out[a, g, j, j'] += emission into (g, j) from j',
-#   weighted by the outgoing energy polynomial P_a
+# Inner integrals at fixed E_in: out[b', c, g, j, j'] += emission into (g, j) from j',
+#   weighted by the outgoing polynomials of coefficient c and the incident angular
+#   polynomial b' (see _add_outgoing)
 # ======================================================================================
 
 
@@ -413,14 +431,17 @@ def _lab_spectrum_inner(
         return
 
     # Uncorrelated: energy and angle integrals factorize
-    angle_factor = np.zeros((J, J))
+    B = A.shape[0]
+    angle_factor = np.zeros((B, B, J, J))
     if not correlated:
         if angle_type == ANGLE_ISOTROPIC:
+            # The outgoing direction is independent of the incident one: only the
+            #   b' = b = 0 moments are nonzero
             for j in range(J):
                 for jp in range(J):
                     dmu_j = mu_edges[j + 1] - mu_edges[j]
                     dmu_jp = mu_edges[jp + 1] - mu_edges[jp]
-                    angle_factor[j, jp] = 0.5 * dmu_j * dmu_jp
+                    angle_factor[0, 0, j, jp] = 0.5 * dmu_j * dmu_jp
         else:
             mu_pieces = _pieces(
                 -1.0, 1.0, _angle_breakpoints(E_in, angle_type, mu_ID, simulation, data)
@@ -608,7 +629,7 @@ def _continuous_inner(
 def _integrand(
     E_in, reaction, ktype, nuclide, simulation, data, E_edges, mu_edges, table, out, A
 ):
-    """out[a, g, j, j'] = sigma_r(E_in) * inner(E_in)."""
+    """out[b', c, g, j, j'] = sigma_r(E_in) * inner(E_in)."""
     out[:] = 0.0
     sigma = reaction_micro_xs(E_in, reaction, nuclide, data)
     if sigma <= 0.0:
@@ -675,9 +696,10 @@ def reaction_transfer_row(
     E_a, E_b, reaction, nuclide, simulation, data, E_edges, mu_edges, table, tol, out
 ):
     """
-    out[a', a, g, j, j'] += int_{E_a}^{E_b} dE_in sigma_r(E_in) P_a'(x(E_in))
-                            inner_r(E_in)[a, g, j, j'],
-    with x(E_in) relative to [E_a, E_b] (the incident bin).
+    out[c', c, g, j, j'] += int_{E_a}^{E_b} dE_in sigma_r(E_in) P_a'(x(E_in))
+                            inner_r(E_in)[b', c, g, j, j'],
+    for the incident coefficients c' = b' P + a' and outgoing c (energy polynomial a,
+    angular polynomial b), with x(E_in) relative to [E_a, E_b] (the incident bin).
 
     Adaptive G7-K15 on pieces. A piece [a, b] is accepted when its Kronrod-Gauss
     difference is below tol times its own magnitude, or below its width share of tol
@@ -711,8 +733,9 @@ def reaction_transfer_row(
 
     shape = out.shape
     J = shape[3]
-    A = np.zeros((J, J))
-    f = np.zeros(shape[1:])
+    B = table.shape[0]
+    A = np.zeros((B, B, J, J))
+    f = np.zeros((B,) + shape[1:])
     K = np.zeros(shape)
     Gs = np.zeros(shape)
 
@@ -847,9 +870,10 @@ def nuclide_transfer_moments(
     energy_order=0,
 ):
     """
-    Transfer moments M[a', g', j', a, g, j] of one nuclide (per unit atom density) for
-    energy polynomials a', a <= energy_order, split into scattering (elastic +
-    inelastic) and fission. The lowest energy decade of the
+    Transfer moments M[c', g', j', c, g, j] of one nuclide (per unit atom density) for
+    the coefficients c = b P + a (energy polynomials a <= energy_order, angular
+    polynomials b < table.shape[0]), split into scattering (elastic + inelastic) and
+    fission. The lowest energy decade of the
     grid uses the tighter tolerance tol_low. Rows are computed in parallel over MPI
     ranks and summed on all of them.
     """
@@ -858,10 +882,10 @@ def nuclide_transfer_moments(
     comm = MPI.COMM_WORLD
     G = len(E_edges) - 1
     J = len(mu_edges) - 1
-    P = energy_order + 1
-    M_scatter = np.zeros((P, G, J, P, G, J))
-    M_fission = np.zeros((P, G, J, P, G, J))
-    row = np.zeros((P, P, G, J, J))
+    C = (energy_order + 1) * table.shape[0]
+    M_scatter = np.zeros((C, G, J, C, G, J))
+    M_fission = np.zeros((C, G, J, C, G, J))
+    row = np.zeros((C, C, G, J, J))
     task = -1
     for reaction, is_fission in nuclide_reactions(simulation, data, nuclide):
         target = M_fission if is_fission else M_scatter
