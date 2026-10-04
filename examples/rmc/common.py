@@ -107,12 +107,14 @@ def write_nuclide(
     tabulated spectrum (energy [eV], pdf [/eV]).
 
     Cross sections [b] are tabulated on `energy` [eV] and interpolated linearly, as
-    MC/DC does. Written as <name>-0.1K.h5.
+    MC/DC does. Written as <name>-0.1K.h5, through a private temporary file renamed
+    into place, so concurrent jobs writing the same nuclide do not collide.
     """
     energy_MeV = np.asarray(energy, dtype=float) * 1e-6
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, f"{name}-0.1K.h5")
-    with h5py.File(path, "w") as f:
+    temporary = f"{path}.{os.getpid()}.tmp"
+    with h5py.File(temporary, "w") as f:
         f.create_dataset("nuclide_name", data=name)
         f.create_dataset("excitation_level", data=0)
         f.create_dataset("temperature", data=0.1).attrs["unit"] = "K"
@@ -168,6 +170,7 @@ def write_nuclide(
             _tabulated_distribution(
                 precursors.create_group("energy_spectrum-1"), *spectrum_MeV, energy_MeV
             )
+    os.replace(temporary, path)
     return path
 
 
