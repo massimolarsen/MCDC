@@ -655,3 +655,103 @@ def plot_sweep(f, error, x_axis, smc_error=None, grids=None):
     ax.set_ylabel(r"$L_\infty$ norm")
     ax.legend(loc="upper right")
     return fig, ax
+
+
+def bin_xs_variation(energy, xs, E_edges):
+    """max/min of a lin-lin cross section over each bin (1 where it is flat)."""
+    out = np.ones(len(E_edges) - 1)
+    for g in range(len(out)):
+        inside = (energy > E_edges[g]) & (energy < E_edges[g + 1])
+        x = np.concatenate(([E_edges[g]], energy[inside], [E_edges[g + 1]]))
+        values = np.interp(x, energy, xs)
+        if values.min() > 0.0:
+            out[g] = values.max() / values.min()
+    return out
+
+
+def plot_rmc_vs_smc(f, name, title, path, smooth=None):
+    """
+    One window of an RMC run against SMC (output.h5 groups rmc/<name>, smc/<name>):
+    flux (top), ratio to SMC with the SMC 2-sigma band (middle), and the per-bin
+    z of RMC against SMC (bottom). With correction passes the RMC result is the
+    corrected one and z includes their standard error; without, it is the phase-1
+    fixed point and z uses the SMC error only. `smooth` (bool per bin) marks bins
+    where the trial-space bias of the fixed point is negligible (Sigma_t nearly flat
+    in the bin); the rms of z is reported over all bins and over those bins.
+    Returns (rms z over all bins, rms z over the smooth bins).
+    """
+    plt = style()
+    rmc, smc = f[f"rmc/{name}"], f[f"smc/{name}"]
+    E_edges = rmc["E_edges"][()]
+    unit, scale = ("MeV", 1e-6) if E_edges[-1] > 1e5 else ("eV", 1.0)
+    E_MeV = E_edges * scale
+    phi_smc = scalar_flux(smc["psi"][()])[0]
+    # Polar bins of one history are correlated (in 0D every track scores both): the
+    #   fully correlated sum is an upper bound of the scalar-flux standard error
+    sdev_smc = scalar_flux(smc["psi_sdev"][()])[0]
+    phi_fixed = scalar_flux(rmc["psi_fixed_point"][()])[0]
+    phi = scalar_flux(rmc["psi"][()])[0]
+    sdev_corr = np.zeros_like(phi)
+    N_corr = 0
+    if "corrections" in rmc:
+        corrections = scalar_flux(rmc["corrections"][()])[:, 0]
+        N_corr = len(corrections)
+        sdev_corr = corrections.std(axis=0, ddof=1) / np.sqrt(N_corr)
+    z = (phi - phi_smc) / np.sqrt(sdev_smc**2 + sdev_corr**2)
+    rms_z = np.sqrt(np.mean(z**2))
+    smooth = np.ones(len(z), dtype=bool) if smooth is None else np.asarray(smooth)
+    rms_z_smooth = np.sqrt(np.mean(z[smooth] ** 2)) if smooth.any() else np.nan
+
+    fig, (ax, ax_ratio, ax_z) = plt.subplots(
+        3,
+        1,
+        figsize=(7.5, 8.0),
+        sharex=True,
+        gridspec_kw=dict(height_ratios=(3, 1.5, 1.2)),
+    )
+    N_smc = int(np.log10(smc.attrs["N_particle"]))
+    ax.plot(*steps(E_MeV, phi_smc), color=MUTED, label=f"SMC: $10^{{{N_smc}}}$")
+    ax.plot(
+        *steps(E_MeV, phi_fixed),
+        color=SERIES[0],
+        ls=(0, (4, 2)) if N_corr else "-",
+        label="RMC fixed point (phase 1)",
+    )
+    if N_corr:
+        ax.plot(
+            *steps(E_MeV, phi),
+            color=SERIES[1],
+            label=f"RMC + {N_corr} correction passes",
+        )
+    ax.set_xscale("log")
+    ax.set_ylabel(f"$\\phi(E)$ [per eV]")
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    band = 2.0 * sdev_smc / phi_smc
+    ax_ratio.fill_between(
+        np.repeat(E_MeV, 2)[1:-1],
+        np.repeat(1.0 - band, 2),
+        np.repeat(1.0 + band, 2),
+        color=GRID,
+        label="SMC $\\pm2\\sigma$",
+    )
+    ax_ratio.plot(*steps(E_MeV, phi / phi_smc), color=SERIES[1 if N_corr else 0])
+    ax_ratio.set_ylabel("RMC / SMC")
+    ax_ratio.legend(fontsize=8)
+    ax_z.axhline(0.0, color=MUTED, lw=0.8)
+    for level in (-2.0, 2.0):
+        ax_z.axhline(level, color=MUTED, lw=0.6, ls=(0, (1, 2)))
+    color = SERIES[1 if N_corr else 0]
+    ax_z.plot(*steps(E_MeV, z), color=color, lw=0.8, alpha=0.5)
+    z_smooth = np.where(smooth, z, np.nan)
+    ax_z.plot(
+        *steps(E_MeV, z_smooth),
+        color=color,
+        label=f"rms z: all bins {rms_z:.2f}, flat-$\\Sigma_t$ bins {rms_z_smooth:.2f}",
+    )
+    ax_z.set_ylabel("z")
+    ax_z.set_xlabel(f"E ({unit})")
+    ax_z.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path)
+    return rms_z, rms_z_smooth

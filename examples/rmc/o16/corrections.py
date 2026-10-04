@@ -40,8 +40,6 @@ def main():
             PARTICLES / 2,
             N_correction=N_CORRECTION,
             correction_sampler=sampler,
-            # Same moment cache (and collision-only iterations) as input.py's run
-            quadrature_tol_low=1e-10,
             cache_dir="cache",
         )
         common.save_rmc(output, sampler, result, sampler=sampler)

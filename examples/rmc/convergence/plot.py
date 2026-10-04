@@ -1,9 +1,12 @@
 """
 Residual-error convergence of the chapter-4 problems: [D] Figs. 4.9-4.10.
 
-Reads ../o16/output.h5 and ../fuel_rod/output.h5 (run their input.py first):
+Reads ../o16/output.h5 and ../fuel_rod/output.h5 (run their input.py first), and the
+linear-energy-basis runs where they exist (../o16/output_linear.h5 from linear.py):
   - epsilon_iterations.png   ||eps~||_2 per iteration
   - epsilon_histories.png    ||eps~||_2 vs cumulative histories
+Each problem has one color: the piecewise-constant energy basis dashed with open
+markers, the linear discontinuous basis solid with filled markers.
 """
 
 import os
@@ -24,6 +27,11 @@ RUNS = (
     ("../fuel_rod/output.h5", "thermal", "Thermal fuel rod", "s"),
     ("../fuel_rod/output.h5", "fast", "Fast fuel rod", "D"),
 )
+# (energy basis, file suffix, line style, filled markers)
+BASES = (
+    ("constant", "", (0, (4, 2)), False),
+    ("linear", "_linear", "-", True),
+)
 
 for x_axis, path in (
     ("iterations", "epsilon_iterations.png"),
@@ -31,24 +39,27 @@ for x_axis, path in (
 ):
     fig, ax = plt.subplots(figsize=(7.5, 5.0))
     for i, (file, name, label, marker) in enumerate(RUNS):
-        if not os.path.exists(file):
-            continue
-        with h5py.File(file, "r") as f:
-            if f"rmc/{name}" not in f:
+        for basis, suffix, ls, filled in BASES:
+            path_basis = file.replace(".h5", f"{suffix}.h5")
+            if not os.path.exists(path_basis):
                 continue
-            group = f[f"rmc/{name}"]
-            epsilon = group["epsilon_norm"][()]
-            n = np.arange(1, len(epsilon) + 1)
-            x = n * group.attrs["N_history"] if x_axis == "histories" else n
-        ax.plot(
-            x,
-            epsilon,
-            color=common.SERIES[i],
-            marker=marker,
-            ms=5,
-            ls=(0, (4, 2)),
-            label=label,
-        )
+            with h5py.File(path_basis, "r") as f:
+                if f"rmc/{name}" not in f:
+                    continue
+                group = f[f"rmc/{name}"]
+                epsilon = group["epsilon_norm"][()]
+                n = np.arange(1, len(epsilon) + 1)
+                x = n * group.attrs["N_history"] if x_axis == "histories" else n
+            ax.plot(
+                x,
+                epsilon,
+                color=common.SERIES[i],
+                marker=marker,
+                ms=5,
+                mfc=common.SERIES[i] if filled else "none",
+                ls=ls,
+                label=f"{label} ({basis})",
+            )
     ax.set_yscale("log")
     if x_axis == "histories":
         ax.set_xscale("log")
