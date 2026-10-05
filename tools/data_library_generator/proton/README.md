@@ -176,8 +176,19 @@ python merge_neutron_data.py $MCDC_LIB $MCDC_LIB_PROTON combined/ \
     --temperature 293.6 --nuclides Al27 Si28 O16
 ```
 
-PSTAR tables go in `$MCDC_PSTAR_LIB` as `<symbol>.txt` with two columns,
-kinetic energy (MeV) and total stopping power (MeV cm2/g).
+Stopping-power tables go in `$MCDC_PSTAR_LIB` as `<symbol>.txt` with two
+columns, kinetic energy (MeV) and total stopping power (MeV cm2/g). PSTAR covers
+only 26 elements. `geant4_dedx/` tabulates Geant4's proton dE/dx (QGSP_BIC, the
+coupling bridge's physics list) for any element in that format, so MC/DC slows
+protons the way Geant4 does after a handoff:
+
+```bash
+cmake -S geant4_dedx -B build_dedx && cmake --build build_dedx
+build_dedx/geant4_dedx $MCDC_PSTAR_LIB H Li C O Mg Al Si Co Cu Zn
+```
+
+TENDL has no p + H1 file, so H1 gets a stopping-power-only file (no nuclear
+cross sections).
 
 ## See Also
 - [TENDL2021](https://tendl.imperial.ac.uk/tendl_2021/tendl2021.html)
