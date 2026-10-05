@@ -360,19 +360,22 @@ boundary_sources = [
     ),
 ]
 
+sources = []
 for source_bounds in boundary_sources:
-    mcdc.Source(
+    source = mcdc.Source(
         **source_bounds,
         energy=[source_energy_ev, source_energy_pdf],
         probability=1.0 / 6.0,
     )
+    sources.append(source)
 
 # =============================================================================
 # TALLIES
 # =============================================================================
 
+tallies = []
 for name, cell, _ in sensitive_volumes:
-    mcdc.Tally(
+    tally = mcdc.Tally(
         name=f"{name}_g4_source",
         cell=cell,
         scores=["current-in", "current-out"],
@@ -381,16 +384,22 @@ for name, cell, _ in sensitive_volumes:
         energy=energy_bins_ev,
         surface_mesh=surface_mesh,
     )
+    tallies.append(tally)
 
 
 # =============================================================================
 # SETTINGS AND RUN
 # =============================================================================
 
+simulation = mcdc.Simulation("cubesat_CE_G4")
+simulation.set_model(all_component_cells + [void_cell])
+simulation.set_sources(sources)
+simulation.set_tallies(tallies)
+
 # set parllel g4 workers
-mcdc.settings.geant4_max_workers = 4
-mcdc.settings.geant4_n_threads = 2
-mcdc.settings.geant4_payload_dir = "geant4_payloads"
+simulation.settings.geant4_max_workers = 4
+simulation.settings.geant4_n_threads = 2
+simulation.settings.geant4_payload_dir = "geant4_payloads"
 
 BRIDGE_BUILD_DIR = Path(__file__).resolve().parents[3] / "couple-mcdc-g4" / "build"
 n_geant4_particles = 50000000
@@ -425,7 +434,7 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-mcdc.settings.N_particle = 2000000
-mcdc.settings.output_name = "mcdc_h5/cubesat_CE_G4"
-mcdc.settings.active_bank_buffer = 2000
-mcdc.run()
+simulation.settings.N_particle = 2000000
+simulation.settings.output_name = "mcdc_h5/cubesat_CE_G4"
+simulation.settings.active_bank_buffer = 2000
+simulation.run()

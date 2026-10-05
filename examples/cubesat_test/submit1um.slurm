@@ -9,7 +9,7 @@
 
 set -eo pipefail
 
-source /nfs/hpc/share/larsemas/MCDC/hpc/env.sh
+source /nfs/hpc/share/larsemas/MCDC-g4-hpc/hpc/env.sh
 cd "$MCDC_ROOT/examples/cubesat_test"
 
 archive="$PWD/runs/$SLURM_JOB_ID"

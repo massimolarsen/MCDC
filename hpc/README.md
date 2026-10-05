@@ -3,7 +3,7 @@
 On an allocated interactive node, use Bash:
 
 ```bash
-source /nfs/stak/users/larsemas/hpc-share/MCDC/hpc/env.sh
+source /nfs/hpc/share/larsemas/MCDC-g4-hpc/hpc/env.sh
 cd "$MCDC_ROOT/examples/cubesat_test"
 python inputCE_G4.py --mode=numba
 ```
@@ -11,7 +11,8 @@ python inputCE_G4.py --mode=numba
 `env.sh` works from any directory and can also be sourced by batch scripts.
 It deactivates an existing Python virtualenv, resets modules, activates the
 shared environment, sources Geant4, adds the bridge build to `PYTHONPATH`,
-and configures data/cache paths. It does
+and configures data/cache paths. It prioritizes this worktree's MC/DC code
+over the shared environment's editable installation. It does
 not install packages, launch simulations, change directory, or set shell
 options. Start with a fresh Bash shell if Conda is active.
 
@@ -35,8 +36,8 @@ paths to preserve the working environment and bridge:
 ```bash
 export MCDC_G4_VENV=/nfs/stak/users/larsemas/hpc-share/venvs/mcdc-g4-new
 export MCDC_G4_BUILD=/nfs/stak/users/larsemas/hpc-share/couple-mcdc-g4/build-new
-bash /nfs/stak/users/larsemas/hpc-share/MCDC/hpc/bootstrap.sh
-source /nfs/stak/users/larsemas/hpc-share/MCDC/hpc/env.sh
+bash /nfs/hpc/share/larsemas/MCDC-g4-hpc/hpc/bootstrap.sh
+source /nfs/hpc/share/larsemas/MCDC-g4-hpc/hpc/env.sh
 ```
 
 Bootstrap refuses existing virtualenv/build directories. It loads CMake 3.27.9,

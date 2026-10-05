@@ -22,5 +22,7 @@ if [[ ! -d "$MCDC_LIB" ]]; then
     echo "Missing nuclear data directory: $MCDC_LIB" >&2
     return 1
 fi
+# Import MC/DC from this worktree before the shared editable installation.
+export PYTHONPATH="$MCDC_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR" || return 1
 echo "MC/DC environment: $VIRTUAL_ENV"

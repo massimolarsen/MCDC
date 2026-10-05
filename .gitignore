@@ -71,8 +71,11 @@ acelib
 acelibCubesat
 acelibSMALL
 acelibProton
+acelibFENDL
 hdf5lib
 hdf5libProton
+hdf5lib-JENDL
+hdf5lib-FENDL
 
 pyvenv.cfg
 numba_types.py
@@ -103,6 +106,8 @@ tmp_*
 *.csv
 !examples/cubesat_test/ecss_10GeV.csv
 !examples/cubesat_test/ecss_20MeV.csv
+!examples/cubesat_test/ecss_200MeV.csv
+!examples/cubesat_test/ae8_7MeV.csv
 !examples/cubesat_test/ap9_1000MeV.csv
 !examples/cubesat_test/ap9_200MeV.csv
 

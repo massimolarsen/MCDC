@@ -343,20 +343,23 @@ boundary_sources = [
     ),
 ]
 
+sources = []
 for source_bounds in boundary_sources:
-    mcdc.Source(
+    source = mcdc.Source(
         **source_bounds,
         particle_type="electron",
         energy=[source_energy_ev, source_energy_pdf],
         probability=1.0 / 6.0,
     )
+    sources.append(source)
 
 # =============================================================================
 # TALLIES
 # =============================================================================
 
+tallies = []
 for name, cell, _ in sensitive_volumes:
-    mcdc.Tally(
+    tally = mcdc.Tally(
         name=f"{name}_electron_current",
         cell=cell,
         scores=["current-in", "current-out"],
@@ -365,14 +368,20 @@ for name, cell, _ in sensitive_volumes:
         energy=energy_bins_ev,
         surface_mesh=surface_mesh,
     )
+    tallies.append(tally)
 
 
 # =============================================================================
 # SETTINGS AND RUN
 # =============================================================================
 
-mcdc.settings.set_transported_particles(["electron"])
-mcdc.settings.N_particle = 1000000
-mcdc.settings.active_bank_buffer = 10000
-mcdc.settings.output_name = "mcdc_h5/cubesat_E"
-mcdc.run()
+simulation = mcdc.Simulation("cubesat_E")
+simulation.set_model(all_component_cells + [void_cell])
+simulation.set_sources(sources)
+simulation.set_tallies(tallies)
+
+# Electron transport is enabled by the electron sources
+simulation.settings.N_particle = 1000000
+simulation.settings.active_bank_buffer = 10000
+simulation.settings.output_name = "mcdc_h5/cubesat_E"
+simulation.run()
