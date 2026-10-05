@@ -1,0 +1,749 @@
+import math
+import numpy as np
+from numba import njit
+import time
+import os
+
+####
+
+import mcdc.mcdc_get as mcdc_get
+import mcdc.numba_types as type_
+import mcdc.transport.particle as particle_module
+import mcdc.transport.particle_bank as particle_bank_module
+import mcdc.transport.rng as rng
+import mcdc.transport.util as util
+
+from mcdc.constant import (
+    EVENT_TIME_CENSUS,
+    ANGLE_DISTRIBUTED,
+    ANGLE_ENERGY_CORRELATED,
+    ANGLE_ISOTROPIC,
+    BOLTZMANN_K,
+    THERMAL_THRESHOLD_FACTOR,
+    LIGHT_SPEED,
+    PROTON_MASS,
+    PI,
+    PI_HALF,
+    PI_SQRT,
+    PROTON_REACTION_TOTAL,
+    PROTON_REACTION_ELASTIC_SCATTERING,
+    PROTON_REACTION_CAPTURE,
+    PROTON_REACTION_INELASTIC_SCATTERING,
+    REFERENCE_FRAME_COM,
+    PARTICLE_ELECTRON,
+    PARTICLE_NEUTRON,
+    PARTICLE_PROTON,
+    # PARTICLE_DEUTERON,
+    # PARTICLE_TRITON,
+    # PARTICLE_HE3,
+    # PARTICLE_ALPHA,
+    # PARTICLE_HEAVY,
+    PROTON_CUTOFF_ENERGY,
+)
+from mcdc.transport.data import evaluate_data
+from mcdc.transport.distribution import (
+    sample_correlated_distribution_with_scale,
+    sample_distribution_with_scale,
+    sample_distribution,
+    sample_isotropic_cosine,
+    sample_isotropic_direction,
+    sample_multi_table,
+    sample_kalbach_mann,
+)
+from mcdc.transport.physics.util import (
+    evaluate_proton_xs_energy_grid,
+    scatter_direction,
+)
+from mcdc.transport.util import find_bin, linear_interpolation
+
+# ======================================================================================
+# Particle attributes
+# ======================================================================================
+
+
+@njit
+def particle_speed(particle_container):
+    particle = particle_container[0]
+    E = particle["E"]
+    mass = PROTON_MASS
+    return LIGHT_SPEED * math.sqrt(E * (E + 2.0 * mass)) / (E + mass)
+
+
+@njit
+def particle_energy_from_speed(speed):
+    beta = speed / LIGHT_SPEED
+    gamma = 1.0 / math.sqrt(1.0 - beta * beta)
+    mass = PROTON_MASS
+    return mass * (gamma - 1.0)
+
+
+# ======================================================================================
+# Material properties
+# ======================================================================================
+
+
+@njit
+def macro_xs(reaction_type, particle_container, simulation, data):
+    particle = particle_container[0]
+    material = simulation["materials"][particle["material_ID"]]
+    E = particle["E"]
+
+    total = 0.0
+
+    for i in range(material["N_nuclide"]):
+        nuclide_ID = int(mcdc_get.material.nuclide_IDs(i, material, data))
+        nuclide = simulation["nuclides"][nuclide_ID]
+
+        nuclide_density = mcdc_get.material.nuclide_densities(i, material, data)
+        xs = total_micro_xs(reaction_type, E, nuclide, data)
+
+        total += nuclide_density * xs
+
+    return total
+
+
+@njit
+def total_micro_xs(reaction_type, E, nuclide, data):
+
+    idx, E0, E1 = evaluate_proton_xs_energy_grid(E, nuclide, data)
+    if reaction_type == PROTON_REACTION_TOTAL:
+        xs0 = mcdc_get.nuclide.proton_total_xs(idx, nuclide, data)
+        xs1 = mcdc_get.nuclide.proton_total_xs(idx + 1, nuclide, data)
+
+    elif reaction_type == PROTON_REACTION_ELASTIC_SCATTERING:
+        xs0 = mcdc_get.nuclide.proton_elastic_xs(idx, nuclide, data)
+        xs1 = mcdc_get.nuclide.proton_elastic_xs(idx + 1, nuclide, data)
+
+        # total_elastic_scattering_xs = 0
+        # # Get total elastic scattering xs for all possible elastic scattering rxns
+        # for i in range(nuclide["N_proton_elastic_scattering_reaction"]):
+        #     reaction_ID = int(
+        #         mcdc_get.nuclide.proton_elastic_scattering_reaction_IDs(i, nuclide, data)
+        #     )
+        #     reaction = simulation["proton_elastic_scattering_reactions"][reaction_ID]
+        #     reaction_base_ID = reaction["parent_ID"]
+        #     reaction_base = simulation["proton_reactions"][reaction_base_ID]
+        #     xs = reaction_micro_xs(E, reaction_base, nuclide, data)
+        #     total_elastic_scattering_xs += xs
+
+        # return total_elastic_scattering_xs
+
+    elif reaction_type == PROTON_REACTION_INELASTIC_SCATTERING:
+        xs0 = mcdc_get.nuclide.proton_inelastic_xs(idx, nuclide, data)
+        xs1 = mcdc_get.nuclide.proton_inelastic_xs(idx + 1, nuclide, data)
+
+        # print(f'all inelastic xs = {mcdc_get.nuclide.proton_inelastic_xs_all(nuclide, data)}')
+        # print(f'idx = {idx}, xs0 = {xs0}, xs1 = {xs1}')
+        # raise ValueError("stop")
+
+        # total_inelastic_scattering_xs = 0
+        # # Get total inelastic scattering xs for all possible inelastic scattering rxns
+        # for i in range(nuclide["N_proton_inelastic_scattering_reaction"]):
+        #     reaction_ID = int(
+        #         mcdc_get.nuclide.proton_inelastic_scattering_reaction_IDs(i, nuclide, data)
+        #     )
+        #     reaction = simulation["proton_inelastic_scattering_reactions"][reaction_ID]
+        #     reaction_base_ID = reaction["parent_ID"]
+        #     reaction_base = simulation["proton_reactions"][reaction_base_ID]
+        #     xs = reaction_micro_xs(E, reaction_base, nuclide, data)
+        #     total_inelastic_scattering_xs += xs
+
+        # return total_inelastic_scattering_xs
+    elif reaction_type == PROTON_REACTION_CAPTURE:
+        xs0 = mcdc_get.nuclide.proton_capture_xs(idx, nuclide, data)
+        xs1 = mcdc_get.nuclide.proton_capture_xs(idx + 1, nuclide, data)
+        # total_capture_xs = 0
+        # # Get total capture xs for all possible capture rxns
+        # for i in range(nuclide["N_proton_capture_reaction"]):
+        #     reaction_ID = int(
+        #         mcdc_get.nuclide.proton_capture_reaction_IDs(i, nuclide, data)
+        #     )
+        #     reaction = simulation["proton_capture_reactions"][reaction_ID]
+        #     reaction_base_ID = reaction["parent_ID"]
+        #     reaction_base = simulation["proton_reactions"][reaction_base_ID]
+        #     xs = reaction_micro_xs(E, reaction_base, nuclide, data)
+        #     total_capture_xs += xs
+
+        # return total_capture_xs
+
+    else:
+        # Should be unreachable
+        xs0 = 0.0
+        xs1 = 0.0
+    return linear_interpolation(E, E0, E1, xs0, xs1)
+
+
+@njit
+def reaction_micro_xs(E, reaction_base, nuclide, data):
+    idx, E0, E1 = evaluate_proton_xs_energy_grid(E, nuclide, data)
+
+    # Apply offset
+    offset = reaction_base["xs_offset_"]
+    if idx < offset:
+        return 0.0
+    else:
+        idx -= offset
+
+    xs0 = mcdc_get.proton_reaction.xs(idx, reaction_base, data)
+    xs1 = mcdc_get.proton_reaction.xs(idx + 1, reaction_base, data)
+    return linear_interpolation(E, E0, E1, xs0, xs1)
+
+
+# ======================================================================================
+# Collision
+# ======================================================================================
+
+
+@njit
+def collision(particle_container, interaction_data_container, program, data):
+    simulation = util.access_simulation(program)
+    particle = particle_container[0]
+    interaction_data = interaction_data_container[0]
+    material = simulation["materials"][particle["material_ID"]]
+
+    # Particle properties
+    E = particle["E"]
+
+    # Check for cutoff energy
+    if E <= PROTON_CUTOFF_ENERGY:
+        interaction_data["energy_deposition"] += E * particle["w"]
+        particle["alive"] = False
+        particle["E"] = 0.0
+        return
+
+    # ==================================================================================
+    # Sample colliding nuclide
+    # ==================================================================================
+
+    SigmaT = macro_xs(PROTON_REACTION_TOTAL, particle_container, simulation, data)
+
+    # TODO: add implicit capture for protons
+    xi = rng.lcg(particle_container) * SigmaT
+    total = 0.0
+    for i in range(material["N_nuclide"]):
+        nuclide_ID = int(mcdc_get.material.nuclide_IDs(i, material, data))
+        nuclide = simulation["nuclides"][nuclide_ID]
+
+        nuclide_density = mcdc_get.material.nuclide_densities(i, material, data)
+        sigmaT = total_micro_xs(PROTON_REACTION_TOTAL, E, nuclide, data)
+
+        SigmaT_nuclide = nuclide_density * sigmaT
+        total += SigmaT_nuclide
+
+        if total > xi:
+            break
+
+    # ==================================================================================
+    # Sample and perform reaction
+    # ==================================================================================
+
+    sigma_elastic = total_micro_xs(PROTON_REACTION_ELASTIC_SCATTERING, E, nuclide, data)
+    sigma_inelastic = total_micro_xs(
+        PROTON_REACTION_INELASTIC_SCATTERING, E, nuclide, data
+    )
+    sigma_capture = total_micro_xs(PROTON_REACTION_CAPTURE, E, nuclide, data)
+    xi = rng.lcg(particle_container) * sigmaT
+
+    # Elastic scattering
+    total = sigma_elastic
+    if xi < total:
+        # Sample the actual reaction from the group
+        total -= sigma_elastic
+        for i in range(nuclide["N_proton_elastic_scattering_reaction"]):
+            reaction_ID = int(
+                mcdc_get.nuclide.proton_elastic_scattering_reaction_IDs(
+                    i, nuclide, data
+                )
+            )
+            reaction = simulation["proton_reactions"][reaction_ID]
+            # reaction = simulation["proton_elastic_scattering_reactions"][reaction_ID]
+            # reaction_base_ID = reaction["parent_ID"]
+            # reaction_base = simulation["proton_reactions"][reaction_base_ID]
+            total += reaction_micro_xs(E, reaction, nuclide, data)
+
+            # Execute the reaction
+            if xi < total:
+                elastic_scattering(
+                    reaction,
+                    particle_container,
+                    interaction_data_container,
+                    nuclide,
+                    simulation,
+                    data,
+                )
+                return
+
+    # Capture
+    if not simulation["technique"]["implicit_capture"]["active"]:
+        # print(f'particle being captured')
+        sigma_capture = total_micro_xs(PROTON_REACTION_CAPTURE, E, nuclide, data)
+        total += sigma_capture
+        if xi < total:
+            # Sample the actual reaction from the group
+            total -= sigma_capture
+            for i in range(nuclide["N_proton_capture_reaction"]):
+                reaction_ID = int(
+                    mcdc_get.nuclide.proton_capture_reaction_IDs(i, nuclide, data)
+                )
+            reaction = simulation["proton_reactions"][reaction_ID]
+            xs = reaction_micro_xs(E, reaction, nuclide, data)
+            total += xs
+
+            # Execute the reaction
+            if xi < total:
+                capture(
+                    reaction,
+                    particle_container,
+                    interaction_data_container,
+                    nuclide,
+                    simulation,
+                    data,
+                )
+
+    # Inelastic scattering
+    total += sigma_inelastic
+    if xi < total:
+        # Sample the actual reaction from the group
+        total -= sigma_inelastic
+        for i in range(nuclide["N_proton_inelastic_scattering_reaction"]):
+            reaction_ID = int(
+                mcdc_get.nuclide.proton_inelastic_scattering_reaction_IDs(
+                    i, nuclide, data
+                )
+            )
+            reaction = simulation["proton_reactions"][reaction_ID]
+            xs = reaction_micro_xs(E, reaction, nuclide, data)
+            total += xs
+
+            # Execute the reaction
+            if xi < total:
+                inelastic_scattering(
+                    reaction,
+                    particle_container,
+                    interaction_data_container,
+                    nuclide,
+                    program,
+                    data,
+                )
+                return
+
+
+# ======================================================================================
+# Capture
+# ======================================================================================
+
+
+# TODO: add secondaries from capture rxns
+@njit
+def capture(
+    reaction, particle_container, interaction_data_container, nuclide, simulation, data
+):
+    particle = particle_container[0]
+    interaction_data = interaction_data_container[0]
+
+    # Terminate the particle
+    particle["alive"] = False
+
+    # Energy deposition
+    E = particle["E"]
+    q_value = reaction["q_value"] * 1e6
+    interaction_data["energy_deposition"] += (E + q_value) * particle["w"]
+
+
+# ======================================================================================
+# Elastic scattering
+# ======================================================================================
+
+
+@njit
+def elastic_scattering(
+    reaction, particle_container, interaction_data_container, nuclide, simulation, data
+):
+    particle = particle_container[0]
+    interaction_data = interaction_data_container[0]
+    sub_ID = reaction["sub_ID"]
+    elastic_scattering = simulation["proton_elastic_scattering_reactions"][sub_ID]
+
+    # Particle attributes
+    E = particle["E"]
+    ux = particle["ux"]
+    uy = particle["uy"]
+    uz = particle["uz"]
+
+    # Energy deposition
+    interaction_data["energy_deposition"] += E * particle["w"]
+
+    # Note: Q-value is zero in elastic scattering
+
+    # Sample nucleus thermal velocity
+    A = nuclide["atomic_weight_ratio"]
+    temperature = nuclide["temperature"]
+    if E > THERMAL_THRESHOLD_FACTOR * BOLTZMANN_K * temperature:
+        Vx = 0.0
+        Vy = 0.0
+        Vz = 0.0
+    else:
+        Vx, Vy, Vz = sample_nucleus_velocity(A, particle_container)
+
+    # =========================================================================
+    # COM kinematics
+    # =========================================================================
+
+    # Particle speed
+    speed = particle_speed(particle_container)
+
+    # Proton velocity - LAB
+    vx = speed * ux
+    vy = speed * uy
+    vz = speed * uz
+
+    # COM velocity
+    COM_x = (vx + A * Vx) / (1.0 + A)
+    COM_y = (vy + A * Vy) / (1.0 + A)
+    COM_z = (vz + A * Vz) / (1.0 + A)
+
+    # Proton velocity - COM
+    vx = vx - COM_x
+    vy = vy - COM_y
+    vz = vz - COM_z
+
+    # Proton speed - COM
+    speed = math.sqrt(vx * vx + vy * vy + vz * vz)
+
+    # Proton initial direction - COM
+    ux = vx / speed
+    uy = vy / speed
+    uz = vz / speed
+
+    mu_distribution = simulation["distributions"][elastic_scattering["mu_table_ID"]]
+    mu0 = sample_distribution(E, mu_distribution, particle_container, simulation, data)
+    # Scatter the direction in COM
+    azi = 2.0 * PI * rng.lcg(particle_container)
+    ux_new, uy_new, uz_new = scatter_direction(ux, uy, uz, mu0, azi)
+
+    # Proton final velocity - COM
+    vx = speed * ux_new
+    vy = speed * uy_new
+    vz = speed * uz_new
+
+    # =========================================================================
+    # COM to LAB
+    # =========================================================================
+
+    # Final velocity - LAB
+    vx = vx + COM_x
+    vy = vy + COM_y
+    vz = vz + COM_z
+
+    # Final energy - LAB
+    speed = math.sqrt(vx * vx + vy * vy + vz * vz)
+    particle["E"] = particle_energy_from_speed(speed)
+
+    # Final direction - LAB
+    particle["ux"] = vx / speed
+    particle["uy"] = vy / speed
+    particle["uz"] = vz / speed
+
+    # Subtract outgoing energy from energy deposition
+    interaction_data["energy_deposition"] -= particle["E"] * particle["w"]
+
+
+@njit
+def sample_nucleus_velocity(A, particle_container):
+    particle = particle_container[0]
+
+    # Particle speed
+    speed = particle_speed(particle_container)
+
+    # Maxwellian parameter
+    beta = math.sqrt(2.0659834e-11 * A)
+    # The constant above is
+    #   (1.674927471e-27 kg) / (1.38064852e-19 cm^2 kg s^-2 K^-1) / (293.6 K)/2
+
+    # Sample nuclide speed candidate V_tilda and
+    #   nuclide-proton polar cosine candidate mu_tilda via
+    #   rejection sampling
+    y = beta * speed
+    while True:
+        if rng.lcg(particle_container) < 2.0 / (2.0 + PI_SQRT * y):
+            x = math.sqrt(
+                -math.log(rng.lcg(particle_container) * rng.lcg(particle_container))
+            )
+        else:
+            cos_val = math.cos(PI_HALF * rng.lcg(particle_container))
+            x = math.sqrt(
+                -math.log(rng.lcg(particle_container))
+                - math.log(rng.lcg(particle_container)) * cos_val * cos_val
+            )
+        V_tilda = x / beta
+        mu_tilda = 2.0 * rng.lcg(particle_container) - 1.0
+
+        # Accept candidate V_tilda and mu_tilda?
+        if rng.lcg(particle_container) > math.sqrt(
+            speed * speed + V_tilda * V_tilda - 2.0 * speed * V_tilda * mu_tilda
+        ) / (speed + V_tilda):
+            break
+
+    # Set nuclide velocity - LAB
+    azi = 2.0 * PI * rng.lcg(particle_container)
+    ux, uy, uz = scatter_direction(
+        particle["ux"], particle["uy"], particle["uz"], mu_tilda, azi
+    )
+    Vx = ux * V_tilda
+    Vy = uy * V_tilda
+    Vz = uz * V_tilda
+
+    return Vx, Vy, Vz
+
+
+# ======================================================================================
+# Inelastic scattering
+# ======================================================================================
+
+
+# TODO: make inelastic scattering actually produce secondaries
+@njit
+def inelastic_scattering(
+    reaction, particle_container, interaction_data_container, nuclide, program, data
+):
+    simulation = util.access_simulation(program)
+    particle = particle_container[0]
+    interaction_data = interaction_data_container[0]
+    sub_ID = reaction["sub_ID"]
+    inelastic_scattering = simulation["proton_inelastic_scattering_reactions"][sub_ID]
+
+    # Particle attributes
+    E = particle["E"]
+    ux = particle["ux"]
+    uy = particle["uy"]
+    uz = particle["uz"]
+
+    # Kill the incident proton
+    particle["alive"] = False
+
+    # Q-value energy available
+    q_value = reaction["q_value"] * 1e6
+    interaction_data["energy_deposition"] += (E + q_value) * particle["w"]
+
+    # ===========================================================================
+    # Sample outgoing proton
+    # ===========================================================================
+
+    # Number of outgoing protons and spectra
+    N_proton = inelastic_scattering["multiplicity"]
+    N_spectrum = inelastic_scattering["N_spectrum"]
+    use_all_spectrum = N_proton == N_spectrum
+
+    # Set up secondary particle container
+    particle_container_new = util.local_array(1, type_.particle_data)
+    particle_new = particle_container_new[0]
+
+    # Create outgoing protons
+    for n in range(N_proton):
+        # Set default attributes (copy incident proton)
+        particle_module.copy_as_child(particle_container_new, particle_container)
+
+        # ==============================================================================
+        # Sample angle (if not energy-correlated)
+        # ==============================================================================
+
+        angle_type = inelastic_scattering["angle_type"]
+        if angle_type == ANGLE_ENERGY_CORRELATED:
+            pass
+        elif angle_type == ANGLE_ISOTROPIC:
+            mu = sample_isotropic_cosine(particle_container_new)
+        elif angle_type == ANGLE_DISTRIBUTED:
+            mu_distribution = simulation["distributions"][inelastic_scattering["mu_ID"]]
+            mu = sample_distribution(
+                E, mu_distribution, particle_container, simulation, data
+            )
+            # mu = sample_multi_table(
+            #     E, particle_container, mu_distribution, simulation, data
+            # )
+
+        # ==============================================================================
+        # Sample energy (also angle if correlated)
+        # ==============================================================================
+
+        # Get energy spectrum
+        if use_all_spectrum:
+            ID = int(
+                mcdc_get.proton_inelastic_scattering_reaction.energy_spectrum_IDs(
+                    n, inelastic_scattering, data
+                )
+            )
+            spectrum_base = simulation["distributions"][ID]
+        else:
+            offset = inelastic_scattering["spectrum_probability_grid_offset"]
+            length = inelastic_scattering["spectrum_probability_grid_length"]
+            probability_grid = data[offset : offset + length]
+            probability_idx = find_bin(E, probability_grid)
+            xi = rng.lcg(particle_container_new)
+            total = 0.0
+            for j in range(N_spectrum):
+                probability = (
+                    mcdc_get.proton_inelastic_scattering_reaction.spectrum_probability(
+                        probability_idx, j, inelastic_scattering, data
+                    )
+                )
+                total += probability
+                if xi < total:
+                    ID = int(
+                        mcdc_get.proton_inelastic_scattering_reaction.energy_spectrum_IDs(
+                            j, inelastic_scattering, data
+                        )
+                    )
+                    spectrum_base = simulation["distributions"][ID]
+                    break
+
+        # Sample energy
+        if not angle_type == ANGLE_ENERGY_CORRELATED:
+            E_new = sample_distribution_with_scale(
+                E, spectrum_base, particle_container_new, simulation, data
+            )
+        else:
+            E_new, mu = sample_correlated_distribution_with_scale(
+                E, spectrum_base, particle_container_new, simulation, data
+            )
+
+        # ==============================================================================
+        # Frame transformation
+        # ==============================================================================
+
+        reference_frame = reaction["reference_frame"]
+        if reference_frame == REFERENCE_FRAME_COM:
+            A = nuclide["atomic_weight_ratio"]
+            mu_COM = mu
+            E_COM = E_new
+
+            E_new = (
+                E_COM + (E + 2 * mu_COM * (A + 1) * math.sqrt(E * E_COM)) / (A + 1) ** 2
+            )
+            mu = mu_COM * math.sqrt(E_COM / E_new) + math.sqrt(E / E_new) / (A + 1)
+
+        azi = 2.0 * PI * rng.lcg(particle_container_new)
+        ux_new, uy_new, uz_new = scatter_direction(ux, uy, uz, mu, azi)
+
+        # Now the secondary angle and energy are finalized
+        particle_new["ux"] = ux_new
+        particle_new["uy"] = uy_new
+        particle_new["uz"] = uz_new
+        particle_new["E"] = E_new
+        particle_new["particle_type"] = PARTICLE_PROTON
+
+        # Subtract outgoing energy from energy deposition
+        interaction_data["energy_deposition"] -= particle_new["E"] * particle_new["w"]
+
+        # ==============================================================================
+        # Bank the new particle
+        # ==============================================================================
+
+        # Census takes precedence over retaining the last product.
+        if particle["event"] & EVENT_TIME_CENSUS:
+            particle_bank_module.bank_census_particle(particle_container_new, program)
+        elif n == N_proton - 1:
+            particle["alive"] = True
+            particle["ux"] = particle_new["ux"]
+            particle["uy"] = particle_new["uy"]
+            particle["uz"] = particle_new["uz"]
+            particle["E"] = particle_new["E"]
+            particle["particle_type"] = PARTICLE_PROTON
+        else:
+            particle_bank_module.bank_active_particle(particle_container_new, program)
+
+    # ==================================================================================
+    # Sample cross-species SECONDARY PARTICLES
+    # ==================================================================================
+
+    for i in range(reaction["N_secondary_product"]):
+        product_ID = int(
+            mcdc_get.proton_reaction.secondary_product_IDs(i, reaction, data)
+        )
+        product = simulation["secondary_products"][product_ID]
+
+        # The primary proton above is sampled from the reaction's primary
+        # energy-angle distribution. Do not create it a second time here.
+        if product["particle_type"] == PARTICLE_PROTON:
+            continue
+
+        # Get the product count
+        #   Multiplicity is represented by yield rather than repeated product entries.
+        yield_data = simulation["data"][product["production_yield_ID"]]
+        production_yield = evaluate_data(E, yield_data, simulation, data)
+        N_product = int(math.floor(production_yield + rng.lcg(particle_container)))
+
+        # Get the spectrum
+        spectrum_ID = mcdc_get.secondary_product.energy_spectrum_IDs(0, product, data)
+        spectrum = simulation["distributions"][spectrum_ID]
+
+        # Create the products
+        for _ in range(N_product):
+            particle_container_new = util.local_array(1, type_.particle_data)
+            particle_module.copy_as_child(particle_container_new, particle_container)
+
+            # Sample energy and angle
+            if product["angle_type"] == ANGLE_ENERGY_CORRELATED:
+                E_new, mu = sample_correlated_distribution_with_scale(
+                    E,
+                    spectrum,
+                    particle_container_new,
+                    simulation,
+                    data,
+                )
+            else:
+                E_new = sample_distribution_with_scale(
+                    E,
+                    spectrum,
+                    particle_container_new,
+                    simulation,
+                    data,
+                )
+                if product["angle_type"] == ANGLE_ISOTROPIC:
+                    mu = sample_isotropic_cosine(particle_container_new)
+                else:
+                    mu_distribution = simulation["distributions"][product["mu_ID"]]
+                    mu = sample_distribution(
+                        E, mu_distribution, particle_container_new, simulation, data
+                    )
+
+            # Frame transformation
+            if product["reference_frame"] == REFERENCE_FRAME_COM:
+                A = nuclide["atomic_weight_ratio"]
+                E_COM = E_new
+                E_new = (
+                    E_COM
+                    + (E + 2.0 * mu * (A + 1.0) * math.sqrt(E * E_COM)) / (A + 1.0) ** 2
+                )
+                mu = mu * math.sqrt(E_COM / E_new) + math.sqrt(E / E_new) / (A + 1.0)
+
+            azi = 2.0 * PI * rng.lcg(particle_container_new)
+            ux_new, uy_new, uz_new = scatter_direction(ux, uy, uz, mu, azi)
+            product_type = product["particle_type"]
+
+            # Bank the new particle
+            if product_type in (PARTICLE_NEUTRON, PARTICLE_ELECTRON):
+                particle_new = particle_container_new[0]
+                particle_new["ux"] = ux_new
+                particle_new["uy"] = uy_new
+                particle_new["uz"] = uz_new
+                particle_new["E"] = E_new
+                particle_new["particle_type"] = product_type
+
+                interaction_data["energy_deposition"] -= E_new * particle_new["w"]
+
+                if particle["event"] & EVENT_TIME_CENSUS:
+                    particle_bank_module.bank_census_particle(
+                        particle_container_new, program
+                    )
+                else:
+                    particle_bank_module.bank_active_particle(
+                        particle_container_new, program
+                    )
+            else:
+                # Deuterons, tritons, He3, alphas, and heavier products are
+                # retained in the data model but locally deposited for now.
+                # Their energy is already included in the reaction balance.
+                continue
+
+
+# No fission for protons

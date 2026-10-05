@@ -8,12 +8,16 @@ from numpy.typing import NDArray
 ####
 
 from mcdc.constant import PARTICLE_NEUTRON
-from mcdc.object_.base import ObjectBase, ObjectSingleton
+from mcdc.object_.base import MCDCBase
 
 
 @dataclass
-class ParticleData(ObjectBase):
-    label: str = "particle_data"
+class ParticleData(MCDCBase):
+    """Serializable phase-space state stored in particle banks."""
+
+    # MC/DC framework metadata
+    label = "particle_data"
+
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -21,7 +25,6 @@ class ParticleData(ObjectBase):
     ux: float = 0.0
     uy: float = 0.0
     uz: float = 0.0
-    g: int = -1
     E: float = 0.0
     w: float = 0.0
     particle_type: int = PARTICLE_NEUTRON
@@ -29,14 +32,28 @@ class ParticleData(ObjectBase):
 
 
 @dataclass
-class CollisionData(ObjectBase):
-    label: str = "collision_data"
+class InteractionData(MCDCBase):
+    """Scoring data shared by discrete collisions and condensed interactions.
+
+    Each treatment records its incoming particle state before changing it and
+    accumulates weighted energy deposition in eV. Condensed interactions use
+    the step endpoint with energy and direction from before their application.
+    """
+
+    # MC/DC framework metadata
+    label = "interaction_data"
+
     energy_deposition: float = 0.0
+    incident_particle: ParticleData = field(default_factory=ParticleData)
 
 
 @dataclass
 class Particle(ParticleData):
-    label: str = "particle"
+    """Active transport particle with geometry and event-tracking state."""
+
+    # MC/DC framework metadata
+    label = "particle"
+
     cell_ID: int = -1
     material_ID: int = -1
     surface_ID: int = -1
@@ -45,14 +62,24 @@ class Particle(ParticleData):
     event: int = -1
 
 
-class ParticleBank(ObjectSingleton):
-    label: str = "particle_bank"
-    non_numba: list[str] = ["particles"]
-    particles: list[ParticleData] = []
+class ParticleBank(MCDCBase):
+    """Particle storage metadata used by the compiled runtime.
+
+    Parameters
+    ----------
+    tag : str
+        Bank role, such as ``"active"``, ``"source"``, ``"census"``, or
+        ``"future"``.
+    """
+
+    # MC/DC framework metadata
+    label = "particle_bank"
+    non_numba = ["particles"]
+
+    particles: list[ParticleData] = []  # Non-numba
     size: Annotated[NDArray[int64], (1,)]
     tag: str = ""
 
     def __init__(self, tag):
-        super().__init__()
         self.tag = tag
         self.size = np.zeros(1, dtype=int64)

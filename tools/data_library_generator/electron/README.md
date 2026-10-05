@@ -29,9 +29,9 @@ For each element (Z=1 to Z=100) in the EPRDATA14 library, the generator:
 1. Loads all elemental tables from the single concatenated EPRDATA14 file.
 2. Extracts the shared cross section energy grid and pointwise cross sections
    (elastic, excitation, bremsstrahlung, and total ionization summed over subshells).
-3. Extracts the total elastic cross section (MT-526), transport and large-angle
-   elastic cross sections, and tabulated elastic scattering cosine CDFs per
-   incident energy.
+3. Stores the total elastic cross section (small and large angles) under MT-526,
+   the large-angle cross section under `large_angle/xs`, and the tabulated
+   large-angle scattering cosine CDFs.
 4. Extracts the excitation average energy loss as a function of incident energy (MT-528).
 5. Extracts the bremsstrahlung average energy loss as a function of incident energy (MT-527).
 6. Extracts per-subshell ionization cross sections, binding energies, and knock-on
@@ -39,8 +39,8 @@ For each element (Z=1 to Z=100) in the EPRDATA14 library, the generator:
 7. Extracts atomic relaxation (fluorescence and Auger) transition data per subshell.
 8. Writes a single HDF5 file per element (e.g., `Al.h5`).
 
-Energy distributions store the cumulative distribution (CDF), since ACEtk exposes
-only CDFs for EPRDATA14; sampling from the CDF is handled on the MC/DC side.
+Existing HDF5 files are skipped by default. Use `--rewrite` to regenerate them
+after changing the schema or energy units.
 
 ## Output HDF5 Schema
 ```
@@ -49,18 +49,17 @@ only CDFs for EPRDATA14; sampling from the CDF is handled on the MC/DC side.
 ├── atomic_number                               (int)
 ├── atomic_weight_ratio                         (float)
 ├── electron_reactions/
-│   ├── xs_energy_grid                          (1-D array, MeV)
+│   ├── xs_energy_grid                          (1-D array, eV)
 │   ├── elastic_scattering/
 │   │   └── MT-526/                             (attr: MT)
 │   │       ├── reference_frame                 (string: "LAB")
 │   │       ├── xs                              (1-D array, barns; attr: offset; total elastic)
+│   │       ├── transport                       (1-D array, barns)
 │   │       └── large_angle/                     (attr: MT = 525)
-│   │           ├── xs_energy                   (1-D array, MeV)
-│   │           ├── xs                         (1-D array, barns; large-angle elastic)
-│   │           ├── transport                   (1-D array, barns)
-│   │           ├── total                       (1-D array, barns)
+│   │           ├── xs_energy                   (1-D array, eV)
+│   │           ├── xs                          (1-D array, barns; large-angle elastic)
 │   │           └── scattering_cosine/
-│   │               ├── energy_grid             (1-D array, MeV)
+│   │               ├── energy_grid             (1-D array, eV)
 │   │               ├── energy_offset           (1-D array, int)
 │   │               ├── value                   (1-D array, cosine)
 │   │               └── CDF                     (1-D array)
@@ -69,38 +68,38 @@ only CDFs for EPRDATA14; sampling from the CDF is handled on the MC/DC side.
 │   │       ├── reference_frame                 (string: "LAB")
 │   │       ├── xs                              (1-D array, barns; attr: offset)
 │   │       └── energy_loss/
-│   │           ├── energy                      (1-D array, MeV)
-│   │           └── value                       (1-D array, MeV)
+│   │           ├── energy                      (1-D array, eV)
+│   │           └── value                       (1-D array, eV)
 │   ├── bremsstrahlung/
 │   │   └── MT-527/                             (attr: MT)
 │   │       ├── reference_frame                 (string: "LAB")
 │   │       ├── xs                              (1-D array, barns; attr: offset)
 │   │       └── energy_loss/
-│   │           ├── energy                      (1-D array, MeV)
-│   │           └── value                       (1-D array, MeV)
+│   │           ├── energy                      (1-D array, eV)
+│   │           └── value                       (1-D array, eV)
 │   └── ionization/
 │       └── MT-522/                             (attr: MT; all subshells grouped here)
 │           ├── reference_frame                 (string: "LAB")
 │           ├── xs                              (1-D array, barns; attr: offset; sum over subshells)
 │           └── subshells/
 │               └── MT-NNN/                     (attrs: MT = ENDF subshell MT, 534+; subshell)
-│                   ├── energy_grid             (1-D array, MeV)
+│                   ├── energy_grid             (1-D array, eV)
 │                   ├── xs                      (1-D array, barns)
-│                   ├── binding_energy          (float, MeV)
+│                   ├── binding_energy          (float, eV)
 │                   └── product/
-│                       ├── energy_grid         (1-D array, MeV)
+│                       ├── energy_grid         (1-D array, eV)
 │                       ├── energy_offset       (1-D array, int)
-│                       ├── value               (1-D array, MeV)
+│                       ├── value               (1-D array, eV)
 │                       └── CDF                 (1-D array)
 └── atomic_relaxation/
     └── MT-NNN/                                 (attrs: MT; subshell; one per ionization subshell, 534+)
         ├── number_of_transitions               (int)
         ├── primary_designator                  (1-D array, int)   [if number_of_transitions > 0]
         ├── secondary_designator                (1-D array, int)   [if number_of_transitions > 0]
-        ├── energy                              (1-D array, MeV)   [if number_of_transitions > 0]
+        ├── energy                              (1-D array, eV)    [if number_of_transitions > 0]
         └── probability                         (1-D array)        [if number_of_transitions > 0]
 ```
 
 ## See Also
-- [Continuous Energy Theory Guide](../../docs/source/theory/cont_energy.rst)
-- [Installation Guide — CE Library Configuration](../../docs/source/install.rst)
+- [Continuous Energy Theory Guide](../../../docs/source/theory/continuous_energy.rst)
+- [Installation — CE Library Configuration](../../../docs/source/user_guide/getting_started/installation.rst)

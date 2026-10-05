@@ -12,6 +12,7 @@ import mcdc.transport.particle_bank as particle_bank_module
 import mcdc.transport.rng as rng
 import mcdc.transport.util as util
 
+from mcdc.constant import COINCIDENCE_TOLERANCE_TIME, EVENT_TIME_CENSUS
 from mcdc.transport.mesh import get_indices as get_mesh_indices
 
 # ======================================================================================
@@ -60,8 +61,8 @@ def global_weight_roulette(particle_container, simulation):
     simulation : object
         Simulation state containing global weight roulette parameters.
     """
-    w_threshold = simulation["global_weight_roulette"]["weight_threshold"]
-    w_target = simulation["global_weight_roulette"]["weight_target"]
+    w_threshold = simulation["technique"]["global_weight_roulette"]["weight_threshold"]
+    w_target = simulation["technique"]["global_weight_roulette"]["weight_target"]
     weight_roulette(particle_container, w_threshold, w_target)
 
 
@@ -116,26 +117,26 @@ def query_weight_window(particle_container, simulation, data):
         Upper weight bound.
     """
     # grab objects
-    ww_obj = simulation["weight_windows"]
+    ww_obj = simulation["technique"]["weight_windows"]
     indices = get_ww_indices(particle_container, ww_obj, simulation, data)
     # grab the actual ww parameters
-    lower = ww_get.lower_weights(*indices, ww_obj, data)
-    target = ww_get.target_weights(*indices, ww_obj, data)
-    upper = ww_get.upper_weights(*indices, ww_obj, data)
+    lower = ww_get.weights(*indices, 0, ww_obj, data)
+    target = ww_get.weights(*indices, 1, ww_obj, data)
+    upper = ww_get.weights(*indices, 2, ww_obj, data)
     return lower, target, upper
 
 
 @njit
 def get_ww_indices(particle_container, ww_obj, simulation, data):
     """
-    Get flattened weight window index from particle information
+    Get the particle's bin index in each weight-window dimension.
 
     Parameters
     ----------
     particle_container : ndarray
         Container holding the particle.
-    weight_window_object : object
-        The weight window object containing index information
+    ww_obj : object
+        The weight window object containing index information.
     simulation : object
         Simulation state containing weight window and mesh data.
     data : object
@@ -143,24 +144,38 @@ def get_ww_indices(particle_container, ww_obj, simulation, data):
 
     Returns
     -------
-    indices: Tuple[int]
-        the flattened index in the weight window array
+    indices : tuple of int
+        Seven bin indices in (time, energy, mu, azimuthal, x, y, z) order.
     """
     particle = particle_container[0]
 
+    # get time index
+    time_bounds = ww_get.time_bounds_all(ww_obj, data)
+    it = util.find_bin_with_rules(
+        particle["t"], time_bounds, COINCIDENCE_TOLERANCE_TIME, False
+    )
+
     # get energy index
     energy_bounds = ww_get.energy_bounds_all(ww_obj, data)
-    if simulation["settings"]["neutron_multigroup_mode"]:
-        energy = particle["g"]
-    else:
-        energy = particle["E"]
+    energy = particle["E"]
     ie = util.find_bin(energy, energy_bounds)
+
+    # get angular indices
+    mu, azimuthal = util.calculate_angles(particle_container, ww_obj["polar_reference"])
+
+    # mu
+    mu_bounds = ww_get.mu_bounds_all(ww_obj, data)
+    imu = util.find_bin(mu, mu_bounds)
+
+    # azimuthal
+    azi_bounds = ww_get.azi_bounds_all(ww_obj, data)
+    ia = util.find_bin(azimuthal, azi_bounds)
 
     # get spatial index
     mesh = simulation["meshes"][ww_obj["mesh_ID"]]
     idx, idy, idz = get_mesh_indices(particle_container, mesh, simulation, data)
 
-    return (ie, idx, idy, idz)
+    return (it, ie, imu, ia, idx, idy, idz)
 
 
 @njit
@@ -192,7 +207,10 @@ def split_from_weight_window(particle_container, w_upper, w_target, w_lower, pro
         for _ in range(num_split_to_target - 1):
             container_copy = util.local_array(1, type_.particle)
             particle_module.copy_as_child(container_copy, particle_container)
-            particle_bank_module.bank_active_particle(container_copy, program)
+            if particle["event"] & EVENT_TIME_CENSUS:
+                particle_bank_module.bank_census_particle(container_copy, program)
+            else:
+                particle_bank_module.bank_active_particle(container_copy, program)
 
         # bank residual particle
         residual_weight = weight - num_split_to_target * w_target
@@ -203,7 +221,10 @@ def split_from_weight_window(particle_container, w_upper, w_target, w_lower, pro
             residual_copy[0]["alive"] = True
             weight_roulette(residual_copy, w_lower, w_target)
             if residual_copy[0]["alive"]:
-                particle_bank_module.bank_active_particle(residual_copy, program)
+                if particle["event"] & EVENT_TIME_CENSUS:
+                    particle_bank_module.bank_census_particle(residual_copy, program)
+                else:
+                    particle_bank_module.bank_active_particle(residual_copy, program)
 
 
 # ======================================================================================

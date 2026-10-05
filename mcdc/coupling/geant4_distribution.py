@@ -35,10 +35,15 @@ def build_source_distribution_payload(
         raise RuntimeError("Distribution source tally must define mu/azi filters.")
     if not bool(tally["filter_energy"]):
         raise RuntimeError("Distribution source tally must define energy bins.")
-    if int(tally["child_type"]) != TALLY_SURFACE_CROSSING:
+    # The bridge samples mu about +z and azimuth from +x, the default reference.
+    if not np.allclose(np.asarray(tally["polar_reference"]), [0.0, 0.0, 1.0]):
+        raise RuntimeError(
+            "Distribution source tally must use the default polar_reference (0, 0, 1)."
+        )
+    if int(tally["sub_type"]) != TALLY_SURFACE_CROSSING:
         raise RuntimeError("Distribution source tally must be a surface-mesh tally.")
 
-    surface_tally = simulation["surface_crossing_tallies"][int(tally["child_ID"])]
+    surface_tally = simulation["surface_crossing_tallies"][int(tally["sub_ID"])]
     if not bool(surface_tally["use_surface_mesh"]):
         raise RuntimeError("Distribution source tally must define surface_mesh.")
 
@@ -77,7 +82,7 @@ def build_source_distribution_payload(
     shape_length = int(tally["bin_shape_length"])
     shape = tuple(int(x) for x in data[shape_offset : shape_offset + shape_length])
 
-    mean_offset = int(tally["bin_sum_offset"])
+    mean_offset = int(tally["bin_mean_offset"])
     mean_length = int(tally["bin_length"])
     mean = data[mean_offset : mean_offset + mean_length].reshape(shape)
     current_in_mean = np.take(mean, current_in_idx, axis=-1)

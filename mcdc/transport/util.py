@@ -1,8 +1,30 @@
 import math
 import numpy as np
 
+import numba as nb
 from numba import njit
 from typing import Sequence
+
+from mcdc.constant import (
+    PARTICLE_ANY,
+    PARTICLE_NEUTRON,
+    PARTICLE_ELECTRON,
+    PARTICLE_PROTON,
+)
+
+
+@njit
+def particle_name(particle_type):
+    """Return the name of a particle type."""
+    if particle_type == PARTICLE_NEUTRON:
+        return "neutron"
+    elif particle_type == PARTICLE_ELECTRON:
+        return "electron"
+    elif particle_type == PARTICLE_PROTON:
+        return "proton"
+    elif particle_type == PARTICLE_ANY:
+        return "any particle"
+    return f"unknown particle type {particle_type}"
 
 
 @njit
@@ -147,13 +169,98 @@ def log_interpolation(x, x1, x2, y1, y2):
 
 
 # ======================================================================================
+# Angle conversion utilities
+# ======================================================================================
+
+
+@njit
+def calculate_angles(particle_container, polar_reference):
+    """
+    Calculate particle mu and azimuthal angle from given reference vector
+
+    Parameters
+    ----------
+    particle_container : ndarray
+      Container holding the particle.
+    polar_reference : ndarray
+      3D polar reference vector
+
+    Returns
+    -------
+    mu : float
+      Mu of particle relative to reference vector
+    azimuthal : float
+      Azimuthal angle of particle relative to reference vector
+    """
+    particle = particle_container[0]
+    ux = particle["ux"]
+    uy = particle["uy"]
+    uz = particle["uz"]
+
+    px = polar_reference[0]
+    py = polar_reference[1]
+    pz = polar_reference[2]
+
+    mu = ux * px + uy * py + uz * pz
+
+    # Make azimuthal direction basis for the polar reference
+    u1x, u1y, u1z, u2x, u2y, u2z = make_direction_basis(px, py, pz)
+
+    # Particle vector in terms of u1 and u2 (dot products)
+    rel_ux = ux * u1x + uy * u1y + uz * u1z
+    rel_uy = ux * u2x + uy * u2y + uz * u2z
+
+    azimuthal = math.atan2(rel_uy, rel_ux)
+
+    return mu, azimuthal
+
+
+@njit
+def make_direction_basis(px, py, pz):
+    """Define the azimuthal basis for a normalized polar reference.
+
+    Parameters
+    ----------
+    px, py, pz : float
+        Components of a normalized polar reference vector.
+
+    Returns
+    -------
+    e1x, e1y, e1z, e2x, e2y, e2z : float
+        Components of the zero-azimuth and pi/2-azimuth basis vectors.
+
+    Notes
+    -----
+    When the reference has a nonzero XY projection, e1 is normalized Z
+    cross reference and e2 is reference cross e1. At either exact Z pole,
+    e1 is positive X and e2 is positive Y. The basis is orthonormal and
+    transverse in all cases; (e1, e2, reference) is left-handed at negative Z.
+    """
+    r = math.hypot(px, py)
+    if r == 0.0:
+        return 1.0, 0.0, 0.0, 0.0, 1.0, 0.0
+
+    cx = px / r
+    cy = py / r
+    e1x = -cy
+    e1y = cx
+    e1z = 0.0
+    e2x = -pz * cx
+    e2y = -pz * cy
+    e2z = r
+    return e1x, e1y, e1z, e2x, e2y, e2z
+
+
+# ======================================================================================
 # Framework utilities
 # ======================================================================================
 
 
 @njit
 def atomic_add(array, idx, value):
+    result = array[idx]
     array[idx] += value
+    return result
 
 
 @njit
@@ -161,6 +268,13 @@ def local_array(shape, dtype):
     return np.zeros(shape, dtype=dtype)
 
 
-@njit
 def access_simulation(program):
     return program
+
+
+@nb.extending.overload(access_simulation, target="cpu")
+def access_simulation_cpu_overload(program):
+    def impl(program):
+        return program
+
+    return impl

@@ -30,5 +30,5 @@ def macro_xs(reaction_type, particle_container, simulation, data):
 
 
 @njit
-def collision(particle_container, collision_data_container, program, data):
-    native.collision(particle_container, collision_data_container, program, data)
+def collision(particle_container, interaction_data_container, program, data):
+    native.collision(particle_container, interaction_data_container, program, data)

@@ -2,25 +2,137 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as a guide.
 
 ## [Unreleased]
 
 ### Added
 
+- Add proton transport with nuclear reactions and secondary-particle production, continuous slowing down, energy-loss straggling, and multiple Coulomb scattering, from [@ethan-lame]
+- Add developer documentation on particle transport architecture, covering particle steps, event handling, interaction data, and tally scoring triggers, from [@ilhamv]
+- Add time, polar-cosine, and azimuthal dependence to weight windows; consolidate lower, target, and upper weights into one array and extend flattened-data accessors to eight dimensions, from [@nglaser3]
+- Add a fissionable material and an outlet detector to the pulsed Kobayashi example, from [@ilhamv]
+- Add CI check requiring generated Numba support to match the rebuild script, from [@ilhamv]
+- Add piece-wise linear spatial distribution for source definition, from [@ilhamv]
+- Add overriding option N_active, from [@ilhamv]
+- Add MC/DC-VVP project documentation with verification case narratives, published results, and VVP result-generation and publication steps in the release checklist, from [@ilhamv]
+
 ### Changed
 
-- Move regression tests from the custom `run.py` harness to pytest-based collection and reporting from [@massimolarsen]
+- Rename collision tally/data to interaction tally/data to cover both discrete collisions and condensed interactions; describe tally types by their transport scoring triggers rather than as estimators, from [@ilhamv]
+- Use the full incident-particle state for collision tally filtering, from [@ilhamv]
+- Make lower-energy-first transport rule configurable per particle, from [@ilhamv]
+- Introduce per-species transport settings with automatic activation of source particle types and nested settings in output files, replacing `set_transported_particles`, from [@ilhamv]
+- Generate the electron data library in eV, store the elastic transport cross section under MT-526, from [@melekderman]
+- Transport the lower-energy electron from ionization first for more effective bank usage, from [@melekderman]
+- Reuse electron cross-section energy-grid indices and cumulative subshell cross sections during collision sampling, from [@melekderman]
+- Unify polar–azimuthal basis construction across angle conversion, source direction sampling, and scattering, with robust Z-pole handling; the shared convention changes seeded particle trajectories, from [@nglaser3] and [@ilhamv]
+- Organize the Kobayashi examples under `examples/kobayashi-dogleg/` as `steady_state`, `pulsed`, and `pulsed_with_fission`; use the fission variant in the pulsed tutorial and clarify its relation to the original PNE benchmark and the Zenodo transient adaptation, from [@ilhamv]
+- Add standard `performance/` output metrics and replace `--runtime_output` with `--no-tally_output` to omit tally results, from [@ilhamv]
+- Filter out empty numba support accessors from creation, from [@ilhamv]
+- Update GPU transport support for the current MC/DC data model and Harmonize runtime, including GPU-compatible state access, particle-bank operations, array accessors, and torus intersections, from [@braxtoncuneo].
+- Show previously published documentation versions in the documentation version switcher, from [@ilhamv]
+- Optimize tally moments memory allocation — only allocate to non-master rank if necessary, from [@ilhamv]
 
 ### Deprecated
 
 ### Removed
 
+- Caching of the `souce_loop` function is removed for GPU execution, from [@braxtoncuneo].
+- Remove empty mcdc_get and mcdc_set members, from [@ilhamv]
+
 ### Fixed
+
+- Fix tallies not applying their particle-type filter during scoring, from [@melekderman]
+- Fix collision tally energy filtering to use the incident energy, from [@melekderman]
+- Fix electron-ionization energy sampling, change the policy from [@melekderman]
+- Fix track-length tallies skipping tracks shorter than the time coincidence tolerance, which zeroed electron flux tallies, from [@melekderman]
+- Restore the Lockwood regression case to the 1 MeV benchmark and regenerate its answer, from [@melekderman]
+- Fix tabulated distribution sampling at the first CDF point, from [@melekderman]
+- Fix multi-table distribution sampling when the incident energy equals the first grid point, which used the last grid point as the lower bound and could fail or return wrong values, from [@melekderman]
+- Fix element densities when collapsing a nuclide composition into elements, which counted nuclides with a shared symbol prefix (e.g., `Cr52` as carbon, `He4` as hydrogen), from [@melekderman]
+- Correct ACEtk electron data loading units, elastic cross-section assignments, and CDF dataset names, from [@massimolarsen]
+- Improve tally variance accuracy with stable online statistics and parallel moment merging; require multiple batches for fixed-source time-census and GPU transport, from [@ilhamv]
+- Fix UCX transport errors in MPI runs on the unit-test and Numba-support CI workflows by restricting `UCX_TLS` to `self,sm,tcp`, from [@melekderman]
 
 ### Security
 
+## [0.15.3] - 2026-09-27
+
+### Fixed
+
+- Correct Zenodo release metadata and update software authors in `CITATION.cff`, from [@melekderman] and [@ilhamv]
+
+### Added
+
+- Include `cffconvert` in the development dependencies for release citation validation, from [@ilhamv]
+
+## [0.15.2] - 2026-08-15
+
+### Fixed
+
+- Anticipate empty census-based tallies in batch runs for correct tally recombination, from [@ilhamv]
+- Prevent independent runs with different problem sizes from sharing mutable problem-dependent Numba types, and preserve Python-managed `__pycache__` directories during startup, from [@ilhamv]
+
+### Added
+
+- Add `rebuild_numba_support.py` and the `-r`/`--rebuild` developer option for regenerating Numba support (mcdc_get, mcdc_set, numba_types.py) after object model changes, from [@ilhamv]
+
+### Changed
+
+- Generate shared Numba support independently of simulation preparation and create problem-dependent dtypes locally through pure factories, from [@ilhamv]
+- Organize example documentation under the User Guide and contribution documentation under the Developer Guide, from [@ilhamv]
+
+## [0.15.1] - 2026-08-12
+
+### Fixed
+
+- Prevent unbounded dependency resolution from selecting incompatible releases that break MC/DC by adding explicit upper bounds for all build, runtime, documentation, and development dependencies, from [@ilhamv]
+
+### Added
+
+- Add a dedicated CARRE project page, from [@ilhamv]
+- Add the release policy and checklist, from [@ilhamv]
+- Add the one-sentence-per-line convention for documentation source, from [@ilhamv]
+
+### Changed
+
+- Hide flyout in Read the Docs, from [@ilhamv]
+
+## [0.15.0] - 2026-08-11
+
+### Added
+
+- Add `NeutronMultigroupData` and hybrid neutron multigroup transport with material-local physical energy grids and energy-representation policies, together with the `Material.multigroup()` convenience interface, from [@ilhamv]
+- Add manually triggered unit and serial regression compatibility testing for Python 3.11, 3.12, and 3.14 while retaining Python 3.13 for automatic testing, from [@ilhamv]
+- Add PEP 561-compatible inline type information and strict Pyright checks for the public Python API, from [@ilhamv]
+
+### Changed
+
+- **Breaking:** Unify native and neutron multigroup materials under one non-polymorphic `Material` and runtime layout, replacing `MaterialMG` and the separate native and multigroup material structures, from [@ilhamv]
+- Group transport techniques under `simulation.technique`, from [@ilhamv]
+- **Breaking:** Encapsulate MC/DC model building and execution within an explicit `mcdc.Simulation` instance, replacing the global simulation state and interface from [@ilhamv]
+- Modernize and reorganize the documentation around distinct user, API reference, theory, project, and developer paths; adopt the PyData Sphinx Theme; and expand the architecture and extension guidance from [@ilhamv]
+- Move model-specific finalization into simulation compilation and reserve runtime preparation for framework-level packing and execution setup from [@ilhamv]
+- Move regression tests from the custom `run.py` harness to pytest-based collection and reporting from [@massimolarsen]
+- **Breaking:** Require Python 3.11 or newer and designate Python 3.13 as the primary automatic test version, from [@ilhamv]
+- Run Black and Pyright with Python 3.14 while keeping Black output compatible with every supported Python version, from [@ilhamv]
+- Adopt a three-month seasonal cycle for minor releases while continuing to publish patch releases as needed, from [@ilhamv]
+
+### Removed
+
+- Remove the legacy `install.sh` installation helper, from [@ilhamv]
+
 ## [0.14.2] - 2026-07-15
+
+### Fixed
+
+- Fix 2D-vector setter writes nothing (- instead of =) from [@steps-re]
+- Fix delayed neutrons are never sampled (transport/physics/neutron/native.py, fission()) from [@steps-re]
+- Fix delayed emission time uses β instead of λ (transport/physics/neutron/native.py, fission())from [@steps-re]
+- Fix swapped transverse-basis branches (transport/distribution.py, sample_direction()) from [@steps-re]
+- Fix divide-by-zero for a -z reference (transport/distribution.py, sample_white_direction()) from [@steps-re]
+- Fix tally polar_reference corrupted (object_/tally.py) from [@steps-re]
 
 ### Added
 
@@ -36,18 +148,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
   - Combined `object_` and `transport` unit test for more efficient fixture reuse from [@massimolarsen]
   - Replace bare assert np.isclose with proper np.testing.assert_allclose from [@steps-re]
 
-### Fixed
-
-- Fix 2D-vector setter writes nothing (- instead of =) from [@steps-re]
-- Fix delayed neutrons are never sampled (transport/physics/neutron/native.py, fission()) from [@steps-re]
-- Fix delayed emission time uses β instead of λ (transport/physics/neutron/native.py, fission())from [@steps-re]
-- Fix swapped transverse-basis branches (transport/distribution.py, sample_direction()) from [@steps-re]
-- Fix divide-by-zero for a -z reference (transport/distribution.py, sample_white_direction()) from [@steps-re]
-- Fix tally polar_reference corrupted (object_/tally.py) from [@steps-re]
-
 ## [0.14.1] - 2026-07-04
 
-### Changed
+### Fixed
 
 - Documentation and packaging metadata fixes
 
@@ -130,6 +233,10 @@ The pre-refactor implementation remains available in the `cement` branch as a re
 - Multi-table distribution table selection sampling from [@melekderman]
 
 [Unreleased]: https://github.com/mcdc-project/mcdc/tree/dev
+[0.15.3]: https://github.com/mcdc-project/mcdc/releases/tag/v0.15.3
+[0.15.2]: https://github.com/mcdc-project/mcdc/releases/tag/v0.15.2
+[0.15.1]: https://github.com/mcdc-project/mcdc/releases/tag/v0.15.1
+[0.15.0]: https://github.com/mcdc-project/mcdc/releases/tag/v0.15.0
 [0.14.2]: https://github.com/mcdc-project/mcdc/releases/tag/v0.14.2
 [0.14.1]: https://github.com/mcdc-project/mcdc/releases/tag/v0.14.1
 [0.14.0]: https://github.com/mcdc-project/mcdc/releases/tag/v0.14.0
@@ -141,3 +248,5 @@ The pre-refactor implementation remains available in the `cement` branch as a re
 [@gunnarrl]: https://github.com/gunnarrl
 [@Talen-Ayers]: https://github.com/Talen-Ayers
 [@steps-re]: https://github.com/steps-re
+[@braxtoncuneo]: https://github.com/braxtoncuneo
+[@ethan-lame]: https://github.com/ethan-lame

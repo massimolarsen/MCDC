@@ -33,8 +33,9 @@ def distribution_simulation_and_data(
     mpi_size=1,
     mpi_master=True,
     surface_mesh=True,
-    child_type=TALLY_SURFACE_CROSSING,
+    sub_type=TALLY_SURFACE_CROSSING,
     time_bins=1,
+    polar_reference=(0.0, 0.0, 1.0),
 ):
     if scores is None:
         scores = [99, SCORE_CURRENT_IN]
@@ -62,7 +63,7 @@ def distribution_simulation_and_data(
         ("azi", azi),
         ("energy", energy),
         ("bin_shape", shape),
-        ("bin_sum", mean.ravel()),
+        ("bin_mean", mean.ravel()),
     ):
         offsets[name] = sum(len(chunk) for chunk in chunks)
         chunks.append(np.asarray(values, dtype=np.float64).ravel())
@@ -82,10 +83,11 @@ def distribution_simulation_and_data(
         "energy_length": len(energy),
         "bin_shape_offset": offsets["bin_shape"],
         "bin_shape_length": len(shape),
-        "bin_sum_offset": offsets["bin_sum"],
+        "bin_mean_offset": offsets["bin_mean"],
         "bin_length": mean.size,
-        "child_type": child_type,
-        "child_ID": 0,
+        "sub_type": sub_type,
+        "sub_ID": 0,
+        "polar_reference": polar_reference,
     }
     tallies = np.zeros(1, dtype=TALLY_DTYPE)
     for field, value in tally_values.items():

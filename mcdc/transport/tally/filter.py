@@ -11,19 +11,32 @@ from mcdc.constant import (
     COINCIDENCE_TOLERANCE_DIRECTION,
     COINCIDENCE_TOLERANCE_ENERGY,
     COINCIDENCE_TOLERANCE_TIME,
+    PARTICLE_ANY,
 )
-from mcdc.transport.util import find_bin_with_tolerance, find_bin_with_rules
+from mcdc.transport.util import (
+    find_bin_with_tolerance,
+    find_bin_with_rules,
+    calculate_angles,
+)
 
 
 @njit
-def get_filter_indices(particle_container, tally, data, MG_mode):
+def get_filter_indices(particle_container, tally, data):
     i_mu, i_azi, i_energy, i_time = 0, 0, 0, 0
+
+    particle = particle_container[0]
+
+    if (
+        tally["particle_type"] != PARTICLE_ANY
+        and tally["particle_type"] != particle["particle_type"]
+    ):
+        return -1, -1, -1, -1
 
     if tally["filter_direction"]:
         i_mu, i_azi = get_direction_index(particle_container, tally, data)
 
     if tally["filter_energy"]:
-        i_energy = get_energy_index(particle_container, tally, data, MG_mode)
+        i_energy = get_energy_index(particle_container, tally, data)
 
     if tally["filter_time"]:
         i_time = get_time_index(particle_container, tally, data)
@@ -33,64 +46,30 @@ def get_filter_indices(particle_container, tally, data, MG_mode):
 
 @njit
 def get_direction_index(particle_container, tally, data):
-    particle = particle_container[0]
-
-    # Particle properties
-    ux = particle["ux"]
-    uy = particle["uy"]
-    uz = particle["uz"]
-
     # Polar reference
-    nx = tally["polar_reference"][0]
-    ny = tally["polar_reference"][1]
-    nz = tally["polar_reference"][2]
-
-    # TODO: Rotate direction based on the polar reference
-    if nz != 1.0:
-        pass
-
-    mu = uz
-    radial = math.sqrt(ux * ux + uy * uy)
-    axial_direction = radial == 0.0
-    if axial_direction:
-        azi = 0.0
-    else:
-        azi = math.acos(ux / radial)
-        if uy < 0.0:
-            azi *= -1
+    mu, azi = calculate_angles(particle_container, tally["polar_reference"])
 
     tolerance = COINCIDENCE_TOLERANCE_DIRECTION
 
-    grid_mu = data[tally["mu_offset"] : (tally["mu_offset"] + tally["mu_length"])]
-    # Above is equivalent to: grid_mu = mcdc_get.tally.mu_all(tally, data)
-    grid_azi = data[tally["azi_offset"] : (tally["azi_offset"] + tally["azi_length"])]
-    # Above is equivalent to: grid_azi = mcdc_get.tally.azi_all(tally, data)
+    grid_mu = mcdc_get.tally.mu_all(tally, data)
+    grid_azi = mcdc_get.tally.azi_all(tally, data)
 
     i_mu = find_bin_with_tolerance(mu, grid_mu, tolerance)
-    # azimuth is arbitrary for directions exactly on the z-axis
-    if axial_direction:
-        i_azi = 0
-    else:
-        i_azi = find_bin_with_tolerance(azi, grid_azi, tolerance)
+    i_azi = find_bin_with_tolerance(azi, grid_azi, tolerance)
     return i_mu, i_azi
 
 
 @njit
-def get_energy_index(particle_container, tally, data, neutron_multigroup_mode):
+def get_energy_index(particle_container, tally, data):
     particle = particle_container[0]
 
-    if neutron_multigroup_mode:
-        E = particle["g"]
-    else:
-        E = particle["E"]
+    # Particle properties
+    energy = particle["E"]
 
     tolerance = COINCIDENCE_TOLERANCE_ENERGY
-    grid_energy = data[
-        tally["energy_offset"] : (tally["energy_offset"] + tally["energy_length"])
-    ]
-    # Above is equivalent to: grid_energy = mcdc_get.tally.energy_all(tally, data)
+    grid_energy = mcdc_get.tally.energy_all(tally, data)
 
-    return find_bin_with_tolerance(E, grid_energy, tolerance)
+    return find_bin_with_tolerance(energy, grid_energy, tolerance)
 
 
 @njit
@@ -100,10 +79,7 @@ def get_time_index(particle_container, tally, data):
     # Particle properties
     time = particle["t"]
 
-    grid_time = data[
-        tally["time_offset"] : (tally["time_offset"] + tally["time_length"])
-    ]
-    # Above is equivalent to: grid_time = mcdc_get.tally.time_all(tally, data)
+    grid_time = mcdc_get.tally.time_all(tally, data)
 
     tolerance = COINCIDENCE_TOLERANCE_TIME
     go_lower = False

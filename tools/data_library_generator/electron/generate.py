@@ -11,10 +11,6 @@ from tqdm import tqdm
 import util
 from util import print_error
 
-import sys
-
-sys.path.append("/Users/melekderman/Documents/GitHub/branch/Acetk-e/ACEtk/build/python")
-
 parser = argparse.ArgumentParser(description="MC/DC electron data generator")
 parser.add_argument("--rewrite", dest="rewrite", action="store_true", default=False)
 parser.add_argument("--verbose", dest="verbose", action="store_true", default=False)
@@ -137,14 +133,13 @@ for zaid, Z, symbol, mcdc_name in pbar:
     # ==================================================================================
     # Cross sections
     # ==================================================================================
-    # xs_energy_grid: shared electron XS energy grid (MeV) used for all reactions
 
     xs0_block = ace_table.electron_cross_section_block
     elastic_xs_block = ace_table.electron_elastic_cross_section_block
 
-    xs_energy = np.array(xs0_block.energies)
+    xs_energy = np.array(xs0_block.energies) * 1e6
     dataset = reactions.create_dataset("xs_energy_grid", data=xs_energy)
-    dataset.attrs["unit"] = "MeV"
+    dataset.attrs["unit"] = "eV"
 
     electroionisation = [
         np.array(xs0_block.electroionisation(i + 1)) for i in range(N_subshells)
@@ -168,15 +163,13 @@ for zaid, Z, symbol, mcdc_name in pbar:
     large_angle_group.attrs["MT"] = large_angle_elastic_mt
 
     dataset = large_angle_group.create_dataset("xs_energy", data=xs_energy)
-    dataset.attrs["unit"] = "MeV"
+    dataset.attrs["unit"] = "eV"
+
     dataset = large_angle_group.create_dataset("xs", data=np.array(xs0_block.elastic))
     dataset.attrs["unit"] = "barns"
-    dataset = large_angle_group.create_dataset(
+
+    dataset = elastic_MT.create_dataset(
         "transport", data=np.array(elastic_xs_block.transport)
-    )
-    dataset.attrs["unit"] = "barns"
-    dataset = large_angle_group.create_dataset(
-        "total", data=np.array(elastic_xs_block.total)
     )
     dataset.attrs["unit"] = "barns"
 
@@ -192,30 +185,32 @@ for zaid, Z, symbol, mcdc_name in pbar:
     excit_block = ace_table.electron_excitation_energy_loss_block
     excit_group = excitation_MT.create_group("energy_loss")
 
-    dataset = excit_group.create_dataset("energy", data=np.array(excit_block.energies))
-    dataset.attrs["unit"] = "MeV"
+    dataset = excit_group.create_dataset(
+        "energy", data=np.array(excit_block.energies) * 1e6
+    )
+    dataset.attrs["unit"] = "eV"
 
     dataset = excit_group.create_dataset(
-        "value", data=np.array(excit_block.excitation_energy_loss)
+        "value", data=np.array(excit_block.excitation_energy_loss) * 1e6
     )
-    dataset.attrs["unit"] = "MeV"
+    dataset.attrs["unit"] = "eV"
 
     # ==================================================================================
     # Bremsstrahlung energy loss
     # ==================================================================================
 
     breml_block = ace_table.electron_energy_after_bremsstrahlung_block
-    breml_energy = np.array(breml_block.energies)
+    breml_energy = np.array(breml_block.energies) * 1e6
     brems_group = bremsstrahlung_MT.create_group("energy_loss")
 
     dataset = brems_group.create_dataset("energy", data=breml_energy)
-    dataset.attrs["unit"] = "MeV"
+    dataset.attrs["unit"] = "eV"
 
-    # EPRDATA14 BREML gives mean photon energy, despite ACEtk's older field name.
-    dataset = brems_group.create_dataset(
-        "value", data=np.array(breml_block.energy_after_bremsstrahlung)
-    )
-    dataset.attrs["unit"] = "MeV"
+    # EPRDATA14 BREML stores EPICS2014's mean photon energy despite ACEtk's old name
+    # https://mcnp.lanl.gov/pdf_files/TechReport_2016_LANL_LA-UR-16-20840_Hughes.pdf section 3.3
+    breml_loss = breml_block.energy_after_bremsstrahlung
+    dataset = brems_group.create_dataset("value", data=np.array(breml_loss) * 1e6)
+    dataset.attrs["unit"] = "eV"
 
     # ==================================================================================
     # Ionization: per-subshell cross section, binding energy, and knock-on
@@ -231,15 +226,15 @@ for zaid, Z, symbol, mcdc_name in pbar:
         subshell_group.attrs["subshell"] = util.get_electron_subshell_name(designator)
 
         dataset = subshell_group.create_dataset("energy_grid", data=xs_energy)
-        dataset.attrs["unit"] = "MeV"
+        dataset.attrs["unit"] = "eV"
 
         dataset = subshell_group.create_dataset("xs", data=electroionisation[i])
         dataset.attrs["unit"] = "barns"
 
         dataset = subshell_group.create_dataset(
-            "binding_energy", data=subsh_block.binding_energy(idx)
+            "binding_energy", data=subsh_block.binding_energy(idx) * 1e6
         )
-        dataset.attrs["unit"] = "MeV"
+        dataset.attrs["unit"] = "eV"
 
         product_group = subshell_group.create_group("product")
         util.load_electroionization_subshell(
@@ -284,8 +279,8 @@ for zaid, Z, symbol, mcdc_name in pbar:
             MT_group.create_dataset(
                 "secondary_designator", data=np.array(secondary_designators)
             )
-            dataset = MT_group.create_dataset("energy", data=np.array(energies))
-            dataset.attrs["unit"] = "MeV"
+            dataset = MT_group.create_dataset("energy", data=np.array(energies) * 1e6)
+            dataset.attrs["unit"] = "eV"
             MT_group.create_dataset("probability", data=np.array(probabilities))
 
     # ==================================================================================

@@ -5,7 +5,6 @@ import pytest
 import mcdc
 import mcdc.numba_types as type_
 from mcdc.constant import PARTICLE_NEUTRON
-from mcdc.main import preparation
 from mcdc.output import create_tally_dataset
 from mcdc.transport.simulation import surface_crossing
 
@@ -35,7 +34,7 @@ def _particle(surface_ID, x, y, z, ux, uy, uz, w=2.0):
     particle["surface_ID"] = surface_ID
     particle["cell_ID"] = -1
     particle["material_ID"] = 0
-    particle["g"] = 0
+    particle["E"] = 0.0
     particle["x"] = x
     particle["y"] = y
     particle["z"] = z
@@ -48,7 +47,7 @@ def _particle(surface_ID, x, y, z, ux, uy, uz, w=2.0):
 
 
 def _surface_mesh_bin_offset(surface_tally, mcdc_struct, face, u, v, score=0):
-    tally_base = mcdc_struct["tallies"][surface_tally["parent_ID"]]
+    tally_base = mcdc_struct["tallies"][surface_tally["base_ID"]]
     return (
         tally_base["bin_offset"]
         + face * surface_tally["surface_mesh_stride_face"]
@@ -58,10 +57,10 @@ def _surface_mesh_bin_offset(surface_tally, mcdc_struct, face, u, v, score=0):
     )
 
 
-def _surface_mesh_sum_offset(surface_tally, mcdc_struct, face, u, v, score=0):
-    tally_base = mcdc_struct["tallies"][surface_tally["parent_ID"]]
+def _surface_mesh_mean_offset(surface_tally, mcdc_struct, face, u, v, score=0):
+    tally_base = mcdc_struct["tallies"][surface_tally["base_ID"]]
     return (
-        tally_base["bin_sum_offset"]
+        tally_base["bin_mean_offset"]
         + face * surface_tally["surface_mesh_stride_face"]
         + u * surface_tally["surface_mesh_stride_u"]
         + v * surface_tally["surface_mesh_stride_v"]
@@ -73,7 +72,7 @@ def _score_current_in(surface_tally, mcdc_struct, data, surface, particle_contai
     surface_crossing(particle_container, mcdc_struct, data)
 
 
-def test_cell_current_surface_mesh_constructor_fields(material_mg):
+def test_cell_current_surface_mesh_constructor_fields(material_mg, prepare_simulation):
     box = _box_cell(material_mg)
     tally_obj = mcdc.Tally(
         cell=box["cell"],
@@ -83,9 +82,9 @@ def test_cell_current_surface_mesh_constructor_fields(material_mg):
 
     assert tally_obj.bin_shape == [1, 1, 1, 1, 6, 2, 3, 1]
 
-    mcdc_container, data = preparation()
+    mcdc_container, data = prepare_simulation(cells=[box["cell"]], tallies=[tally_obj])
     mcdc_struct = mcdc_container[0]
-    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.child_ID]
+    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.sub_ID]
 
     assert surface_tally["use_surface_mesh"] == 1
     assert surface_tally["surface_mesh_Nu"] == 2
@@ -103,16 +102,16 @@ def test_cell_current_surface_mesh_constructor_fields(material_mg):
     assert data is not None
 
 
-def test_cell_current_surface_mesh_face_order(material_mg):
+def test_cell_current_surface_mesh_face_order(material_mg, prepare_simulation):
     box = _box_cell(material_mg)
     tally_obj = mcdc.Tally(
         cell=box["cell"],
         scores=["current-in"],
         surface_mesh=(1, 1),
     )
-    mcdc_container, data = preparation()
+    mcdc_container, data = prepare_simulation(cells=[box["cell"]], tallies=[tally_obj])
     mcdc_struct = mcdc_container[0]
-    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.child_ID]
+    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.sub_ID]
 
     crossings = [
         (0, box["surfaces"][0], (-1.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
@@ -130,7 +129,7 @@ def test_cell_current_surface_mesh_face_order(material_mg):
         assert np.isclose(data[idx], 2.0)
 
 
-def test_cell_current_scores_on_coincident_surface(material_mg):
+def test_cell_current_scores_on_coincident_surface(material_mg, prepare_simulation):
     xmin = mcdc.Surface.PlaneX(x=-1.0)
     xmax = mcdc.Surface.PlaneX(x=1.0)
     ymin = mcdc.Surface.PlaneY(y=-1.0)
@@ -146,22 +145,24 @@ def test_cell_current_scores_on_coincident_surface(material_mg):
     plain = mcdc.Tally(cell=upper, scores=["current-in"])
     meshed = mcdc.Tally(cell=upper, scores=["current-in"], surface_mesh=(2, 2))
     explicit = mcdc.Tally(surface=upper_bottom, cell=upper, scores=["current-in"])
-    mcdc_container, data = preparation()
+    mcdc_container, data = prepare_simulation(
+        cells=[lower, upper], tallies=[plain, meshed, explicit]
+    )
     mcdc_struct = mcdc_container[0]
 
-    assert plain in lower_top.tallies
-    assert meshed in lower_top.tallies
-    assert explicit not in lower_top.tallies
+    assert plain in lower_top.surface_crossing_tallies
+    assert meshed in lower_top.surface_crossing_tallies
+    assert explicit not in lower_top.surface_crossing_tallies
 
     particle_container = _particle(lower_top.ID, 0.0, 0.0, -3.0, 0.0, 0.0, 1.0)
     particle_container[0]["cell_ID"] = lower.ID
     surface_crossing(particle_container, mcdc_struct, data)
 
-    plain_tally = mcdc_struct["surface_crossing_tallies"][plain.child_ID]
-    meshed_tally = mcdc_struct["surface_crossing_tallies"][meshed.child_ID]
-    explicit_tally = mcdc_struct["surface_crossing_tallies"][explicit.child_ID]
-    plain_offset = mcdc_struct["tallies"][plain_tally["parent_ID"]]["bin_offset"]
-    explicit_offset = mcdc_struct["tallies"][explicit_tally["parent_ID"]][
+    plain_tally = mcdc_struct["surface_crossing_tallies"][plain.sub_ID]
+    meshed_tally = mcdc_struct["surface_crossing_tallies"][meshed.sub_ID]
+    explicit_tally = mcdc_struct["surface_crossing_tallies"][explicit.sub_ID]
+    plain_offset = mcdc_struct["tallies"][plain_tally["base_ID"]]["bin_offset"]
+    explicit_offset = mcdc_struct["tallies"][explicit_tally["base_ID"]][
         "bin_offset"
     ]
     assert data[plain_offset] == 2.0
@@ -180,6 +181,7 @@ def test_cell_current_scores_on_coincident_surface(material_mg):
 )
 def test_cell_current_surface_mesh_local_uv_bins(
     material_mg,
+    prepare_simulation,
     surface_index,
     position,
     direction,
@@ -191,9 +193,9 @@ def test_cell_current_surface_mesh_local_uv_bins(
         scores=["current-in"],
         surface_mesh=(2, 3),
     )
-    mcdc_container, data = preparation()
+    mcdc_container, data = prepare_simulation(cells=[box["cell"]], tallies=[tally_obj])
     mcdc_struct = mcdc_container[0]
-    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.child_ID]
+    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.sub_ID]
 
     surface = box["surfaces"][surface_index]
     particle_container = _particle(surface.ID, *position, *direction)
@@ -222,17 +224,23 @@ def test_cell_current_surface_mesh_rejects_invalid_selectors(material_mg, capsys
     assert "surface_mesh is supported only for cell-filtered current tallies." in out
 
 
-def test_cell_current_surface_mesh_rejects_non_box_cell(material_mg, capsys):
+def test_cell_current_surface_mesh_rejects_non_box_cell(
+    material_mg, prepare_simulation, capsys
+):
     cylinder = mcdc.Surface.CylinderZ(center=(0.0, 0.0), radius=1.0)
     cell = mcdc.Cell(region=-cylinder, fill=material_mg)
+    tally = mcdc.Tally(cell=cell, scores=["current-in"], surface_mesh=(2, 2))
 
+    # Face surfaces are resolved when the tally is compiled
     with pytest.raises(SystemExit):
-        mcdc.Tally(cell=cell, scores=["current-in"], surface_mesh=(2, 2))
+        prepare_simulation(cells=[cell], tallies=[tally])
     out = capsys.readouterr().out
     assert "surface_mesh currently supports only axis-aligned box cells" in out
 
 
-def test_cell_current_surface_mesh_hdf5_output_metadata(material_mg, tmp_path):
+def test_cell_current_surface_mesh_hdf5_output_metadata(
+    material_mg, prepare_simulation, tmp_path
+):
     box = _box_cell(material_mg)
     tally_obj = mcdc.Tally(
         name="handoff_source",
@@ -240,11 +248,11 @@ def test_cell_current_surface_mesh_hdf5_output_metadata(material_mg, tmp_path):
         scores=["current-in"],
         surface_mesh=(2, 3),
     )
-    mcdc_container, data = preparation()
+    mcdc_container, data = prepare_simulation(cells=[box["cell"]], tallies=[tally_obj])
     mcdc_struct = mcdc_container[0]
-    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.child_ID]
+    surface_tally = mcdc_struct["surface_crossing_tallies"][tally_obj.sub_ID]
 
-    idx = _surface_mesh_sum_offset(surface_tally, mcdc_struct, 1, 1, 2)
+    idx = _surface_mesh_mean_offset(surface_tally, mcdc_struct, 1, 1, 2)
     data[idx] = 7.0
 
     output_path = tmp_path / "surface_mesh_tally.h5"

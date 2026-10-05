@@ -30,3 +30,32 @@ def xs_chunk(start, length, electron_reaction, data, value):
     start += electron_reaction["xs_offset"]
     end = start + length
     data[start:end] = value
+
+
+@njit
+def secondary_product_IDs(index, electron_reaction, data, value):
+    offset = electron_reaction["secondary_product_IDs_offset"]
+    data[offset + index] = value
+
+
+@njit
+def secondary_product_IDs_all(electron_reaction, data, value):
+    start = electron_reaction["secondary_product_IDs_offset"]
+    size = electron_reaction["N_secondary_product"]
+    end = start + size
+    data[start:end] = value
+
+
+@njit
+def secondary_product_IDs_last(electron_reaction, data, value):
+    start = electron_reaction["secondary_product_IDs_offset"]
+    size = electron_reaction["N_secondary_product"]
+    end = start + size
+    data[end - 1] = value
+
+
+@njit
+def secondary_product_IDs_chunk(start, length, electron_reaction, data, value):
+    start += electron_reaction["secondary_product_IDs_offset"]
+    end = start + length
+    data[start:end] = value
