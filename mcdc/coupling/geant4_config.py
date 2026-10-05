@@ -6,6 +6,20 @@ import h5py
 import numpy as np
 from typing import Any
 
+from mcdc.constant import PARTICLE_ELECTRON, PARTICLE_NEUTRON, PARTICLE_PROTON
+
+# MC/DC particle types handed to Geant4, and their PDG codes
+PARTICLE_PDG = {
+    PARTICLE_NEUTRON: 2112,
+    PARTICLE_ELECTRON: 11,
+    PARTICLE_PROTON: 2212,
+}
+PARTICLE_TYPE_BY_NAME = {
+    "neutron": PARTICLE_NEUTRON,
+    "electron": PARTICLE_ELECTRON,
+    "proton": PARTICLE_PROTON,
+}
+
 
 @dataclass
 class Geant4HandoffConfig:

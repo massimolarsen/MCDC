@@ -34,6 +34,9 @@ ARRAY_FIELDS = {
     "azi_edges",
     "energy_edges_mev",
     "weights",
+    "handoff_species_pdg",
+    "handoff_species_count",
+    "handoff_species_weight",
 }
 
 
@@ -198,6 +201,13 @@ def result_summary(
         summary.update(timings)
     if source_mode == "bank":
         summary["handoff_bank_size"] = source_size
+        for key in (
+            "handoff_species_pdg",
+            "handoff_species_count",
+            "handoff_species_weight",
+        ):
+            if key in payload:
+                summary[key] = np.asarray(payload[key])
     else:
         summary["source_tally_name"] = str(payload["source_tally_name"])
         summary["source_total_weight"] = float(payload["source_total_weight"])
