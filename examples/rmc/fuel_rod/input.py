@@ -33,7 +33,8 @@ Differences from the dissertation:
 
 Run with MCDC_LIB pointing to the MC/DC library (writes output.h5; then plot.py):
     python input.py --mode=numba
-FUEL_ROD_CASES=thermal (or fast) runs one case; FUEL_ROD_OUTPUT names the output file.
+FUEL_ROD_CASES=thermal (or fast) runs one case; FUEL_ROD_OUTPUT names the output file;
+FUEL_ROD_RUNS=rmc (or smc) runs one method (default both).
 """
 
 import os
@@ -103,6 +104,7 @@ def main():
     common.barrier()
     output = common.open_output(os.environ.get("FUEL_ROD_OUTPUT", "output.h5"))
     cases = os.environ.get("FUEL_ROD_CASES", "thermal,fast").split(",")
+    runs = os.environ.get("FUEL_ROD_RUNS", "rmc,smc").split(",")
     for name, (window, G, P, source_cells, N_smc) in CASES.items():
         if name not in cases:
             continue
@@ -117,18 +119,20 @@ def main():
         K, J = len(Z_EDGES) - 1, len(common.MU_EDGES) - 1
         Q = common.uniform_Q(Z_EDGES, E_edges, list(source_cells), window)
         make_model = make_model_factory(window, suffix, temperature, source_cells)
-        result = common.run_rmc(
-            make_model,
-            Z_EDGES,
-            E_edges,
-            Q,
-            N_ITERATION,
-            P / (K * J),
-            cache_dir="cache",
-        )
-        common.save_rmc(output, name, result, energy_scale=scale, P=P)
-        mean, sdev, wall = common.run_smc(make_model, Z_EDGES, E_edges, N_smc)
-        common.save_smc(output, name, mean, sdev, wall, N_smc, energy_scale=scale)
+        if "rmc" in runs:
+            result = common.run_rmc(
+                make_model,
+                Z_EDGES,
+                E_edges,
+                Q,
+                N_ITERATION,
+                P / (K * J),
+                cache_dir="cache",
+            )
+            common.save_rmc(output, name, result, energy_scale=scale, P=P)
+        if "smc" in runs:
+            mean, sdev, wall = common.run_smc(make_model, Z_EDGES, E_edges, N_smc)
+            common.save_smc(output, name, mean, sdev, wall, N_smc, energy_scale=scale)
     output.close()
 
 

@@ -66,6 +66,25 @@ in `cache/`. Single process, all-linear bases, Apple M-series laptop:
 `common.Output` truncates its file when a run starts. If cases run as separate jobs,
 give each its own `FUEL_ROD_OUTPUT` and merge afterwards (below).
 
+## Constant vs linear vs SMC on the OSU HPC: submit.sh
+
+`./submit.sh` (on the submit node, in this directory) submits each missing piece as its
+own job: 16 ranks on `share`, 12 h limit, using the environment of
+`../efficiency/env.sh`. Pieces whose output file already holds the result are skipped.
+
+| Job | Runs | Output |
+|---|---|---|
+| `fuel-constant-thermal` | `input.py`, thermal, RMC + SMC | `output.h5` |
+| `fuel-constant-fast` | `input.py`, fast, RMC | `output_fast.h5` |
+| `fuel-smc-fast` | `input.py`, fast, SMC (`FUEL_ROD_RUNS=smc`) | `output_smc_fast.h5` |
+| `fuel-linear-thermal` | `linear.py`, thermal | `output_linear_thermal.h5` |
+| `fuel-linear-fast` | `linear.py`, fast | `output_linear_fast.h5` |
+
+When they end, a 1-core `fuel-merge` job runs `merge.py`. It merges the pieces into
+`output.h5` and `output_linear.h5`; the first merge keeps the original `output.h5` as
+`output_constant_thermal.h5`. It then runs `plot.py` and `plot_linear.py`. Logs go to
+`logs/`. `FUEL_ROD_RANKS` and `FUEL_ROD_LIMIT` override the ranks and the time limit.
+
 ## Example SLURM job
 
 ```bash

@@ -3,4 +3,5 @@
 cache/
 data/
 *.log
+logs/
 *-tmp.h5
