@@ -23,9 +23,14 @@ os.chdir(RUN_DIR)
 # Nuclide compositions are atom densities in atoms/barn-cm.
 #
 # Neutron + proton run: ECSS neutrons and AP9 trapped protons, sampled in equal
-# numbers. MCDC_LIB must hold combined neutron + proton nuclide files
-# (hdf5libProton/with_neutron, see tools/data_library_generator/proton).
+# numbers, both up to 200 MeV. MCDC_LIB must hold combined neutron + proton
+# nuclide files at 300 K (hdf5libProton/with_neutron_200MeV): JENDL-5 neutrons
+# (FENDL-3.0 for Li7) and TENDL-2021 protons with Geant4 stopping powers, see
+# tools/data_library_generator/proton.
 # =============================================================================
+
+# Library temperature of the 200 MeV neutron + proton data
+XS_TEMPERATURE_K = 300.0
 
 # =============================================================================
 # MATERIALS
@@ -34,6 +39,7 @@ os.chdir(RUN_DIR)
 # Al7075, rho=2.81 g/cm3, wt%: 90 Al-27, 5 Zn-64, 3 Mg-24, 2 Cu-63.
 m_al7075 = mcdc.Material(
     name="Al7075",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Al27": 0.056445980580537,
         "Zn64": 0.0013235134207385,
@@ -44,6 +50,7 @@ m_al7075 = mcdc.Material(
 # Al6061, rho=2.70 g/cm3, wt%: 98 Al-27, 1.2 Mg-24, 0.8 Si-28.
 m_al6061 = mcdc.Material(
     name="Al6061",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Al27": 0.059057360465045,
         "Mg24": 0.00081349602416576,
@@ -53,6 +60,7 @@ m_al6061 = mcdc.Material(
 # FR4 proxy, rho=1.85 g/cm3, wt%: 28.0 Si-28, 51.9 O-16, 18.3 C-12, 1.8 H-1.
 m_epoxy = mcdc.Material(
     name="FR4_proxy",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Si28": 0.01115014871193,
         "O16": 0.036149980092044,
@@ -61,10 +69,15 @@ m_epoxy = mcdc.Material(
     },
 )
 # Silicon, rho=2.329 g/cm3, wt%: 100 Si-28.
-m_silicon = mcdc.Material(name="Silicon", nuclide_composition={"Si28": 0.050132618436459})
+m_silicon = mcdc.Material(
+    name="Silicon",
+    temperature=XS_TEMPERATURE_K,
+    nuclide_composition={"Si28": 0.050132618436459},
+)
 # LiCoO2 proxy, rho=5.05 g/cm3, wt%: 6.661 Li-7, 60.551 Co-59, 32.788 O-16.
 m_licoo2 = mcdc.Material(
     name="LiCoO2_proxy",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Li7": 0.028874848294873,
         "Co59": 0.031246477802075,
@@ -74,13 +87,16 @@ m_licoo2 = mcdc.Material(
 # Copper, rho=8.96 g/cm3, wt%: 68.4792 Cu-63, 31.5208 Cu-65.
 m_copper = mcdc.Material(
     name="Copper",
+    temperature=XS_TEMPERATURE_K,
     nuclide_composition={
         "Cu63": 0.058716830763647,
         "Cu65": 0.026195433536638,
     },
 )
 # Void, rho=0.0 g/cm3, wt%: 100 void.
-m_void = mcdc.Material(name="Void", nuclide_composition={"Si28": 0.0})
+m_void = mcdc.Material(
+    name="Void", temperature=XS_TEMPERATURE_K, nuclide_composition={"Si28": 0.0}
+)
 
 # =============================================================================
 # BOX HELPER
@@ -316,11 +332,11 @@ azi_bins = np.linspace(-np.pi, np.pi, 9)
 surface_mesh = (5, 5)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
 
-# Source spectra per species. Neutrons: ECSS, truncated to 20 MeV, default
-# 100 km altitude (altitude scales the flux, not the shape). Protons: AP9 mean
-# trapped protons at 550 km / 97 deg, truncated at the 200 MeV TENDL limit.
+# Source spectra per species, both truncated at the 200 MeV data limit.
+# Neutrons: ECSS, default 100 km altitude (altitude scales the flux, not the
+# shape). Protons: AP9 mean trapped protons at 550 km / 97 deg.
 SOURCE_SPECTRA = {
-    "neutron": EXAMPLE_DIR / "ecss_20MeV.csv",
+    "neutron": EXAMPLE_DIR / "ecss_200MeV.csv",
     "proton": EXAMPLE_DIR / "ap9_200MeV.csv",
 }
 source_spectra = {}

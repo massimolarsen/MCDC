@@ -9,11 +9,12 @@
 
 set -eo pipefail
 
-source /nfs/hpc/share/larsemas/MCDC/hpc/env.sh
+source /nfs/hpc/share/larsemas/MCDC-g4-hpc/hpc/env.sh
 cd "$MCDC_ROOT/examples/cubesat_test"
 
-# Neutron + proton nuclide files (TENDL protons merged with the neutron data)
-export MCDC_LIB="$MCDC_ROOT/hdf5libProton/with_neutron"
+# Neutron + proton nuclide files to 200 MeV at 300 K: JENDL-5 neutrons
+# (FENDL-3.0 Li7) merged with TENDL-2021 protons
+export MCDC_LIB="$MCDC_ROOT/hdf5libProton/with_neutron_200MeV"
 
 archive="$PWD/runs/$SLURM_JOB_ID"
 mkdir -p "$archive"
@@ -31,7 +32,7 @@ finish() {
 }
 trap finish EXIT
 
-cp inputCE_G4NP_SUBMIT.py cubesat_G4_devices.py ecss_20MeV.csv ap9_200MeV.csv "$archive/"
+cp inputCE_G4NP_SUBMIT.py cubesat_G4_devices.py ecss_200MeV.csv ap9_200MeV.csv "$archive/"
 python -m pip freeze > "$archive/python-packages.txt"
 git rev-parse HEAD > "$archive/mcdc-revision.txt"
 

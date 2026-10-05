@@ -383,6 +383,7 @@ def load_energy_distribution(data, h5_group: h5py.Group):
 
 ACE_TEMPERATURE_LIB81 = {
     "20c": 300.0,  # JENDL-5 ACE-J50
+    "30c": 300.0,  # FENDL-3.0
     "10c": 293.6,
     "11c": 600.0,
     "12c": 900.0,
