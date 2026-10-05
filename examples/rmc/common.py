@@ -345,6 +345,41 @@ def run_smc(make_model, z_edges, E_edges, N_particle, seed=1, name="smc"):
     return mean / volume, sdev / volume, wall
 
 
+def new_files(before, directory="cache"):
+    """Names of the files in directory that are not in before (a set of names)."""
+    if not os.path.isdir(directory):
+        return ""
+    return ",".join(sorted(set(os.listdir(directory)) - before))
+
+
+def list_files(directory="cache"):
+    return set(os.listdir(directory)) if os.path.isdir(directory) else set()
+
+
+def measured(function):
+    """
+    (function(), timing) with timing = dict(wall_total [s] between MPI barriers,
+    cpu_total [s] of process time summed over ranks, ranks, nodes).
+    """
+    from mpi4py import MPI
+
+    comm = MPI.COMM_WORLD
+    comm.Barrier()
+    wall_start, cpu_start = MPI.Wtime(), time.process_time()
+    result = function()
+    cpu = time.process_time() - cpu_start
+    comm.Barrier()
+    wall = MPI.Wtime() - wall_start
+    nodes = sorted(set(comm.allgather(MPI.Get_processor_name())))
+    timing = dict(
+        wall_total=wall,
+        cpu_total=comm.allreduce(cpu, op=MPI.SUM),
+        ranks=comm.Get_size(),
+        nodes=",".join(nodes),
+    )
+    return result, timing
+
+
 def barrier():
     from mpi4py import MPI
 

@@ -30,6 +30,7 @@ from input import (
     N_ITERATION,
     SCALE_THERMAL,
     Z_EDGES,
+    computed_moments,
     make_model_factory,
     write_thermal_nuclides,
 )
@@ -59,19 +60,23 @@ def main():
         K, J = len(Z_EDGES) - 1, len(common.MU_EDGES) - 1
         Q = common.uniform_Q(Z_EDGES, E_edges, list(source_cells), window)
         P_linear = LINEAR_FACTOR * P
-        result = common.run_rmc(
-            make_model_factory(window, suffix, temperature, source_cells),
-            Z_EDGES,
-            E_edges,
-            Q,
-            N_ITERATION,
-            P_linear / (K * J),
-            energy_basis="linear",
-            spatial_basis="linear",
-            angular_basis="linear",
-            cache_dir="cache",
+        cached = common.list_files("cache")
+        result, timing = common.measured(
+            lambda: common.run_rmc(
+                make_model_factory(window, suffix, temperature, source_cells),
+                Z_EDGES,
+                E_edges,
+                Q,
+                N_ITERATION,
+                P_linear / (K * J),
+                energy_basis="linear",
+                spatial_basis="linear",
+                angular_basis="linear",
+                cache_dir="cache",
+            )
         )
-        common.save_rmc(output, name, result, energy_scale=scale, P=P_linear)
+        timing["new_cache_files"] = computed_moments(cached, suffix)
+        common.save_rmc(output, name, result, energy_scale=scale, P=P_linear, **timing)
     output.close()
 
 

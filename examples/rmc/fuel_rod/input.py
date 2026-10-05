@@ -35,6 +35,11 @@ Run with MCDC_LIB pointing to the MC/DC library (writes output.h5; then plot.py)
     python input.py --mode=numba
 FUEL_ROD_CASES=thermal (or fast) runs one case; FUEL_ROD_OUTPUT names the output file;
 FUEL_ROD_RUNS=rmc (or smc) runs one method (default both).
+
+Timing attributes on each output group: wall_total and cpu_total (summed over ranks),
+ranks and nodes; RMC also time_precompute and time_iteration (iteration 1 includes the
+compilation); SMC also cold_wall, the wall time of a 1000-history cold pass run first
+to absorb the compilation, and jit_estimate = cold_wall - wall_total x 1000 / N.
 """
 
 import os
@@ -57,6 +62,7 @@ CASES = {
     "fast": ((3.0e6, 1.0e7), 40, 1.0e4, range(8, 16), 1e7),
 }
 N_ITERATION = 10
+N_SMC_COLD = 1000
 
 
 def make_model_factory(window, suffix, temperature, source_cells):
@@ -96,6 +102,18 @@ def write_thermal_nuclides():
         )
 
 
+def computed_moments(before, suffix):
+    """
+    Moment cache files of this case's nuclides written since `before` (computed rather
+    than loaded). Thermal nuclides carry the suffix "T"; the filter keeps a concurrent
+    job on the other case out of the record.
+    """
+    names = [n for n in common.new_files(before).split(",") if n]
+    return ",".join(
+        n for n in names if n.split("-")[0].endswith("T") == (suffix == "T")
+    )
+
+
 def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     real_library = common.real_library()
@@ -120,19 +138,41 @@ def main():
         Q = common.uniform_Q(Z_EDGES, E_edges, list(source_cells), window)
         make_model = make_model_factory(window, suffix, temperature, source_cells)
         if "rmc" in runs:
-            result = common.run_rmc(
-                make_model,
-                Z_EDGES,
-                E_edges,
-                Q,
-                N_ITERATION,
-                P / (K * J),
-                cache_dir="cache",
+            cached = common.list_files("cache")
+            result, timing = common.measured(
+                lambda: common.run_rmc(
+                    make_model,
+                    Z_EDGES,
+                    E_edges,
+                    Q,
+                    N_ITERATION,
+                    P / (K * J),
+                    cache_dir="cache",
+                )
             )
-            common.save_rmc(output, name, result, energy_scale=scale, P=P)
+            timing["new_cache_files"] = computed_moments(cached, suffix)
+            common.save_rmc(output, name, result, energy_scale=scale, P=P, **timing)
         if "smc" in runs:
-            mean, sdev, wall = common.run_smc(make_model, Z_EDGES, E_edges, N_smc)
-            common.save_smc(output, name, mean, sdev, wall, N_smc, energy_scale=scale)
+            # Cold pass: absorbs the compilation, so wall_total is the transport alone
+            _, cold = common.measured(
+                lambda: common.run_smc(make_model, Z_EDGES, E_edges, N_SMC_COLD, seed=2)
+            )
+            (mean, sdev, wall), timing = common.measured(
+                lambda: common.run_smc(make_model, Z_EDGES, E_edges, N_smc)
+            )
+            common.save_smc(
+                output,
+                name,
+                mean,
+                sdev,
+                wall,
+                N_smc,
+                energy_scale=scale,
+                cold_wall=cold["wall_total"],
+                jit_estimate=cold["wall_total"]
+                - timing["wall_total"] * N_SMC_COLD / N_smc,
+                **timing,
+            )
     output.close()
 
 

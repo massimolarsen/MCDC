@@ -85,6 +85,13 @@ When they end, a 1-core `fuel-merge` job runs `merge.py`. It merges the pieces i
 `output_constant_thermal.h5`. It then runs `plot.py` and `plot_linear.py`. Logs go to
 `logs/`. `FUEL_ROD_RANKS` and `FUEL_ROD_LIMIT` override the ranks and the time limit.
 
+Timing recorded:
+- **Each output group:**
+  - `wall_total` (between MPI barriers), `cpu_total` (process time summed over ranks), `ranks` and `nodes`.
+  - RMC also `time_precompute`, `time_iteration` (iteration 1 includes the compilation) and `new_cache_files`: the moment files this run computed; empty means they were loaded from `cache/`.
+  - SMC also `cold_wall`, from a 1000-history pass run first that absorbs the compilation, and `jit_estimate`.
+- **`merge.py`** writes `logs/timing_summary.txt` (all of the above, per run) and `logs/timing_sacct.txt`: Slurm's elapsed time, total CPU, peak memory and nodes for every `fuel-*` job.
+
 ## Example SLURM job
 
 ```bash
