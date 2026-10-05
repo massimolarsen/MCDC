@@ -103,6 +103,8 @@ tmp_*
 *.csv
 !examples/cubesat_test/ecss_10GeV.csv
 !examples/cubesat_test/ecss_20MeV.csv
+!examples/cubesat_test/ap9_1000MeV.csv
+!examples/cubesat_test/ap9_200MeV.csv
 
 # Preserve complete CubeSat run records, including logs and environment metadata.
 !examples/cubesat_test/runs/
