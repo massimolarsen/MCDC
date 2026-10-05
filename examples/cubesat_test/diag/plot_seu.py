@@ -37,26 +37,30 @@ def plot_summary(file, names, species, output):
     has_species_error = (
         "component_species_ionizing_sum_sq_mev2" in file and n_events > 1
     )
+    has_primary_species = "component_primary_species_ionizing_mev" in file
 
     y = np.arange(len(names))
     if has_species_error:
         height = max(10, 0.6 * len(names) + 7)
     else:
         height = max(7, 0.6 * len(names) + 3)
+    if has_primary_species:
+        height += max(3, 0.3 * len(names) + 2)
     fig = plt.figure(figsize=(14, height), constrained_layout=True)
     title = "Geant4 sampling uncertainty (MCDC source held fixed)"
     if not has_species_error:
         title += "; species errors require replay"
     fig.suptitle(title)
-    if has_species_error:
-        grid = fig.add_gridspec(3, 2, height_ratios=(1, 1, 0.9))
-    else:
-        grid = fig.add_gridspec(2, 2)
+    height_ratios = [1, 1] + [0.9] * has_species_error + [1] * has_primary_species
+    grid = fig.add_gridspec(len(height_ratios), 2, height_ratios=height_ratios)
     energy = fig.add_subplot(grid[0, 0])
     tail = fig.add_subplot(grid[0, 1])
     attribution = fig.add_subplot(grid[1, 0])
     origin = fig.add_subplot(grid[1, 1])
     uncertainty = fig.add_subplot(grid[2, :]) if has_species_error else None
+    if has_primary_species:
+        source_share = fig.add_subplot(grid[-1, 0])
+        source_tail = fig.add_subplot(grid[-1, 1])
 
     energy.barh(y, ionizing, label="Ionizing")
     energy.barh(y, niel, left=ionizing, label="NIEL")
@@ -115,7 +119,13 @@ def plot_summary(file, names, species, output):
     origin.set_xlim(0, 1)
     origin.legend(loc="upper center", bbox_to_anchor=(0.5, -0.25), ncol=2)
 
-    for ax in (energy, tail, attribution, origin):
+    panels = [energy, tail, attribution, origin]
+    if has_primary_species:
+        plot_primary_species(file, species, ionizing, weight_total, y,
+                             source_share, source_tail)
+        panels += [source_share, source_tail]
+
+    for ax in panels:
         ax.set_yticks(y)
         ax.set_yticklabels(names)
         ax.invert_yaxis()
@@ -148,6 +158,33 @@ def plot_summary(file, names, species, output):
         uncertainty.set_yticklabels(names)
     fig.savefig(output, dpi=180)
     plt.close(fig)
+
+
+def plot_primary_species(file, species, ionizing, weight_total, y, share, tail):
+    # split by the species of each Geant4 event's source (primary) particle
+    by_primary = file["component_primary_species_ionizing_mev"][()]
+    tail_sumw = file["component_primary_species_event_ionizing_sumw"][()][:, :, 2:].sum(axis=2)
+    present = [index for index in range(len(species)) if np.any(tail_sumw[:, index] > 0)
+               or np.any(by_primary[:, index] > 0)]
+
+    share_left = np.zeros(len(y))
+    tail_left = np.zeros(len(y))
+    for index in present:
+        values = np.divide(by_primary[:, index], ionizing,
+                           out=np.zeros_like(ionizing), where=ionizing > 0)
+        share.barh(y, values, left=share_left, label=species[index])
+        share_left += values
+        tail_values = np.divide(tail_sumw[:, index], weight_total,
+                                out=np.zeros_like(weight_total), where=weight_total > 0)
+        tail.barh(y, tail_values, left=tail_left, label=species[index])
+        tail_left += tail_values
+    share.set_xlabel("Fraction of ionizing deposition")
+    share.set_title("Source (primary) species")
+    share.set_xlim(0, 1)
+    share.legend(fontsize=8, ncol=4, loc="upper center", bbox_to_anchor=(0.5, -0.25))
+    tail.set_xlabel("Fraction of source weight")
+    tail.set_title(r"$E_{\mathrm{ion}} \geq 1$ keV by source species")
+    tail.set_xlim(0, 1.2 * max(tail_left) if np.any(tail_left) else 1)
 
 
 def plot_sv(file, names, species, sv_id, max_events, output):

@@ -237,6 +237,7 @@ def result_summary(
         "component_event_ionizing_sumw2": np.asarray(
             results.component_event_ionizing_sumw2, dtype=np.float64
         ).reshape(len(results.component_names), -1),
+        **_primary_species_results(results),
         "record_seu_events": bool(payload.get("record_seu_events", False)),
         "diagnostic_min_Eion_mev": float(
             payload.get("diagnostic_min_Eion_mev", 0.001)
@@ -269,6 +270,28 @@ def result_summary(
         summary["source_species_tally_name"] = np.asarray(
             [str(block["tally_name"]) for block in blocks], dtype=object
         )
+    return summary
+
+
+def _primary_species_results(results) -> dict[str, np.ndarray]:
+    # scores split by the species of each event's primary, in seu_species_names order
+    n_components = len(results.component_names)
+    n_species = len(results.seu_species_names)
+    summary = {}
+    for name in (
+        "edep_mev",
+        "ionizing_mev",
+        "ionizing_sum_sq_mev2",
+    ):
+        values = getattr(results, f"component_primary_species_{name}")
+        summary[f"component_primary_species_{name}"] = np.asarray(
+            values, dtype=np.float64
+        ).reshape(n_components, n_species)
+    for name in ("count", "sumw", "sumw2"):
+        values = getattr(results, f"component_primary_species_event_ionizing_{name}")
+        summary[f"component_primary_species_event_ionizing_{name}"] = np.asarray(
+            values, dtype=np.float64
+        ).reshape(n_components, n_species, -1)
     return summary
 
 

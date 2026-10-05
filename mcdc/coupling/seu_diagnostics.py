@@ -16,7 +16,7 @@ STRING = h5py.string_dtype("utf-8")
 SCHEMAS = {
     "E": (
         "event_sv",
-        [(name, INT) for name in ("run_id", "event_id", "sv_id")]
+        [(name, INT) for name in ("run_id", "event_id", "sv_id", "primary_pdg")]
         + [(name, FLOAT) for name in (
             "weight", "Edep_total_mev", "Edep_niel_mev", "Edep_ionizing_mev",
             "Eion_primary_mev", "Eion_secondary_mev", "Eion_electron_positron_mev",

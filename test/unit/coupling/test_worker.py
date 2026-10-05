@@ -59,6 +59,12 @@ class Results:
     component_event_ionizing_count = [0, 3, 0, 0]
     component_event_ionizing_sumw = [0, 2.5, 0, 0]
     component_event_ionizing_sumw2 = [0, 2.1, 0, 0]
+    component_primary_species_edep_mev = [0, 0, 1.5, 0, 0, 0, 0]
+    component_primary_species_ionizing_mev = [0, 0, 1.4, 0, 0, 0, 0]
+    component_primary_species_ionizing_sum_sq_mev2 = [0, 0, 1.1, 0, 0, 0, 0]
+    component_primary_species_event_ionizing_count = [0] * 28
+    component_primary_species_event_ionizing_sumw = [0] * 28
+    component_primary_species_event_ionizing_sumw2 = [0] * 28
 
 class Session:
     def __init__(self, config):
@@ -210,13 +216,15 @@ def test_worker_distribution_subprocess_with_stub_bridge(tmp_path):
         assert file["component_species_ionizing_sum_sq_mev2"].shape == (1, 7)
         assert int(file["component_species_positive_events"][0, 0]) == 2
         assert file["component_event_ionizing_count"].shape == (1, 4)
+        assert float(file["component_primary_species_ionizing_mev"][0, 2]) == 1.4
+        assert file["component_primary_species_event_ionizing_count"].shape == (1, 7, 4)
         assert float(file["em_production_cut_mm"][()]) == 0.0
         assert not bool(file["record_seu_events"][()])
 
     stream_dir = tmp_path / "streams"
     stream_dir.mkdir()
     (stream_dir / "worker_0.tsv").write_text(
-        "E\t0\t2\t0\t0.5\t1.0\t0.1\t0.9\t0.2\t0.7\t0.7\t0.2\t0\t0\t0\t0\t0\n"
+        "E\t0\t2\t0\t2112\t0.5\t1.0\t0.1\t0.9\t0.2\t0.7\t0.7\t0.2\t0\t0\t0\t0\t0\n"
         "M\t0\t2\t3\t0.4\t0\t0\t1\t0.2\n"
         "I\t0\t2\t0\t4\t1\t2212\t3\t0\t0\t0\t0\t0\t1\thadElastic\t0\t0\t-1\t4\tdie\n"
         "N\t0\t2\t4\t1\t2212\t4\t0\t0\t-1\tdie\thadElastic\n"
@@ -225,6 +233,7 @@ def test_worker_distribution_subprocess_with_stub_bridge(tmp_path):
     with h5py.File(output_path) as file:
         details = file["seu_diagnostics"]
         assert details["event_sv"][0]["event_id"] == 2
+        assert details["event_sv"][0]["primary_pdg"] == 2112
         assert details["sv_entry"][0]["track_id"] == 4
         assert details["nuclear_birth"][0]["track_id"] == 4
         assert details["em_secondary_summary"][0]["electron_count"] == 3
