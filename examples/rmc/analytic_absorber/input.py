@@ -17,8 +17,8 @@ Differences from the papers:
     3e-5 eV above the bin edge (see common.smc_source_energy).
   - The reference is the bin-averaged solution of the slowing-down equation
     (../common.py, accurate to ~1e-10), equal to [N] Eq. 32 for an unsmeared source.
-  - P/B/I counts histories per energy bin per iteration, as in the papers: each
-    energy-angle bin gets P/B/I / 2.
+  - P/B/I counts histories per energy bin per iteration, as defined in [D] Sec.
+    2.4.1: each energy-angle bin gets P/B/I / 2.
 
 Run (writes output.h5; then python plot.py):
     python input.py --mode=numba

@@ -8,9 +8,9 @@ Shared helpers for the RMC examples that reproduce the figures of
 Every problem directory has an input.py (runs RMC and the references, writes
 output.h5) and a plot.py (reads output.h5, writes the figures).
 
-All RMC runs use the scheme of the papers: collision-only iterations with the binned
-in-scatter and bin-averaged cross sections, and no correction passes (N_correction =
-0). See mcdc/rmc/NOTES.md.
+Unless a script says otherwise, the RMC runs here use collision-only iterations with
+the binned in-scatter and bin-averaged cross sections, and no correction passes
+(N_correction = 0). See mcdc/rmc/NOTES.md.
 
 Units: energies in eV. psi~ and SMC tallies are per unit z (cm), energy (eV) and polar
 cosine about z, per unit x-y area, per source neutron.

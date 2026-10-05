@@ -9,8 +9,7 @@ Carlo implementation in `mcdc/rmc`.
 (T_bar − s_bar, with T_bar the true in-scatter of psi~ and s_bar its flat per-block
 estimate), RMC stalls after 1–2 iterations near plain-SMC accuracy. If r_s is left out
 (collision residual only), RMC converges exponentially, about 10–20x per iteration in
-||eps~||. The error then settles on a flat floor that shrinks with G. This is the
-behaviour in the NSE article's Fig. 3.
+||eps~||. The error then settles on a flat floor that shrinks with G.
 
 A = 1, c = 1/2, collision residual only, analytic reference:
 
@@ -65,8 +64,8 @@ the in-bin shape of Sigma_t(E). Its bin integral equals Sigma_bar_t psi~ dE exac
 so that part of r_c has zero bin integral and never vanishes.
 
 **Fix (implemented, `collision_xs="binned"`, the default).** The collision-only phase
-uses the bin average Sigma_bar_t (the dissertation's piecewise-constant cross-section
-assumption, as in MC^2-3). The phase-1 residual then vanishes at the flat-flux-weighted
+uses the bin average Sigma_bar_t (the dissertation's assumption of constant flux and
+cross sections within a bin, as in MC^2-3; [D] Secs. 3.4.3 and 4.4.1). The phase-1 residual then vanishes at the flat-flux-weighted
 multigroup solution, reached exponentially. The in-bin part, (Sigma_bar_t -
 Sigma_t(E)) psi~, is sampled with r_s in the correction passes, which always use the
 pointwise Sigma_t(E). For constant cross sections nothing changes.
@@ -75,8 +74,7 @@ pointwise Sigma_t(E). For constant cross sections nothing changes.
 
 In a slab, the edge residual -mu (psi~_R - psi~_L) delta(z - z_f) sits on the faces
 while the collision residual is spread over the cell. The in-cell shape never vanishes,
-so 1D iterations plateau at the noise of one iteration ([D] Fig. 4.9 shows the same
-plateaus for the fuel rod). Averaging the iterates after the plateau, or a
+so 1D iterations plateau at the noise of one iteration. Averaging the iterates after the plateau, or a
 linear-in-z trial space, would reduce it. Not implemented.
 
 ### 2c. Tally energy tolerance and narrow source bins

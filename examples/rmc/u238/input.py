@@ -10,9 +10,10 @@ Problem ([D] Sec. 3.4.3): sigma_gamma(E) of U-238 (MC/DC library, ENDF/B-VIII.1 
 sigma_c = sigma_gamma; uniform isotropic source over [1, 100] eV; G = 2000 log-spaced
 bins; 2 polar bins. Atom density 1 /b-cm.
 
-Differences from the dissertation: SMC with 10^6 and 10^7 histories ([D]: 10^7 and
-10^8), for run time on the machine used; a deterministic reference (../common.py) is
-included. The atom density is not stated in [D].
+Differences from the dissertation: ENDF/B-VIII.1 at 0.1 K ([D]: ENDF/B-VIII.0,
+temperature not stated); SMC with 10^6 and 10^7 histories ([D]: 10^7 and 10^8), for
+run time on the machine used; a deterministic reference (../common.py) is included.
+The atom density is not stated in [D].
 
 Run with MCDC_LIB pointing to the MC/DC library (writes output.h5; then plot.py):
     python input.py --mode=numba

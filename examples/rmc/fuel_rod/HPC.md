@@ -1,7 +1,7 @@
 # Running the fuel rod problems on the HPC
 
 Runbook for the 1D fuel rod problems ([D] Sec. 4.4.2, see `input.py`), on the
-piecewise-constant trial space (the dissertation scheme) and on the all-linear trial
+piecewise-constant trial space and on the all-linear trial
 space (linear in energy, polar cosine and z).
 
 ## What to run

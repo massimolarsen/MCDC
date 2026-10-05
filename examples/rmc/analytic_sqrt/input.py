@@ -10,7 +10,8 @@ Problem ([N] Sec. IV.B): isotropic monoenergetic source at E0 = 101, energy wind
 [1, E0], 2 polar bins, G log-spaced energy bins; analytic flux phi = S0 / sqrt(E).
 
 Differences from the papers: as ../analytic_absorber (smeared source bin, exact
-bin-averaged reference, P/B/I per energy bin). With 10 P/B/I this pure scatterer
+bin-averaged reference, P/B/I per energy bin; [D] Sec. 3.4.1 defines P/B/I per
+energy-angle bin). With 10 P/B/I this pure scatterer
 diverges here (L-infinity grows ~1.2x per iteration), whereas it converged in [N];
 the flux figure therefore shows the 100 P/B/I run instead of 10 P/B/I. The cross section is tabulated on a
 fine grid and interpolated linearly by MC/DC (the reference uses the same table).

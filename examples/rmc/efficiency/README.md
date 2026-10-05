@@ -2,13 +2,16 @@
 
 Error against cost for three methods on four problems, over the number of histories
 per trial-space bin. It answers how much cheaper RMC is than SMC for
-a given error, and how much the current method gains over the dissertation's.
+a given error, and how much the current method gains over the constant-basis one.
 
 | Configuration | Trial space | Schedule |
 |---|---|---|
 | `smc` | (tallies on the same bins) | standard Monte Carlo, histories = level x bins x 10 |
-| `dissertation` | constant in energy, z and angle | 10 collision-only iterations (phase 1 only) |
+| `dissertation` | constant in energy, z and angle (the dissertation's trial space) | 10 collision-only iterations, no correction passes |
 | `current` | linear energy; for the fuel rod also linear angle and continuous linear z | 10 collision-only iterations + 4 correction passes (pointwise sampler; integrated for the fuel rod) |
+
+The configuration names are labels. `dissertation` uses the dissertation's
+piecewise-constant trial space; its schedule here is this sweep's choice.
 
 | Problem | Type | Reference |
 |---|---|---|

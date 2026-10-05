@@ -10,8 +10,11 @@ scattering (its elastic cross section, isotropic in the COM frame, A = 1.9968);
 uniform isotropic source over [1, 100] eV; G = 2000 log-spaced bins; 2 polar bins.
 
 Differences from the dissertation:
-  - [D] does not define the dilution rho_s numerically; here rho_s is the H-2 atom
-    fraction, with a total atom density of 1 /b-cm.
+  - [D] defines the dilution as rho_s = sigma_s / sigma_gamma and shows rho_s = 1/4,
+    2/4 and 3/4 (Fig. 3.9 legend). Here rho_s is the H-2 atom fraction, with a total
+    atom density of 1 /b-cm; that is not the same quantity, since both cross sections
+    vary with energy.
+  - Data: ENDF/B-VIII.1 ([D]: ENDF/B-VIII.0).
   - A deterministic reference (../common.py) is stored for each dilution.
 
 Run with MCDC_LIB pointing to the MC/DC library (writes output.h5; then plot.py):

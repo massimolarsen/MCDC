@@ -14,6 +14,8 @@ sigma_c = 3 sigma_t / 4; uniform isotropic source over the window; 2 polar bins;
 RMC with 100 P/B/I for 20 iterations. Atom density 0.0602 /b-cm.
 
 Differences from the dissertation:
+  - Data: ENDF/B-VIII.1 at 293.6 K ([D]: ENDF/B-VIII.0 sigma_t, temperature not
+    stated).
   - Low-energy case: below 400 kT (3.4 meV at 0.1 K) MC/DC samples free-gas target
     motion, which RMC's target-at-rest kernels exclude. The low case is therefore run
     with all energies scaled up by 10^4 (data, window, source); target-at-rest
@@ -24,8 +26,8 @@ Differences from the dissertation:
   - Low case: with the source uniform per eV over 10^-4 to 10^3 eV, few SMC histories
     reach the lowest decades (3/4 of collisions absorb), so SMC is very noisy there;
     RMC agrees with the deterministic reference to ~2e-5 (median). The flux shape
-    differs from [D] Fig. 3.3 (which rises ~E^0.5); the source normalization and
-    sigma_t data of [D] are not fully specified.
+    differs from [D] Fig. 3.3 (which rises ~E^0.5); [D] does not state the source
+    normalization or the temperature of its sigma_t data.
 
 Run with MCDC_LIB pointing to the MC/DC library (writes output.h5; then plot.py):
     python input.py --mode=numba

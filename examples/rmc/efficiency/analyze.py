@@ -43,7 +43,7 @@ DMU = np.diff(common.MU_EDGES)
 CONFIGS = {
     "smc": dict(color=common.MUTED, marker="s", label="SMC"),
     "dissertation": dict(
-        color=common.SERIES[0], marker="o", label="RMC dissertation (constant, phase 1)"
+        color=common.SERIES[0], marker="o", label="RMC constant basis, collision-only"
     ),
     "current": dict(
         color=common.SERIES[1], marker="D", label="RMC current (linear + corrections)"

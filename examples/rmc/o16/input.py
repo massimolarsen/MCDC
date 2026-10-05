@@ -14,6 +14,8 @@ Problem ([D] Sec. 4.4.1): O-16 (MC/DC library, ENDF/B-VIII.1 at 293.6 K) at
 killed, 2 polar bins.
 
 Differences from the dissertation:
+  - Data: ENDF/B-VIII.1 at 293.6 K ([D]: ENDF/B-VII.1, temperature not stated); the
+    atom density is not stated in [D].
   - SMC with 10^6 histories ([D]: 10^7), for run time on the machine used.
   - Elastic scattering uses the real anisotropic COM angular distributions ([D] used
     isotropic elastic scattering), and inelastic reactions use the laws in the data

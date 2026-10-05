@@ -15,13 +15,14 @@ Problem ([D] Sec. 4.4.2): z in [0, 3] cm, H2O (1 g/cc) in [0, 1] and [2, 3], UO2
   - Fast: window [3, 10] MeV, G = 40, source uniform in energy in the UO2, RMC with
     10^4 P/B/I for 10 iterations, SMC with 10^7 histories ([D]: 10^5 P/B/I and 10^8,
     reduced for run time on the machine used).
-P/B/I counts histories per energy bin per iteration, as in [D] (10^3 P/B/I with
-G = 100 gives 10^5 histories per iteration).
+P/B/I counts histories per energy bin per iteration: [D] Sec. 4.4.2 states 10^3
+particles per bin per iteration, 10^6 in total, which with G = 100 and 10 iterations
+is per energy bin (10^5 histories per iteration).
 
 Differences from the dissertation:
   - Thermal: MC/DC samples free-gas target motion below 400 kT, and real H in water
-    would need S(alpha, beta). As in [D] (isotropic elastic, target at rest), the
-    thermal case uses synthetic nuclides built from the 0.1 K cross sections of H-1,
+    would need S(alpha, beta). [D] used purely isotropic elastic scattering; the
+    thermal case here uses target-at-rest synthetic nuclides built from the 0.1 K cross sections of H-1,
     O-16, U-235 and U-238: isotropic COM elastic and capture, with U-235 fission
     counted as capture (fission neutrons are born far above the window and are killed).
     To stay above the free-gas threshold, all energies are scaled up by 10^4; target-
@@ -29,7 +30,9 @@ Differences from the dissertation:
   - Fast: real ENDF/B-VIII.1 data at 293.6 K for all reactions (anisotropic elastic,
     all inelastic laws, the U-235 and U-238 fission spectra and nu(E), all prompt),
     where [D] used isotropic elastic scattering, a Watt spectrum and nu = 2.
-  - UO2 composition in atom fractions (4 at.% U-235).
+  - Data: ENDF/B-VIII.1 ([D]: ENDF/B-VII.1).
+  - [D] gives 4% enrichment without saying atom or weight percent; atom fractions
+    (4 at.% U-235) are used here.
 
 Run with MCDC_LIB pointing to the MC/DC library (writes output.h5; then plot.py):
     python input.py --mode=numba

@@ -45,7 +45,8 @@ on a 1D slab, a piecewise-constant approximation made RMC $6.5\times$ \emph{less
 efficient than standard Monte Carlo, while a continuous piecewise-linear one made it
 $3\times$ more efficient in their Sec.~4.1 benchmark; these factors are not general
 performance guarantees. Continuous-energy RMC with piecewise-constant bins shows the same
-plateau in 1D [11] (the fuel rod of [D], Fig.~4.9; \texttt{NOTES.md} \S2b). Linear \emph{discontinuous} trial spaces (the classical discontinuous
+plateau in 1D in the collision-only iterations of this implementation
+(\texttt{NOTES.md} \S2b). Linear \emph{discontinuous} trial spaces (the classical discontinuous
 finite elements of deterministic transport [5, 9]), used by the exponentially
 convergent Monte Carlo (ECMC) work [2--4], reduce the jumps to
 $O(h^2)$ for smooth fluxes but keep a face source on every face.
