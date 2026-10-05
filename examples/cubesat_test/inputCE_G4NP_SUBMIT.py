@@ -4,7 +4,7 @@ import os
 import numpy as np
 import mcdc
 
-from cubesat_G4_devices import build_detector_sizes_mm, build_device_components
+from cubesat_G4_devices_1um import build_detector_sizes_mm, build_device_components
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 RUN_DIR = Path(os.environ.get("MCDC_RUN_DIR", EXAMPLE_DIR)).resolve()
@@ -346,10 +346,11 @@ for particle, path in SOURCE_SPECTRA.items():
     source_spectra[particle] = (energy_ev, pdf)
 
 # Tally energy grids per species, about 5.6 bins per decade as before.
-# Proton-induced neutrons reach 200 MeV and protons slow down to the 250 keV
-# transport cutoff, so the grids span the energies that reach each SV.
+# Neutrons are tallied from thermal (1e-5 eV) to 200 MeV so moderated
+# neutrons still reach Geant4; protons slow down to the 250 keV transport
+# cutoff. The grids span every energy that can reach an SV.
 energy_bins_ev = {
-    "neutron": np.geomspace(source_spectra["neutron"][0][0], 2.0e8, 47),
+    "neutron": np.geomspace(1.0e-5, 2.0e8, 76),
     "proton": np.geomspace(2.5e5, 2.0e8, 17),
 }
 
@@ -468,7 +469,7 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
         device_components=device_components[name],
         physics_list="QGSP_BIC_HP",
         em_production_cut_mm=0.001,  # provisional; compare effective thresholds and cut convergence
-        record_seu_events=False,  # opt in to selected-event diagnostic tables
+        record_seu_events=True,  # opt in to selected-event diagnostic tables
         diagnostic_min_Eion_mev=0.001,
         source_mode="distribution",
         species_sources=[
@@ -487,7 +488,7 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-simulation.settings.N_particle = 1000000
+simulation.settings.N_particle = 2000000
 simulation.settings.output_name = "mcdc_h5/cubesat_CE_G4_NP"
 simulation.settings.active_bank_buffer = 2000
 simulation.settings.use_progress_bar = False
