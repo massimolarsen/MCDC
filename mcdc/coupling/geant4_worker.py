@@ -40,11 +40,23 @@ ARRAY_FIELDS = {
 }
 
 
+# per-species distribution source blocks, stored as groups sources/<i>
+SOURCE_ARRAY_FIELDS = {"mu_edges", "azi_edges", "energy_edges_mev", "weights"}
+
+
 def write_payload(path: str | pathlib.Path, payload: dict[str, Any]) -> None:
     with h5py.File(path, "w") as file:
         string_dtype = h5py.string_dtype(encoding="utf-8")
         for key, value in payload.items():
-            if key in ARRAY_FIELDS:
+            if key == "sources":
+                for i, block in enumerate(value):
+                    group = file.create_group(f"sources/{i}")
+                    for block_key, block_value in block.items():
+                        if block_key in SOURCE_ARRAY_FIELDS:
+                            group.create_dataset(block_key, data=block_value)
+                        else:
+                            group.attrs[block_key] = block_value
+            elif key in ARRAY_FIELDS:
                 if key in {
                     "component_names",
                     "component_materials",
@@ -64,9 +76,42 @@ def read_payload(path: str | pathlib.Path) -> dict[str, Any]:
     with h5py.File(path, "r") as file:
         for key, value in file.attrs.items():
             payload[key] = _decode_hdf5_value(value)
-        for key, dataset in file.items():
-            payload[key] = _decode_hdf5_value(dataset[()])
+        for key, item in file.items():
+            if key == "sources":
+                payload[key] = [
+                    _read_source_block(item[name])
+                    for name in sorted(item.keys(), key=int)
+                ]
+            else:
+                payload[key] = _decode_hdf5_value(item[()])
     return payload
+
+
+def _read_source_block(group) -> dict[str, Any]:
+    block = {key: _decode_hdf5_value(value) for key, value in group.attrs.items()}
+    for key, dataset in group.items():
+        block[key] = dataset[()]
+    return block
+
+
+def source_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return per-species source blocks, reading older single-neutron payloads."""
+    if "sources" in payload:
+        return list(payload["sources"])
+    return [
+        {
+            "pdg": 2112,
+            "tally_name": payload.get("source_tally_name", ""),
+            "mu_edges": payload["mu_edges"],
+            "azi_edges": payload["azi_edges"],
+            "energy_edges_mev": payload["energy_edges_mev"],
+            "weights": payload["weights"],
+            "Nu": payload["Nu"],
+            "Nv": payload["Nv"],
+            "n_events": payload["n_events"],
+            "total_weight": payload.get("source_total_weight", 0.0),
+        }
+    ]
 
 
 def load_bridge(build_dir: str):
@@ -211,6 +256,19 @@ def result_summary(
     else:
         summary["source_tally_name"] = str(payload["source_tally_name"])
         summary["source_total_weight"] = float(payload["source_total_weight"])
+        blocks = source_blocks(payload)
+        summary["source_species_pdg"] = np.asarray(
+            [int(block["pdg"]) for block in blocks], dtype=np.int64
+        )
+        summary["source_species_n_events"] = np.asarray(
+            [int(block["n_events"]) for block in blocks], dtype=np.int64
+        )
+        summary["source_species_weight"] = np.asarray(
+            [float(block["total_weight"]) for block in blocks], dtype=np.float64
+        )
+        summary["source_species_tally_name"] = np.asarray(
+            [str(block["tally_name"]) for block in blocks], dtype=object
+        )
     return summary
 
 
@@ -255,16 +313,19 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     if str(payload["source_mode"]) == "bank":
         session.load_primaries(np.ascontiguousarray(payload["bank"], dtype=np.float64))
     else:
-        session.load_source_distribution(
-            np.ascontiguousarray(payload["box_bounds_mm"], dtype=np.float64),
-            np.ascontiguousarray(payload["mu_edges"], dtype=np.float64),
-            np.ascontiguousarray(payload["azi_edges"], dtype=np.float64),
-            np.ascontiguousarray(payload["energy_edges_mev"], dtype=np.float64),
-            np.ascontiguousarray(payload["weights"], dtype=np.float64),
-            int(payload["Nu"]),
-            int(payload["Nv"]),
-            int(payload["n_events"]),
-        )
+        # species run in load order, each for its own event count
+        for block in source_blocks(payload):
+            session.load_source_distribution(
+                np.ascontiguousarray(payload["box_bounds_mm"], dtype=np.float64),
+                np.ascontiguousarray(block["mu_edges"], dtype=np.float64),
+                np.ascontiguousarray(block["azi_edges"], dtype=np.float64),
+                np.ascontiguousarray(block["energy_edges_mev"], dtype=np.float64),
+                np.ascontiguousarray(block["weights"], dtype=np.float64),
+                int(block["Nu"]),
+                int(block["Nv"]),
+                int(block["n_events"]),
+                int(block["pdg"]),
+            )
     timings["geant4_source_load_wall_s"] = time.perf_counter() - load_wall_start
     timings["geant4_source_load_cpu_s"] = time.process_time() - load_cpu_start
 

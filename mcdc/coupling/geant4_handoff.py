@@ -19,6 +19,7 @@ from mcdc.coupling.geant4_bank import (
 from mcdc.coupling.geant4_config import (
     CONFIGS,
     Geant4HandoffConfig,
+    distribution_sources,
     normalized_device_components,
     read_summary_hdf5,
 )
@@ -103,9 +104,14 @@ def _validate_configs(configs: list[Geant4HandoffConfig]) -> None:
         raise RuntimeError("Geant4 output paths must be unique.")
 
     if "distribution" in modes:
-        tally_names = [cfg.source_tally_name for cfg in configs]
+        tally_names = [
+            source["tally"] for cfg in configs for source in distribution_sources(cfg)
+        ]
         if len(tally_names) != len(set(tally_names)):
-            raise RuntimeError("Geant4 source_tally_name values must be unique.")
+            raise RuntimeError(
+                "Geant4 distribution source tally names must be unique across "
+                "regions and species."
+            )
 
 
 def _run_regions_serial(
@@ -251,7 +257,9 @@ def _build_region_payload(
         if cfg.source_mode == "bank":
             summary["handoff_bank_size"] = 0
         else:
-            summary["source_tally_name"] = cfg.source_tally_name
+            summary["source_tally_name"] = ",".join(
+                source["tally"] for source in distribution_sources(cfg)
+            )
             summary["source_total_weight"] = 0.0
         return summary
 

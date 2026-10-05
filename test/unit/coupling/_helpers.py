@@ -1,6 +1,6 @@
 import numpy as np
 
-from mcdc.constant import SCORE_CURRENT_IN, TALLY_SURFACE_CROSSING
+from mcdc.constant import PARTICLE_ANY, SCORE_CURRENT_IN, TALLY_SURFACE_CROSSING
 from mcdc.coupling.geant4_config import Geant4HandoffConfig
 from mcdc.numba_types import surface_crossing_tally as SURFACE_CROSSING_TALLY_DTYPE
 from mcdc.numba_types import tally as TALLY_DTYPE
@@ -36,6 +36,7 @@ def distribution_simulation_and_data(
     sub_type=TALLY_SURFACE_CROSSING,
     time_bins=1,
     polar_reference=(0.0, 0.0, 1.0),
+    particle_type=PARTICLE_ANY,
 ):
     if scores is None:
         scores = [99, SCORE_CURRENT_IN]
@@ -88,6 +89,7 @@ def distribution_simulation_and_data(
         "sub_type": sub_type,
         "sub_ID": 0,
         "polar_reference": polar_reference,
+        "particle_type": particle_type,
     }
     tallies = np.zeros(1, dtype=TALLY_DTYPE)
     for field, value in tally_values.items():
@@ -128,3 +130,27 @@ def distribution_config(**kwargs):
     }
     values.update(kwargs)
     return Geant4HandoffConfig(**values)
+
+
+def two_species_simulation_and_data(proton_weights=None, neutron_weights=None):
+    """Join proton and neutron source tallies into one simulation and data array."""
+    from mcdc.constant import PARTICLE_NEUTRON, PARTICLE_PROTON
+
+    simulation, data, proton = distribution_simulation_and_data(
+        tally_name="p_src", particle_type=PARTICLE_PROTON, weights=proton_weights
+    )
+    other, other_data, neutron = distribution_simulation_and_data(
+        tally_name="n_src", particle_type=PARTICLE_NEUTRON, weights=neutron_weights
+    )
+
+    second = other["tallies"].copy()
+    for field in second.dtype.names:
+        if field.endswith("_offset"):
+            second[0][field] += len(data)
+    second[0]["sub_ID"] = 1
+
+    simulation["tallies"] = np.concatenate([simulation["tallies"], second])
+    simulation["surface_crossing_tallies"] = np.concatenate(
+        [simulation["surface_crossing_tallies"], other["surface_crossing_tallies"]]
+    )
+    return simulation, np.concatenate([data, other_data]), proton, neutron

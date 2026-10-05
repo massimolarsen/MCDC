@@ -110,8 +110,14 @@ def _run_one_payload(
     if args.n_events is not None:
         if str(payload["source_mode"]) != "distribution":
             raise RuntimeError("--n-events override only supports distribution mode")
-        payload["n_events"] = int(args.n_events)
-        payload["source_size"] = int(args.n_events)
+        # each species in a multi-species payload runs the overridden count
+        if "sources" in payload:
+            for block in payload["sources"]:
+                block["n_events"] = int(args.n_events)
+            payload["source_size"] = int(args.n_events) * len(payload["sources"])
+        else:
+            payload["n_events"] = int(args.n_events)
+            payload["source_size"] = int(args.n_events)
     if args.output_dir is not None:
         output_dir = pathlib.Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)

@@ -8,64 +8,7 @@ from mcdc.coupling import geant4_config, geant4_worker
 from mcdc.coupling.seu_diagnostics import write_diagnostic_tables
 
 
-def test_payload_round_trip_distribution(tmp_path):
-    payload = {
-        "name": "cpu",
-        "source_mode": "distribution",
-        "bridge_build_dir": "bridge",
-        "geant4_output_path": str(tmp_path / "out.h5"),
-        "world_size_mm": (100.0, 100.0, 100.0),
-        "detector_size_mm": (10.0, 20.0, 30.0),
-        "detector_material": "G4_Si",
-        "envelope_material": "G4_Galactic",
-        "component_names": np.asarray(["die"]),
-        "component_materials": np.asarray(["G4_Si"]),
-        "component_parents": np.asarray([""]),
-        "component_centers_mm": np.asarray([[0.0, 0.0, 0.0]]),
-        "component_sizes_mm": np.asarray([[10.0, 20.0, 30.0]]),
-        "component_score": np.asarray([True]),
-        "physics_list": "QGSP_BIC",
-        "random_seed": 777,
-        "n_geant4_threads": 3,
-        "source_size": 4,
-        "source_tally_name": "cpu_src",
-        "source_total_weight": 2.5,
-        "box_bounds_mm": np.asarray([[-1.0, 1.0], [-2.0, 2.0], [-3.0, 3.0]]),
-        "mu_edges": np.asarray([-1.0, 1.0]),
-        "azi_edges": np.asarray([-np.pi, np.pi]),
-        "energy_edges_mev": np.asarray([0.0, 14.0]),
-        "weights": np.ones(6),
-        "Nu": 1,
-        "Nv": 1,
-        "n_events": 4,
-    }
-    path = tmp_path / "payload.h5"
-
-    geant4_worker.write_payload(path, payload)
-    result = geant4_worker.read_payload(path)
-
-    assert result["name"] == "cpu"
-    assert result["source_mode"] == "distribution"
-    assert result["detector_material"] == "G4_Si"
-    assert int(result["random_seed"]) == 777
-    assert int(result["n_geant4_threads"]) == 3
-    np.testing.assert_allclose(result["box_bounds_mm"], payload["box_bounds_mm"])
-    np.testing.assert_allclose(result["weights"], payload["weights"])
-    np.testing.assert_array_equal(result["component_names"], ["die"])
-    np.testing.assert_array_equal(result["component_materials"], ["G4_Si"])
-    np.testing.assert_array_equal(result["component_parents"], [""])
-    np.testing.assert_allclose(
-        result["component_centers_mm"], payload["component_centers_mm"]
-    )
-    np.testing.assert_array_equal(result["component_score"], [True])
-    assert int(result["n_events"]) == 4
-
-
-def test_worker_distribution_subprocess_with_stub_bridge(tmp_path):
-    bridge_dir = tmp_path / "bridge"
-    bridge_dir.mkdir()
-    (bridge_dir / "geant4_bridge.py").write_text(
-        """
+STUB_BRIDGE = """
 class SessionConfig:
     def __init__(self):
         self.world_size_mm = []
@@ -137,16 +80,77 @@ class Session:
     def load_primaries(self, bank):
         pass
     def load_source_distribution(self, *args):
-        pass
+        # record (particle_id, n_events) for each loaded species
+        import pathlib
+        log = pathlib.Path(__file__).with_name("loaded_sources.txt")
+        with open(log, "a") as file:
+            file.write(f"{args[-1]} {args[-2]}\\n")
     def beam_on(self):
         pass
     def get_results(self):
         return Results()
     def close(self):
         pass
-""",
-        encoding="utf-8",
+"""
+
+
+def test_payload_round_trip_distribution(tmp_path):
+    payload = {
+        "name": "cpu",
+        "source_mode": "distribution",
+        "bridge_build_dir": "bridge",
+        "geant4_output_path": str(tmp_path / "out.h5"),
+        "world_size_mm": (100.0, 100.0, 100.0),
+        "detector_size_mm": (10.0, 20.0, 30.0),
+        "detector_material": "G4_Si",
+        "envelope_material": "G4_Galactic",
+        "component_names": np.asarray(["die"]),
+        "component_materials": np.asarray(["G4_Si"]),
+        "component_parents": np.asarray([""]),
+        "component_centers_mm": np.asarray([[0.0, 0.0, 0.0]]),
+        "component_sizes_mm": np.asarray([[10.0, 20.0, 30.0]]),
+        "component_score": np.asarray([True]),
+        "physics_list": "QGSP_BIC",
+        "random_seed": 777,
+        "n_geant4_threads": 3,
+        "source_size": 4,
+        "source_tally_name": "cpu_src",
+        "source_total_weight": 2.5,
+        "box_bounds_mm": np.asarray([[-1.0, 1.0], [-2.0, 2.0], [-3.0, 3.0]]),
+        "mu_edges": np.asarray([-1.0, 1.0]),
+        "azi_edges": np.asarray([-np.pi, np.pi]),
+        "energy_edges_mev": np.asarray([0.0, 14.0]),
+        "weights": np.ones(6),
+        "Nu": 1,
+        "Nv": 1,
+        "n_events": 4,
+    }
+    path = tmp_path / "payload.h5"
+
+    geant4_worker.write_payload(path, payload)
+    result = geant4_worker.read_payload(path)
+
+    assert result["name"] == "cpu"
+    assert result["source_mode"] == "distribution"
+    assert result["detector_material"] == "G4_Si"
+    assert int(result["random_seed"]) == 777
+    assert int(result["n_geant4_threads"]) == 3
+    np.testing.assert_allclose(result["box_bounds_mm"], payload["box_bounds_mm"])
+    np.testing.assert_allclose(result["weights"], payload["weights"])
+    np.testing.assert_array_equal(result["component_names"], ["die"])
+    np.testing.assert_array_equal(result["component_materials"], ["G4_Si"])
+    np.testing.assert_array_equal(result["component_parents"], [""])
+    np.testing.assert_allclose(
+        result["component_centers_mm"], payload["component_centers_mm"]
     )
+    np.testing.assert_array_equal(result["component_score"], [True])
+    assert int(result["n_events"]) == 4
+
+
+def test_worker_distribution_subprocess_with_stub_bridge(tmp_path):
+    bridge_dir = tmp_path / "bridge"
+    bridge_dir.mkdir()
+    (bridge_dir / "geant4_bridge.py").write_text(STUB_BRIDGE, encoding="utf-8")
 
     payload_path = tmp_path / "payload.h5"
     output_path = tmp_path / "out.h5"
@@ -225,3 +229,84 @@ class Session:
         assert details["nuclear_birth"][0]["track_id"] == 4
         assert details["em_secondary_summary"][0]["electron_count"] == 3
     assert geant4_config.read_summary_hdf5(str(output_path))["events_run"] == 3
+
+
+def _species_payload(tmp_path, bridge_dir):
+    def block(pdg, tally_name, n_events, total_weight):
+        return {
+            "pdg": pdg,
+            "tally_name": tally_name,
+            "mu_edges": np.asarray([0.0, 1.0]),
+            "azi_edges": np.asarray([-np.pi, np.pi]),
+            "energy_edges_mev": np.asarray([1.0, 2.0]),
+            "weights": np.asarray([0, 0, 0, 0, total_weight, 0]),
+            "Nu": 1,
+            "Nv": 1,
+            "n_events": n_events,
+            "total_weight": total_weight,
+        }
+
+    return {
+        "name": "species",
+        "source_mode": "distribution",
+        "bridge_build_dir": str(bridge_dir),
+        "geant4_output_path": str(tmp_path / "out.h5"),
+        "world_size_mm": (100.0, 100.0, 100.0),
+        "detector_size_mm": (10.0, 10.0, 10.0),
+        "detector_material": "G4_Si",
+        "envelope_material": "G4_Galactic",
+        "component_names": np.asarray(["detector"]),
+        "component_materials": np.asarray(["G4_Si"]),
+        "component_parents": np.asarray([""]),
+        "component_centers_mm": np.asarray([[0.0, 0.0, 0.0]]),
+        "component_sizes_mm": np.asarray([[10.0, 10.0, 10.0]]),
+        "component_score": np.asarray([True]),
+        "physics_list": "QGSP_BIC",
+        "random_seed": 13579,
+        "n_geant4_threads": 2,
+        "source_size": 3,
+        "source_tally_name": "p_src,n_src",
+        "source_total_weight": 3.5,
+        "box_bounds_mm": np.asarray([[-1, 1], [-1, 1], [-1, 1]]),
+        "sources": [block(2212, "p_src", 1, 2.5), block(2112, "n_src", 2, 1.0)],
+    }
+
+
+def test_payload_round_trip_species_sources(tmp_path):
+    payload = _species_payload(tmp_path, tmp_path / "bridge")
+    path = tmp_path / "payload.h5"
+
+    geant4_worker.write_payload(path, payload)
+    result = geant4_worker.read_payload(path)
+
+    assert [int(block["pdg"]) for block in result["sources"]] == [2212, 2112]
+    assert [int(block["n_events"]) for block in result["sources"]] == [1, 2]
+    assert result["sources"][0]["tally_name"] == "p_src"
+    np.testing.assert_allclose(
+        result["sources"][1]["weights"], payload["sources"][1]["weights"]
+    )
+    np.testing.assert_allclose(result["box_bounds_mm"], payload["box_bounds_mm"])
+
+
+def test_worker_loads_each_species_with_stub_bridge(tmp_path):
+    bridge_dir = tmp_path / "bridge"
+    bridge_dir.mkdir()
+    (bridge_dir / "geant4_bridge.py").write_text(STUB_BRIDGE, encoding="utf-8")
+    payload_path = tmp_path / "payload.h5"
+    geant4_worker.write_payload(payload_path, _species_payload(tmp_path, bridge_dir))
+
+    result = subprocess.run(
+        [sys.executable, str(geant4_worker.__file__), str(payload_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    loaded = (bridge_dir / "loaded_sources.txt").read_text().split()
+    assert loaded == ["2212", "1", "2112", "2"]
+    summary = geant4_config.read_summary_hdf5(str(tmp_path / "out.h5"))
+    np.testing.assert_array_equal(summary["source_species_pdg"], [2212, 2112])
+    np.testing.assert_array_equal(summary["source_species_n_events"], [1, 2])
+    np.testing.assert_allclose(summary["source_species_weight"], [2.5, 1.0])
+    assert list(summary["source_species_tally_name"]) == ["p_src", "n_src"]

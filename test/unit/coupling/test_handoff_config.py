@@ -97,3 +97,57 @@ def test_normalized_device_components_accepts_parent_hierarchy():
     assert components[1]["parent"] == "package"
     assert components[0]["score"] is False
     assert components[1]["score"] is True
+
+
+def test_distribution_sources_shorthand_is_one_entry():
+    cfg = distribution_config(n_geant4_particles=9, source_tally_name="src")
+
+    assert geant4_config.distribution_sources(cfg) == [
+        {"particle": None, "tally": "src", "n_events": 9}
+    ]
+
+
+@pytest.mark.parametrize(
+    "species_sources, extra, match",
+    [
+        ([{"particle": "photon", "tally": "t", "n_events": 1}], {}, "particle must"),
+        ([{"particle": "proton", "tally": "t", "n_event": 1}], {}, "Unknown"),
+        (
+            [
+                {"particle": "proton", "tally": "a", "n_events": 1},
+                {"particle": "proton", "tally": "b", "n_events": 1},
+            ],
+            {},
+            "at most once",
+        ),
+        (
+            [{"particle": "proton", "tally": "t", "n_events": 1}],
+            {"source_tally_name": "s"},
+            "either species_sources",
+        ),
+    ],
+)
+def test_distribution_sources_rejects_invalid_species(species_sources, extra, match):
+    values = {"n_geant4_particles": 0, "source_tally_name": ""}
+    values.update(extra)
+    cfg = distribution_config(species_sources=species_sources, **values)
+
+    with pytest.raises(RuntimeError, match=match):
+        geant4_config.distribution_sources(cfg)
+
+
+def test_run_handoff_rejects_tally_reused_across_species():
+    simulation, data, _ = distribution_simulation_and_data()
+    geant4_config.add_config(
+        **distribution_config(
+            n_geant4_particles=0,
+            source_tally_name="",
+            species_sources=[
+                {"particle": "proton", "tally": "source_tally", "n_events": 1},
+                {"particle": "neutron", "tally": "source_tally", "n_events": 1},
+            ],
+        ).__dict__
+    )
+
+    with pytest.raises(RuntimeError, match="unique across"):
+        geant4_handoff.run_handoff_from_simulation(simulation, data)
