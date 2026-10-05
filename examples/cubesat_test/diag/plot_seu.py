@@ -172,11 +172,12 @@ def plot_primary_species(file, species, ionizing, weight_total, y, share, tail):
     for index in present:
         values = np.divide(by_primary[:, index], ionizing,
                            out=np.zeros_like(ionizing), where=ionizing > 0)
-        share.barh(y, values, left=share_left, label=species[index])
+        # same color per species as the depositing-species panel
+        share.barh(y, values, left=share_left, label=species[index], color=f"C{index}")
         share_left += values
         tail_values = np.divide(tail_sumw[:, index], weight_total,
                                 out=np.zeros_like(weight_total), where=weight_total > 0)
-        tail.barh(y, tail_values, left=tail_left, label=species[index])
+        tail.barh(y, tail_values, left=tail_left, label=species[index], color=f"C{index}")
         tail_left += tail_values
     share.set_xlabel("Fraction of ionizing deposition")
     share.set_title("Source (primary) species")

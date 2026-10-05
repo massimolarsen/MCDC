@@ -163,5 +163,21 @@ File attrs: source_title, source_version, source_date, source_comments (if prese
     └── total_stopping_power                    (1-D array; attr: unit="MeV cm2/g")
 ```
 
+## Combining with Neutron Data
+MC/DC reads every particle's data from one `<nuclide>-<T>K.h5` file in `$MCDC_LIB`.
+Proton inelastic reactions emit neutrons, so a proton run that also transports
+them (`settings.neutron_transport.active = True`) needs files holding both.
+`merge_neutron_data.py` copies each neutron file and adds the proton groups
+(`proton_reactions`, `secondary_particles`, `stopping_power`, `radiation_length`).
+The 0 K TENDL proton data is reused at the neutron file's temperature.
+
+```bash
+python merge_neutron_data.py $MCDC_LIB $MCDC_LIB_PROTON combined/ \
+    --temperature 293.6 --nuclides Al27 Si28 O16
+```
+
+PSTAR tables go in `$MCDC_PSTAR_LIB` as `<symbol>.txt` with two columns,
+kinetic energy (MeV) and total stopping power (MeV cm2/g).
+
 ## See Also
 - [TENDL2021](https://tendl.imperial.ac.uk/tendl_2021/tendl2021.html)

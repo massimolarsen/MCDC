@@ -70,7 +70,9 @@ source_particles.h5
 acelib
 acelibCubesat
 acelibSMALL
+acelibProton
 hdf5lib
+hdf5libProton
 
 pyvenv.cfg
 numba_types.py
