@@ -422,4 +422,8 @@ def update_radiation_length_from_nuclides(material):
         total_mass += nuclide_mass * density
         X0_weighted_mass += nuclide_mass * density / nuclide_X0
 
+    # An empty (zero-density) material never scatters
+    if X0_weighted_mass > 0.0:
         material.radiation_length = total_mass / X0_weighted_mass
+    else:
+        material.radiation_length = np.inf

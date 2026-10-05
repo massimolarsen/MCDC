@@ -6,7 +6,7 @@ from numba import njit
 import mcdc.mcdc_get as mcdc_get
 import mcdc.transport.rng as rng
 
-from mcdc.constant import PROTON_CUTOFF_ENERGY, PROTON_MASS
+from mcdc.constant import INF, PROTON_CUTOFF_ENERGY, PROTON_MASS
 from mcdc.transport.distribution import sample_normal
 
 
@@ -14,37 +14,17 @@ from mcdc.transport.distribution import sample_normal
 def max_condensed_step_distance(particle_container, simulation, data):
     """Return the maximum proton condensed step length."""
     condensed_interactions = simulation["settings"]["condensed_interactions"]
-    particle = particle_container[0]
-    material = simulation["materials"][particle["material_ID"]]
-    E = particle["E"]
-    total_rho = 0.0
-    total_dedx = 0.0
+    E = particle_container[0]["E"]
+    stopping_power, density, _ = material_stopping_power(
+        particle_container, simulation, data
+    )
 
-    for i in range(material["N_nuclide"]):
-        nuclide_ID = int(mcdc_get.material.nuclide_IDs(i, material, data))
-        nuclide = simulation["nuclides"][nuclide_ID]
-
-        if not material["stopping_power_provided"]:
-            dedx_values = mcdc_get.nuclide.stopping_power_all(nuclide, data)
-            dedx_energies = mcdc_get.nuclide.stopping_power_energy_grid_all(
-                nuclide, data
-            )
-            dedx = np.interp(E / 1e6, dedx_energies, dedx_values)
-            total_dedx += dedx * 1e6
-
-        atomic_mass = nuclide["atomic_weight_ratio"]
-        nuclide_density = mcdc_get.material.nuclide_densities(i, material, data)
-        density_gcm3 = nuclide_density * 1e24 * atomic_mass / (6.022e23)
-        total_rho += density_gcm3
-
-    if material["stopping_power_provided"]:
-        dedx_values = mcdc_get.material.stopping_power_all(material, data)
-        dedx_energies = mcdc_get.material.stopping_power_energy_grid_all(material, data)
-        dedx = np.interp(E / 1e6, dedx_energies, dedx_values)
-        total_dedx = dedx * 1e6
+    # No energy loss in an empty (zero-density) material
+    if density <= 0.0 or stopping_power <= 0.0:
+        return INF
 
     max_fractional_energy_loss = condensed_interactions["max_fractional_energy_loss"]
-    return max_fractional_energy_loss * E / total_dedx / total_rho
+    return max_fractional_energy_loss * E / stopping_power / density
 
 
 @njit
@@ -64,15 +44,18 @@ def condensed_interactions(
         particle["E"] = 0.0
         return
 
-    average_A, average_Z, total_stopping_power, total_rho_gcm3 = (
-        calculate_total_stopping_power(particle_container, simulation, data)
+    stopping_power, density, z_over_a = material_stopping_power(
+        particle_container, simulation, data
     )
-    energy_loss = total_stopping_power * total_rho_gcm3 * distance
+
+    # Nothing to lose energy to or scatter off in an empty material
+    if density <= 0.0:
+        return
+
+    energy_loss = stopping_power * density * distance
 
     # Energy straggling variance in units of MeV^2
-    energy_straggling_variance = (
-        0.1569 * total_rho_gcm3 * average_Z / average_A * distance
-    )
+    energy_straggling_variance = 0.1569 * density * z_over_a * distance
     # Convert to units of eV^2
     energy_straggling_variance *= (1e6) ** 2
     energy_straggling_modifier = np.sqrt(energy_straggling_variance) * sample_normal(
@@ -88,9 +71,7 @@ def condensed_interactions(
     X0 = material["radiation_length"]
 
     # Angular scattering according to MCS theory
-    phi, theta = sample_mcs_angle(
-        particle["E"], distance, total_rho_gcm3, X0, particle_container
-    )
+    phi, theta = sample_mcs_angle(particle["E"], distance, density, X0, particle_container)
 
     rotate_direction(particle, phi, theta)
 
@@ -170,21 +151,40 @@ def rotate_direction(particle, phi, theta):
 
 
 @njit
-def calculate_total_stopping_power(particle_container, simulation, data):
+def material_stopping_power(particle_container, simulation, data):
+    """Return the material's mass stopping power, density, and Z/A.
+
+    Returns
+    -------
+    stopping_power : float
+        Mass stopping power in eV cm2/g. Nuclide tables are combined with
+        Bragg additivity, weighted by each nuclide's mass fraction.
+    density : float
+        Material mass density in g/cm3.
+    z_over_a : float
+        Mass-fraction-weighted Z/A, used for energy straggling.
+    """
     particle = particle_container[0]
     material = simulation["materials"][particle["material_ID"]]
     E = particle["E"]
 
-    total_stopping_power = 0.0
-    total_rho_gcm3 = 0.0
-    total_Z = 0.0
-    total_A = 0.0
-    # Find the total stopping power by summing over every nuclide in the material
+    density = 0.0
+    weighted_stopping_power = 0.0
+    weighted_z_over_a = 0.0
     for i in range(material["N_nuclide"]):
         nuclide_ID = int(mcdc_get.material.nuclide_IDs(i, material, data))
         nuclide = simulation["nuclides"][nuclide_ID]
 
-        # If no stopping power provided, we calculate it ourselves here
+        # Convert atoms/barn-cm to g/cm3
+        atomic_mass = nuclide["atomic_weight_ratio"]  # mass in amu
+        nuclide_density = mcdc_get.material.nuclide_densities(i, material, data)
+        nuclide_density_gcm3 = nuclide_density * 1e24 * atomic_mass / (6.022e23)
+        density += nuclide_density_gcm3
+
+        # Weight per-nuclide quantities by partial density; normalized below
+        weighted_z_over_a += (
+            nuclide_density_gcm3 * nuclide["atomic_number"] / nuclide["mass_number"]
+        )
         if not material["stopping_power_provided"]:
             dedx_values = mcdc_get.nuclide.stopping_power_all(nuclide, data)
             dedx_energies = mcdc_get.nuclide.stopping_power_energy_grid_all(
@@ -193,25 +193,19 @@ def calculate_total_stopping_power(particle_container, simulation, data):
 
             # TODO: replace np.interp with a non-numpy function??
             dedx = np.interp(E / 1e6, dedx_energies, dedx_values)
-            total_stopping_power += dedx * 1e6
+            weighted_stopping_power += nuclide_density_gcm3 * dedx * 1e6
 
-        # Convert atoms/barn-cm to g/cm3:
-        atomic_mass = nuclide["atomic_weight_ratio"]  # mass in amu
-        nuclide_density = mcdc_get.material.nuclide_densities(i, material, data)
-        density_gcm3 = nuclide_density * 1e24 * atomic_mass / (6.022e23)
-        total_rho_gcm3 += density_gcm3
+    if density <= 0.0:
+        return 0.0, 0.0, 0.0
 
-        total_Z += nuclide["atomic_number"]
-        total_A += nuclide["mass_number"]
-
-    average_Z = total_Z / material["N_nuclide"]
-    average_A = total_A / material["N_nuclide"]
+    stopping_power = weighted_stopping_power / density
+    z_over_a = weighted_z_over_a / density
 
     if material["stopping_power_provided"]:
         dedx_values = mcdc_get.material.stopping_power_all(material, data)
         dedx_energies = mcdc_get.material.stopping_power_energy_grid_all(material, data)
 
         dedx = np.interp(E / 1e6, dedx_energies, dedx_values)
-        total_stopping_power = dedx * 1e6
+        stopping_power = dedx * 1e6
 
-    return average_A, average_Z, total_stopping_power, total_rho_gcm3
+    return stopping_power, density, z_over_a
