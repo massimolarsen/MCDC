@@ -11,12 +11,8 @@ from mcdc.constant import (
     SCORE_CURRENT_IN,
     TALLY_SURFACE_CROSSING,
 )
-from mcdc.coupling.geant4_config import (
-    PARTICLE_PDG,
-    PARTICLE_TYPE_BY_NAME,
-    Geant4HandoffConfig,
-    distribution_sources,
-)
+from mcdc.coupling.geant4_config import Geant4HandoffConfig, distribution_sources
+from mcdc.coupling.particles import PARTICLE_PDG, PARTICLE_TYPE_BY_NAME
 
 
 def build_source_distribution_payload(

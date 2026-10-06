@@ -105,7 +105,7 @@ def _run_one_payload(
     name = str(payload["name"])
     payload["physics_list"] = REPLAY_PHYSICS_LIST
     payload["em_production_cut_mm"] = REPLAY_EM_PRODUCTION_CUT_MM
-    payload["record_seu_events"] = False
+    payload.setdefault("record_seu_events", False)
     payload["diagnostic_min_Eion_mev"] = 0.001
     if args.n_events is not None:
         if str(payload["source_mode"]) != "distribution":

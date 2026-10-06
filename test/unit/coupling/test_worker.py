@@ -1,3 +1,4 @@
+import pathlib
 import subprocess
 import sys
 
@@ -319,3 +320,21 @@ def test_worker_loads_each_species_with_stub_bridge(tmp_path):
     np.testing.assert_array_equal(summary["source_species_n_events"], [1, 2])
     np.testing.assert_allclose(summary["source_species_weight"], [2.5, 1.0])
     assert list(summary["source_species_tally_name"]) == ["p_src", "n_src"]
+
+
+def test_worker_imports_do_not_load_mcdc_or_mpi():
+    # The worker runs as a subprocess of an MPI job; importing mcdc would call
+    # MPI_Init there, which fails under mpirun.
+    coupling_dir = pathlib.Path(geant4_worker.__file__).parent
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); "
+        "import geant4_worker; "
+        "print(sorted(m for m in ('mcdc', 'mpi4py', 'mpi4py.MPI') if m in sys.modules))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(coupling_dir)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "[]"

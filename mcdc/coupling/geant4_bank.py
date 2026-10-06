@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from mcdc.coupling.geant4_config import PARTICLE_PDG
+from mcdc.coupling.particles import PARTICLE_PDG
 
 
 def convert_handoff_bank_to_geant4(particles: np.ndarray) -> np.ndarray:

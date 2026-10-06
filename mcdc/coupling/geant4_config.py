@@ -6,19 +6,9 @@ import h5py
 import numpy as np
 from typing import Any
 
-from mcdc.constant import PARTICLE_ELECTRON, PARTICLE_NEUTRON, PARTICLE_PROTON
-
-# MC/DC particle types handed to Geant4, and their PDG codes
-PARTICLE_PDG = {
-    PARTICLE_NEUTRON: 2112,
-    PARTICLE_ELECTRON: 11,
-    PARTICLE_PROTON: 2212,
-}
-PARTICLE_TYPE_BY_NAME = {
-    "neutron": PARTICLE_NEUTRON,
-    "electron": PARTICLE_ELECTRON,
-    "proton": PARTICLE_PROTON,
-}
+# The standalone Geant4 worker imports this module, so it must not import
+# mcdc: that would initialize MPI inside the worker subprocess, which fails
+# under mpirun.
 
 
 @dataclass
@@ -73,6 +63,8 @@ def distribution_sources(cfg: Geant4HandoffConfig) -> list[dict[str, Any]]:
     ``particle`` is None for the source_tally_name shorthand, which takes the
     species from the tally's particle filter.
     """
+    from mcdc.coupling.particles import PARTICLE_TYPE_BY_NAME
+
     if not cfg.species_sources:
         return [
             {
