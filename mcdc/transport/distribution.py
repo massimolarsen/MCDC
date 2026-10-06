@@ -273,6 +273,27 @@ def sample_white_direction(nx, ny, nz, rng_state):
 
 
 @njit
+def _incident_interval(E, grid):
+    """Return the incident-energy interval index and interpolation fraction.
+
+    Off the grid the fraction is clamped, so samplers use the first or last
+    table instead of indexing outside the data; a repeated grid energy (a
+    zero-width interval marking a jump) uses its left table.
+    """
+    N = len(grid)
+    if E <= grid[0]:
+        return 0, 0.0
+    if E >= grid[N - 1]:
+        return N - 2, 1.0
+    idx = find_bin(E, grid)
+    E0 = grid[idx]
+    E1 = grid[idx + 1]
+    if E1 <= E0:
+        return idx, 0.0
+    return idx, (E - E0) / (E1 - E0)
+
+
+@njit
 def sample_multi_table(E, rng_state, multi_table, simulation, data):
     return _sample_multi_table(E, rng_state, multi_table, simulation, data, False)
 
@@ -307,7 +328,8 @@ def _sample_multi_table(E, rng_state, multi_table, simulation, data, scale):
         idx = find_bin(E, grid)
         E0 = grid[idx]
         E1 = grid[idx + 1]
-        f = (E - E0) / (E1 - E0)
+        # A repeated grid energy marks a jump; use its left table
+        f = (E - E0) / (E1 - E0) if E1 > E0 else 0.0
 
         # Sample which table to choose
         if rng.lcg(rng_state) < f:
@@ -431,11 +453,8 @@ def sample_kalbach_mann(E, rng_state, kalbach_mann, data):
     xi3 = rng.lcg(rng_state)
     xi4 = rng.lcg(rng_state)
 
-    # Interpolation factor
-    idx = find_bin(E, grid)
-    E0 = grid[idx]
-    E1 = grid[idx + 1]
-    f = (E - E0) / (E1 - E0)
+    # Interpolation factor (edge tables off the grid)
+    idx, f = _incident_interval(E, grid)
 
     # ==================================================================================
     # Min and max energy values for scaling
@@ -529,11 +548,8 @@ def sample_tabulated_energy_angle(E, rng_state, table, data):
     xi2 = rng.lcg(rng_state)
     xi3 = rng.lcg(rng_state)
 
-    # Interpolation factor
-    idx = find_bin(E, grid)
-    E0 = grid[idx]
-    E1 = grid[idx + 1]
-    f = (E - E0) / (E1 - E0)
+    # Interpolation factor (edge tables off the grid)
+    idx, f = _incident_interval(E, grid)
 
     # ==================================================================================
     # Min and max energy values for scaling
