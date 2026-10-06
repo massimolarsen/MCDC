@@ -7,9 +7,12 @@ import mcdc
 from cubesat_G4_devices_1um import build_detector_sizes_mm, build_device_components
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
-# JENDL-5 at 300 K lives in the shared MCDC checkout beside the g4-hpc worktree
+# 200 MeV neutron data at 300 K: JENDL-5, with FENDL-3.0 Li7 because JENDL-5
+# Li7 stops at 20 MeV. These merged files also carry proton data, which a
+# neutron-only run ignores. Override with MCDC_NEUTRON_200MEV_LIB.
 os.environ["MCDC_LIB"] = os.environ.get(
-    "MCDC_JENDL_LIB", str(EXAMPLE_DIR.parents[2] / "MCDC" / "hdf5lib-JENDL")
+    "MCDC_NEUTRON_200MEV_LIB",
+    str(EXAMPLE_DIR.parents[1] / "hdf5libProton" / "with_neutron_200MeV"),
 )
 XS_TEMPERATURE_K = 300.0
 RUN_DIR = Path(os.environ.get("MCDC_RUN_DIR", EXAMPLE_DIR)).resolve()
@@ -24,7 +27,7 @@ os.chdir(RUN_DIR)
 # vertically centered in that rail height. A 15 cm boundary cube surrounds the
 # model and is centered at (5, 5, 5).
 #
-# Continuous-energy materials use the JENDL-5 HDF5 library at 300 K.
+# Continuous-energy materials use JENDL-5 (FENDL-3.0 Li7) at 300 K, to 200 MeV.
 # Nuclide compositions are atom densities in atoms/barn-cm.
 # =============================================================================
 
@@ -323,7 +326,6 @@ surface_mesh = (5, 5)
 source_inset = 1.0e-6  # Keep source points just inside the vacuum boundary.
 
 # Truncated and renormalized at 200 MeV; data is from the default 100 km altitude.
-# Li7 cross sections in this JENDL library extend only to 20 MeV.
 # Data can be scaled
 # to realistic flight altitudes but it does not change the distribution, only the absolute flux values
 source_spectrum_path = EXAMPLE_DIR / "ecss_200MeV.csv"
@@ -331,7 +333,9 @@ source_energy_ev, source_energy_pdf = np.loadtxt(
     source_spectrum_path, delimiter=",", skiprows=1, unpack=True
 )
 if source_energy_ev.size < 2: raise ValueError(f"Invalid source spectrum: {source_spectrum_path}")
-energy_bins_ev = np.geomspace(source_energy_ev[0], source_energy_ev[-1], 41)
+# Tally from thermal (1e-5 eV) so moderated neutrons still reach Geant4, at
+# the same ~4.8 bins per decade as before
+energy_bins_ev = np.geomspace(1.0e-5, source_energy_ev[-1], 65)
 
 boundary_sources = [
     dict(

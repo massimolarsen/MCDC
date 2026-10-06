@@ -28,7 +28,7 @@ finish() {
 }
 trap finish EXIT
 
-cp inputCE_G4SUBMIT_1um.py cubesat_G4_devices_1um.py "$archive/"
+cp inputCE_G4SUBMIT_1um.py cubesat_G4_devices_1um.py ecss_200MeV.csv "$archive/"
 python -m pip freeze > "$archive/python-packages.txt"
 git rev-parse HEAD > "$archive/mcdc-revision.txt"
 
