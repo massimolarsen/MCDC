@@ -56,6 +56,12 @@ SCHEMAS = {
         )]
         + [("vertex_volume", STRING), ("creator_process", STRING)],
     ),
+    # Geant4 engine state (space-separated integers) at the start of the event,
+    # for events at or above rng_state_min_Eion_mev; replays the event exactly
+    "R": (
+        "event_rng_state",
+        [("run_id", INT), ("event_id", INT), ("state", STRING)],
+    ),
 }
 
 

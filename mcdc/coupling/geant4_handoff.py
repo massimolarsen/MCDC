@@ -275,6 +275,7 @@ def _build_region_payload(
         "em_production_cut_mm": float(cfg.em_production_cut_mm),
         "record_seu_events": bool(cfg.record_seu_events),
         "diagnostic_min_Eion_mev": float(cfg.diagnostic_min_Eion_mev),
+        "rng_state_min_Eion_mev": float(cfg.rng_state_min_Eion_mev),
         "random_seed": _random_seed(cfg),
         "n_geant4_threads": int(
             _setting(simulation["settings"], "geant4_n_threads", 1)

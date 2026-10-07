@@ -242,6 +242,7 @@ def result_summary(
         "diagnostic_min_Eion_mev": float(
             payload.get("diagnostic_min_Eion_mev", 0.001)
         ),
+        "rng_state_min_Eion_mev": float(payload.get("rng_state_min_Eion_mev", 0.0)),
     }
     if timings is not None:
         summary.update(timings)
@@ -295,10 +296,8 @@ def _primary_species_results(results) -> dict[str, np.ndarray]:
     return summary
 
 
-def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
-    payload = read_payload(path)
-    bridge = load_bridge(str(payload["bridge_build_dir"]))
-
+def make_session_config(bridge, payload: dict[str, Any], diagnostic_dir=None):
+    """Bridge SessionConfig for a payload; diagnostics go to diagnostic_dir."""
     session_cfg = bridge.SessionConfig()
     session_cfg.world_size_mm = list(payload["world_size_mm"])
     session_cfg.detector_size_mm = list(payload["detector_size_mm"])
@@ -308,19 +307,52 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
     session_cfg.random_seed = int(payload["random_seed"])
     session_cfg.n_threads = int(payload["n_geant4_threads"])
     session_cfg.em_production_cut_mm = float(payload.get("em_production_cut_mm", 0.0))
-    session_cfg.record_seu_events = bool(payload.get("record_seu_events", False))
+    session_cfg.record_seu_events = diagnostic_dir is not None
     session_cfg.diagnostic_min_Eion_mev = float(
         payload.get("diagnostic_min_Eion_mev", 0.001)
     )
+    if diagnostic_dir is not None:
+        session_cfg.diagnostic_dir = str(diagnostic_dir)
+        # payloads written before RNG-state capture existed have none
+        session_cfg.rng_state_min_Eion_mev = float(
+            payload.get("rng_state_min_Eion_mev", 0.0)
+        )
+    session_cfg.device_components = _bridge_components(bridge, payload)
+    return session_cfg
+
+
+def load_source(session, payload: dict[str, Any]) -> None:
+    """Load the payload's bank or per-species distributions into a session."""
+    if str(payload["source_mode"]) == "bank":
+        session.load_primaries(np.ascontiguousarray(payload["bank"], dtype=np.float64))
+        return
+    # species run in load order, each for its own event count
+    for block in source_blocks(payload):
+        session.load_source_distribution(
+            np.ascontiguousarray(payload["box_bounds_mm"], dtype=np.float64),
+            np.ascontiguousarray(block["mu_edges"], dtype=np.float64),
+            np.ascontiguousarray(block["azi_edges"], dtype=np.float64),
+            np.ascontiguousarray(block["energy_edges_mev"], dtype=np.float64),
+            np.ascontiguousarray(block["weights"], dtype=np.float64),
+            int(block["Nu"]),
+            int(block["Nv"]),
+            int(block["n_events"]),
+            int(block["pdg"]),
+        )
+
+
+def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
+    payload = read_payload(path)
+    bridge = load_bridge(str(payload["bridge_build_dir"]))
+
     diagnostic_dir = None
-    if session_cfg.record_seu_events:
+    if bool(payload.get("record_seu_events", False)):
         output_dir = pathlib.Path(payload["geant4_output_path"]).parent
         output_dir.mkdir(parents=True, exist_ok=True)
         diagnostic_dir = pathlib.Path(
             tempfile.mkdtemp(prefix="mcdc_g4_seu_", dir=output_dir)
         )
-        session_cfg.diagnostic_dir = str(diagnostic_dir)
-    session_cfg.device_components = _bridge_components(bridge, payload)
+    session_cfg = make_session_config(bridge, payload, diagnostic_dir)
 
     timings: dict[str, float] = {}
 
@@ -333,22 +365,7 @@ def run_payload(path: str | pathlib.Path) -> dict[str, Any]:
 
     load_wall_start = time.perf_counter()
     load_cpu_start = time.process_time()
-    if str(payload["source_mode"]) == "bank":
-        session.load_primaries(np.ascontiguousarray(payload["bank"], dtype=np.float64))
-    else:
-        # species run in load order, each for its own event count
-        for block in source_blocks(payload):
-            session.load_source_distribution(
-                np.ascontiguousarray(payload["box_bounds_mm"], dtype=np.float64),
-                np.ascontiguousarray(block["mu_edges"], dtype=np.float64),
-                np.ascontiguousarray(block["azi_edges"], dtype=np.float64),
-                np.ascontiguousarray(block["energy_edges_mev"], dtype=np.float64),
-                np.ascontiguousarray(block["weights"], dtype=np.float64),
-                int(block["Nu"]),
-                int(block["Nv"]),
-                int(block["n_events"]),
-                int(block["pdg"]),
-            )
+    load_source(session, payload)
     timings["geant4_source_load_wall_s"] = time.perf_counter() - load_wall_start
     timings["geant4_source_load_cpu_s"] = time.process_time() - load_cpu_start
 

@@ -24,6 +24,9 @@ class Geant4HandoffConfig:
     em_production_cut_mm: float = 0.0
     record_seu_events: bool = False
     diagnostic_min_Eion_mev: float = 0.001
+    # with record_seu_events, save the starting RNG state of events whose largest
+    # SV ionizing deposit reaches this, for exact replay (0 = off)
+    rng_state_min_Eion_mev: float = 0.1
     source_mode: str = "bank"
     # Distribution mode: one current-in source tally and event count per species,
     # as dicts {"particle": "neutron"|"electron"|"proton", "tally": name,
