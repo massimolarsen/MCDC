@@ -1,9 +1,9 @@
 #!/bin/bash -l
 #SBATCH --job-name=cubesat-np
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
+#SBATCH --ntasks=16
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=32G
+#SBATCH --mem=48G
 #SBATCH --time=24:00:00
 #SBATCH --output=cubesat-np-%j.out
 

@@ -22,9 +22,9 @@ os.chdir(RUN_DIR)
 # Continuous-energy materials use the local HDF5 nuclear data library.
 # Nuclide compositions are atom densities in atoms/barn-cm.
 #
-# Neutron + proton run: ECSS neutrons and AP9 trapped protons, sampled in equal
-# numbers, both up to 200 MeV. MCDC_LIB must hold combined neutron + proton
-# nuclide files at 300 K (hdf5libProton/with_neutron_200MeV): JENDL-5 neutrons
+# Neutron + proton run: ECSS neutrons and AP9 trapped protons (1M neutron and
+# 9M proton histories, see SPECIES_HISTORIES), both up to 200 MeV. MCDC_LIB
+# must hold combined neutron + proton nuclide files at 300 K (hdf5libProton/with_neutron_200MeV): JENDL-5 neutrons
 # (FENDL-3.0 for Li7) and TENDL-2021 protons with Geant4 stopping powers, see
 # tools/data_library_generator/proton.
 # =============================================================================
@@ -393,8 +393,12 @@ boundary_sources = [
     ),
 ]
 
-# Equal numbers of neutron and proton histories: each species gets half the
-# source probability, spread evenly over the six faces.
+# MC/DC histories per species, spread evenly over the six faces. Few protons
+# reach the SV boxes (~0.02-0.5% of proton histories cross into one), so
+# protons get most of the histories. Scale each species to its physical flux
+# with its own history count, N_particle * probability.
+SPECIES_HISTORIES = {"neutron": 1_000_000, "proton": 9_000_000}
+N_HISTORIES = sum(SPECIES_HISTORIES.values())
 sources = []
 for particle, (energy_ev, pdf) in source_spectra.items():
     for source_bounds in boundary_sources:
@@ -403,7 +407,7 @@ for particle, (energy_ev, pdf) in source_spectra.items():
                 **source_bounds,
                 energy=[energy_ev, pdf],
                 particle_type=particle,
-                probability=1.0 / (6.0 * len(source_spectra)),
+                probability=SPECIES_HISTORIES[particle] / (6.0 * N_HISTORIES),
             )
         )
 
@@ -488,7 +492,7 @@ for i, (name, _, bounds) in enumerate(sensitive_volumes):
     else:
         mcdc.add_geant4_handoff(**handoff)
 
-simulation.settings.N_particle = 2000000
+simulation.settings.N_particle = N_HISTORIES
 simulation.settings.output_name = "mcdc_h5/cubesat_CE_G4_NP"
 simulation.settings.active_bank_buffer = 2000
 simulation.settings.use_progress_bar = False
