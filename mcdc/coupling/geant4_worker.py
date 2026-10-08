@@ -313,10 +313,12 @@ def make_session_config(bridge, payload: dict[str, Any], diagnostic_dir=None):
     )
     if diagnostic_dir is not None:
         session_cfg.diagnostic_dir = str(diagnostic_dir)
-        # payloads written before RNG-state capture existed have none
-        session_cfg.rng_state_min_Eion_mev = float(
-            payload.get("rng_state_min_Eion_mev", 0.0)
-        )
+        # only bridge builds with event replay capture RNG states; payloads
+        # written before the capture existed have no threshold
+        if hasattr(session_cfg, "rng_state_min_Eion_mev"):
+            session_cfg.rng_state_min_Eion_mev = float(
+                payload.get("rng_state_min_Eion_mev", 0.0)
+            )
     session_cfg.device_components = _bridge_components(bridge, payload)
     return session_cfg
 

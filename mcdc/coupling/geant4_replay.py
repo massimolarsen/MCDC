@@ -235,8 +235,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--event", required=True, type=int)
     parser.add_argument("--bridge-build", required=True, help="bridge build with replay support")
     parser.add_argument("--out", type=pathlib.Path, help="default: <region>_<event>_tracks.h5")
-    parser.add_argument("--mode", choices=("auto", "seeds", "state"), default="auto",
-                        help="auto uses a saved RNG state when the run has one")
+    # not --mode: importing mcdc parses that option itself
+    parser.add_argument("--by", choices=("auto", "seeds", "state"), default="auto",
+                        help="replay from the run's seed or a saved RNG state; auto "
+                        "uses the state when the run saved one")
     parser.add_argument("--original", type=pathlib.Path,
                         help="region Geant4 output (default: from the payload name)")
     parser.add_argument("--allow-mismatch", action="store_true",
@@ -245,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
 
     out = args.out or pathlib.Path(f"{args.region}_{args.event}_tracks.h5")
     replay, results, diagnostic_dir = replay_event(
-        args.run_dir, args.region, args.event, args.bridge_build, args.mode, args.original
+        args.run_dir, args.region, args.event, args.bridge_build, args.by, args.original
     )
     partial = out.with_name(out.name + ".partial")
     replayed = write_replay(partial, replay, results, diagnostic_dir)
