@@ -1,5 +1,32 @@
 ACTIVE_SV_THICKNESS_MM = 0.001  # 1 um Geant4 active sensitive volumes
 
+# Packages are a silica-filled epoxy mold compound and boards are glass-epoxy
+# FR-4, both defined in the Geant4 bridge. These are generic estimates, not
+# specific parts.
+PACKAGE_MATERIAL = "MoldCompound"
+BOARD_MATERIAL = "FR4"
+
+# Back-end-of-line metal stack on the transistor surface, as slabs from the
+# silicon outward: (layer, material, thickness in um). A generic ~9.5 um
+# multi-level copper process; each metal slab holds the metal of its levels at
+# a typical fill (~40% Cu, ~15% W contacts), the rest of each level is oxide.
+BEOL_LAYERS_UM = (
+    ("Contact", "G4_W", 0.08),
+    ("ContactOxide", "G4_SILICON_DIOXIDE", 0.42),
+    ("LocalCu", "G4_Cu", 0.5),
+    ("LocalOxide", "G4_SILICON_DIOXIDE", 2.5),
+    ("IntermediateCu", "G4_Cu", 0.7),
+    ("IntermediateOxide", "G4_SILICON_DIOXIDE", 1.3),
+    ("TopCu", "G4_Cu", 1.2),
+    ("Passivation", "G4_SILICON_DIOXIDE", 2.8),
+)
+BEOL_THICKNESS_MM = sum(layer[2] for layer in BEOL_LAYERS_UM) * 1.0e-3
+
+# Flip-chip interconnect between the metal stack and the package substrate:
+# solder bumps as an equivalent tin sheet (~25% of ~80 um bumps), then underfill.
+BUMP_THICKNESS_MM = 0.020
+UNDERFILL_THICKNESS_MM = 0.050
+
 
 def _device_component(name, material, center_mm, size_mm, parent="", score=False):
     return {
@@ -12,56 +39,102 @@ def _device_component(name, material, center_mm, size_mm, parent="", score=False
     }
 
 
-def _packaged_ic(name, center_mm, package_size_mm, die_size_mm, active_size_mm):
-    active_size_mm = (*active_size_mm[:2], ACTIVE_SV_THICKNESS_MM)
-    package_name = f"{name}Package"
+def _die(name, center_xy, die_size_mm, die_bottom_z, active_size_mm, package, flip=False):
+    """Die, its 1 um SV at the transistor surface, and the metal stack on it.
+
+    Face-up (wire-bonded) dies have the transistor surface on top; flip-chip
+    dies face the board, so the SV and metal stack are on the die bottom.
+    """
+    x, y = center_xy
     die_name = f"{name}Die"
-    center_x, center_y, center_z = center_mm
-    package_bottom = center_z - 0.5 * package_size_mm[2]
-    die_center_z = package_bottom + 0.25 + 0.5 * die_size_mm[2]
-    active_center_z = die_center_z + 0.5 * die_size_mm[2] - 0.5 * active_size_mm[2] - 0.01
-    return [
-        _device_component(package_name, "G4_BAKELITE", center_mm, package_size_mm),
+    die_top_z = die_bottom_z + die_size_mm[2]
+    surface_z, direction = (die_bottom_z, -1.0) if flip else (die_top_z, 1.0)
+    components = [
         _device_component(
             die_name,
             "G4_Si",
-            [center_x, center_y, die_center_z],
+            [x, y, die_bottom_z + 0.5 * die_size_mm[2]],
             die_size_mm,
-            package_name,
+            package,
         ),
         _device_component(
             f"{name}Active",
             "G4_Si",
-            [center_x, center_y, active_center_z],
-            active_size_mm,
+            [x, y, surface_z - direction * 0.5 * ACTIVE_SV_THICKNESS_MM],
+            [*active_size_mm[:2], ACTIVE_SV_THICKNESS_MM],
             die_name,
             score=True,
         ),
     ]
+    z = surface_z
+    for layer, material, thickness_um in BEOL_LAYERS_UM:
+        thickness = thickness_um * 1.0e-3
+        components.append(
+            _device_component(
+                f"{name}BEOL{layer}",
+                material,
+                [x, y, z + direction * 0.5 * thickness],
+                [die_size_mm[0], die_size_mm[1], thickness],
+                package,
+            )
+        )
+        z += direction * thickness
+    return components
+
+
+def _packaged_ic(name, center_mm, package_size_mm, die_size_mm, active_size_mm, flip=False):
+    package_name = f"{name}Package"
+    center_x, center_y, center_z = center_mm
+    package_bottom = center_z - 0.5 * package_size_mm[2]
+    die_bottom = package_bottom + 0.25
+    components = [
+        _device_component(package_name, PACKAGE_MATERIAL, center_mm, package_size_mm),
+        *_die(
+            name,
+            (center_x, center_y),
+            die_size_mm,
+            die_bottom,
+            active_size_mm,
+            package_name,
+            flip,
+        ),
+    ]
+    if flip:
+        # bumps and underfill under the metal stack, on an FR-4 package substrate
+        bump_top = die_bottom - BEOL_THICKNESS_MM
+        underfill_top = bump_top - BUMP_THICKNESS_MM
+        substrate_top = underfill_top - UNDERFILL_THICKNESS_MM
+        for part, material, top, thickness in (
+            ("Bumps", "G4_Sn", bump_top, BUMP_THICKNESS_MM),
+            ("Underfill", PACKAGE_MATERIAL, underfill_top, UNDERFILL_THICKNESS_MM),
+        ):
+            components.append(
+                _device_component(
+                    f"{name}{part}",
+                    material,
+                    [center_x, center_y, top - 0.5 * thickness],
+                    [die_size_mm[0], die_size_mm[1], thickness],
+                    package_name,
+                )
+            )
+        components.append(
+            _device_component(
+                f"{name}Substrate",
+                BOARD_MATERIAL,
+                [center_x, center_y, 0.5 * (package_bottom + substrate_top)],
+                [package_size_mm[0], package_size_mm[1], substrate_top - package_bottom],
+                package_name,
+            )
+        )
+    return components
 
 
 def _eps_control_ic(name, center_mm, package_size_mm, die_size_mm, active_size_mm):
-    active_size_mm = (*active_size_mm[:2], ACTIVE_SV_THICKNESS_MM)
     package_name = f"{name}Package"
-    die_name = f"{name}Die"
     center_x, center_y, _ = center_mm
     return [
-        _device_component(package_name, "G4_BAKELITE", center_mm, package_size_mm),
-        _device_component(
-            die_name,
-            "G4_Si",
-            [center_x, center_y, 0.30],
-            die_size_mm,
-            package_name,
-        ),
-        _device_component(
-            f"{name}Active",
-            "G4_Si",
-            [center_x, center_y, 0.415],
-            active_size_mm,
-            die_name,
-            score=True,
-        ),
+        _device_component(package_name, PACKAGE_MATERIAL, center_mm, package_size_mm),
+        *_die(name, (center_x, center_y), die_size_mm, 0.15, active_size_mm, package_name),
     ]
 
 
@@ -75,14 +148,11 @@ def build_detector_sizes_mm():
 
 
 def build_device_components():
-    # G4_BAKELITE is a built-in Geant4 resin proxy for package epoxy. It is more
-    # realistic than polyethylene for molded packages, but it is not a filled
-    # commercial mold compound.
     return {
         "obc": [
             _device_component(
                 "OBC_Board",
-                "G4_BAKELITE",
+                BOARD_MATERIAL,
                 [0.0, 0.0, -2.65],
                 [34.0, 25.0, 0.50],
             ),
@@ -94,42 +164,44 @@ def build_device_components():
             ),
             # Board-level OBC model: processor, volatile memory, nonvolatile
             # memory, and support logic are independent SEE-sensitive targets.
+            # The processor and FPGA are flip-chip, the memories wire-bonded.
             *_packaged_ic(
                 "OBC_Processor",
                 [-7.0, -4.0, -1.45],
                 [12.0, 12.0, 1.60],
                 [8.0, 8.0, 0.35],
-                [6.5, 6.5, 0.05],
+                [6.5, 6.5],
+                flip=True,
             ),
             *_packaged_ic(
                 "OBC_SRAM",
                 [7.0, -5.0, -1.65],
                 [8.0, 6.0, 1.20],
                 [5.5, 4.0, 0.30],
-                [4.5, 3.0, 0.05],
+                [4.5, 3.0],
             ),
             *_packaged_ic(
                 "OBC_Flash",
                 [7.0, 5.0, -1.65],
                 [8.0, 6.0, 1.20],
                 [5.5, 4.0, 0.30],
-                [4.5, 3.0, 0.05],
+                [4.5, 3.0],
             ),
             *_packaged_ic(
                 "OBC_FPGA",
                 [-7.0, 7.5, -1.55],
                 [9.0, 8.0, 1.40],
                 [6.0, 5.0, 0.30],
-                [5.0, 4.0, 0.05],
+                [5.0, 4.0],
+                flip=True,
             ),
         ],
         "eps": [
-            # EPS electronics board inside the coarse MCDC EPS handoff volume.
-            # G4_BAKELITE is used as an FR-4/package proxy; the copper planes
-            # provide passive shielding and routing material.
+            # EPS electronics board inside the coarse MCDC EPS handoff volume;
+            # the copper planes provide passive shielding and routing material.
             _device_component(
                 "EPS_Board",
-                "G4_BAKELITE",
+                BOARD_MATERIAL,
                 [0.0, 0.0, -0.45],
                 [24.0, 63.0, 0.70],
             ),
@@ -146,28 +218,28 @@ def build_device_components():
                 [-6.0, -20.0, 0.35],
                 [7.0, 7.0, 0.70],
                 [4.5, 4.5, 0.30],
-                [3.5, 3.5, 0.05],
+                [3.5, 3.5],
             ),
             *_eps_control_ic(
                 "EPS_Charger",
                 [6.0, -20.0, 0.35],
                 [7.0, 7.0, 0.70],
                 [4.5, 4.5, 0.30],
-                [3.5, 3.5, 0.05],
+                [3.5, 3.5],
             ),
             *_eps_control_ic(
                 "EPS_FuelGauge",
                 [-5.0, 16.0, 0.35],
                 [6.0, 6.0, 0.70],
                 [3.5, 3.5, 0.30],
-                [2.5, 2.5, 0.05],
+                [2.5, 2.5],
             ),
             *_eps_control_ic(
                 "EPS_Controller",
                 [5.0, 16.0, 0.35],
                 [8.0, 8.0, 0.70],
                 [5.0, 5.0, 0.30],
-                [4.0, 4.0, 0.05],
+                [4.0, 4.0],
             ),
             # A small unscored pouch-cell coupon gives local battery material
             # context without making bulk cell edep the EPS SEE metric.
@@ -226,28 +298,21 @@ def build_device_components():
             ),
             _device_component(
                 "ADCS_ControllerPackage",
-                "G4_BAKELITE",
+                PACKAGE_MATERIAL,
                 [-10.0, 0.0, -3.7],
                 [12.0, 12.0, 2.0],
             ),
-            _device_component(
-                "ADCS_ControllerDie",
-                "G4_Si",
-                [-10.0, 0.0, -4.35],
+            *_die(
+                "ADCS_Controller",
+                (-10.0, 0.0),
                 [8.0, 8.0, 0.5],
+                -4.6,
+                [6.0, 6.0],
                 "ADCS_ControllerPackage",
             ),
             _device_component(
-                "ADCS_ControllerActive",
-                "G4_Si",
-                [-10.0, 0.0, -4.135],
-                [6.0, 6.0, ACTIVE_SV_THICKNESS_MM],
-                "ADCS_ControllerDie",
-                True,
-            ),
-            _device_component(
                 "ADCS_MEMSPackage",
-                "G4_BAKELITE",
+                PACKAGE_MATERIAL,
                 [4.0, 0.0, -3.2],
                 [10.0, 10.0, 3.0],
             ),
@@ -258,53 +323,39 @@ def build_device_components():
                 [8.0, 8.0, 1.6],
                 "ADCS_MEMSPackage",
             ),
-            _device_component(
-                "ADCS_MEMSDie",
-                "G4_Si",
-                [4.0, 0.0, -3.8],
+            *_die(
+                "ADCS_MEMS",
+                (4.0, 0.0),
                 [6.0, 6.0, 0.5],
+                -4.05,
+                [4.0, 4.0],
                 "ADCS_MEMSPackage",
             ),
             _device_component(
-                "ADCS_MEMSActive",
-                "G4_Si",
-                [4.0, 0.0, -3.585],
-                [4.0, 4.0, ACTIVE_SV_THICKNESS_MM],
-                "ADCS_MEMSDie",
-                True,
-            ),
-            _device_component(
                 "ADCS_MagnetometerPackage",
-                "G4_BAKELITE",
+                PACKAGE_MATERIAL,
                 [13.0, 0.0, -3.8],
                 [6.0, 6.0, 1.8],
             ),
-            _device_component(
-                "ADCS_MagnetometerDie",
-                "G4_Si",
-                [13.0, 0.0, -4.35],
+            *_die(
+                "ADCS_Magnetometer",
+                (13.0, 0.0),
                 [3.0, 3.0, 0.5],
+                -4.6,
+                [2.0, 2.0],
                 "ADCS_MagnetometerPackage",
-            ),
-            _device_component(
-                "ADCS_MagnetometerActive",
-                "G4_Si",
-                [13.0, 0.0, -4.16],
-                [2.0, 2.0, ACTIVE_SV_THICKNESS_MM],
-                "ADCS_MagnetometerDie",
-                True,
             ),
             *_packaged_ic(
                 "ADCS_ActuatorDriver",
                 [0.0, 12.0, -3.7],
                 [10.0, 8.0, 1.4],
                 [6.0, 4.0, 0.30],
-                [5.0, 3.0, 0.05],
+                [5.0, 3.0],
             ),
         ],
         "comms": [
             _device_component(
-                "Comms_Package", "G4_BAKELITE", [0.0, 0.0, 0.0], [10.5, 9.2, 2.4]
+                "Comms_Package", PACKAGE_MATERIAL, [0.0, 0.0, 0.0], [10.5, 9.2, 2.4]
             ),
             _device_component(
                 "Comms_Solder",
@@ -348,50 +399,29 @@ def build_device_components():
                 [9.0, 0.5, 0.1],
                 "Comms_Package",
             ),
-            _device_component(
-                "Comms_RFDie",
-                "G4_Si",
-                [-2.0, 0.0, -0.65],
+            *_die(
+                "Comms_RF",
+                (-2.0, 0.0),
                 [3.0, 3.2, 0.35],
+                -0.825,
+                [2.3, 2.4],
                 "Comms_Package",
             ),
-            _device_component(
-                "Comms_RFActive",
-                "G4_Si",
-                [-2.0, 0.0, -0.505],
-                [2.3, 2.4, ACTIVE_SV_THICKNESS_MM],
-                "Comms_RFDie",
-                True,
-            ),
-            _device_component(
-                "Comms_BasebandDie",
-                "G4_Si",
-                [1.8, -1.8, -0.65],
+            *_die(
+                "Comms_Baseband",
+                (1.8, -1.8),
                 [3.0, 2.4, 0.35],
+                -0.825,
+                [2.3, 1.8],
                 "Comms_Package",
             ),
-            _device_component(
-                "Comms_BasebandActive",
-                "G4_Si",
-                [1.8, -1.8, -0.505],
-                [2.3, 1.8, ACTIVE_SV_THICKNESS_MM],
-                "Comms_BasebandDie",
-                True,
-            ),
-            _device_component(
-                "Comms_ControlDie",
-                "G4_Si",
-                [1.8, 1.8, -0.65],
+            *_die(
+                "Comms_Control",
+                (1.8, 1.8),
                 [2.6, 2.2, 0.35],
+                -0.825,
+                [2.0, 1.6],
                 "Comms_Package",
-            ),
-            _device_component(
-                "Comms_ControlActive",
-                "G4_Si",
-                [1.8, 1.8, -0.505],
-                [2.0, 1.6, ACTIVE_SV_THICKNESS_MM],
-                "Comms_ControlDie",
-                True,
             ),
         ],
     }
