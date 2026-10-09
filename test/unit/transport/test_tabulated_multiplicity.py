@@ -23,6 +23,10 @@ pytestmark = pytest.mark.skipif(
 YIELD = 0.5
 
 
+def _neutron_transport(simulation):
+    simulation.settings.neutron_transport.active = True
+
+
 @pytest.fixture
 def tabulated_yield_library(tmp_path, monkeypatch):
     """U-235 whose MT-5 has an energy-dependent (here constant) tabulated yield."""
@@ -52,7 +56,9 @@ def find_MT5(simulation, data, nuclide):
 
 def test_tabulated_multiplicity(prepare_simulation, tabulated_yield_library):
     fuel = mcdc.Material(nuclide_composition={"U235": 0.05})
-    container, data = prepare_simulation(cells=(mcdc.Cell(fill=fuel),))
+    container, data = prepare_simulation(
+        cells=(mcdc.Cell(fill=fuel),), configure=_neutron_transport
+    )
     simulation = container[0]
     nuclide = simulation["nuclides"][0]
     reaction = find_MT5(simulation, data, nuclide)
@@ -70,7 +76,7 @@ def test_tabulated_multiplicity(prepare_simulation, tabulated_yield_library):
         particles[0]["uz"] = 1.0
         particles[0]["particle_type"] = PARTICLE_NEUTRON
         particles[0]["rng_seed"] = seed
-        collision_data = np.zeros(1, type_.collision_data)
+        collision_data = np.zeros(1, type_.interaction_data)
         sample_inelastic_scattering(
             reaction, particles, collision_data, nuclide, simulation, data
         )
@@ -85,7 +91,9 @@ def test_tabulated_multiplicity(prepare_simulation, tabulated_yield_library):
 def test_integer_multiplicity_unchanged(prepare_simulation, monkeypatch):
     monkeypatch.setenv("MCDC_LIB", os.path.abspath(DATA_DIR))
     fuel = mcdc.Material(nuclide_composition={"U235": 0.05})
-    container, data = prepare_simulation(cells=(mcdc.Cell(fill=fuel),))
+    container, data = prepare_simulation(
+        cells=(mcdc.Cell(fill=fuel),), configure=_neutron_transport
+    )
     simulation = container[0]
     nuclide = simulation["nuclides"][0]
     for i in range(nuclide["N_neutron_inelastic_scattering_reaction"]):
