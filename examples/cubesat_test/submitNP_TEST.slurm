@@ -6,6 +6,8 @@
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00
 #SBATCH --output=cubesat-np-test-%j.out
+# cn-gpu3/4 lack libnsl.so.2, which Geant4's GDML library (via Xerces-C) needs
+#SBATCH --exclude=cn-gpu[3-4]
 
 set -eo pipefail
 
