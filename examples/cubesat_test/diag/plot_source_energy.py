@@ -44,8 +44,27 @@ def output_prefix(mcdc_path):
     return ""
 
 
-def source_energy_distribution(file, region):
-    tally_path = f"tallies/{region}_g4_source"
+SPECIES = ("neutron", "proton", "electron")
+
+
+def source_tallies(file, region):
+    """Return [(species or None, tally path)]: one combined source tally, or one
+    per species for runs that hand several particle types to Geant4."""
+    combined = f"tallies/{region}_g4_source"
+    if combined in file:
+        return [(None, combined)]
+    return [
+        (species, f"tallies/{region}_{species}_g4_source")
+        for species in SPECIES
+        if f"tallies/{region}_{species}_g4_source" in file
+    ]
+
+
+def run_species(file):
+    return [species for species, _ in source_tallies(file, REGIONS[0])]
+
+
+def source_energy_distribution(file, tally_path):
     mean = file[f"{tally_path}/current-in/mean"][()]
     energy_edges = file[f"{tally_path}/grid/energy"][()]
     energy_totals = mean.sum(axis=(0, 1, 3, 4, 5, 6))
@@ -53,15 +72,18 @@ def source_energy_distribution(file, region):
 
 
 def spatial_current(file, region):
-    tally_path = f"tallies/{region}_g4_source"
-    mean = file[f"{tally_path}/current-in/mean"][()]
-    face_labels = [
-        clean_face_label(
-            label.decode("utf-8") if isinstance(label, bytes) else str(label)
-        )
-        for label in file[f"{tally_path}/grid/face"][()]
-    ]
-    return face_labels, mean.sum(axis=(0, 1, 2, 3))
+    # summed over species: every species tally uses the same face mesh
+    total = None
+    for _, tally_path in source_tallies(file, region):
+        mean = file[f"{tally_path}/current-in/mean"][()].sum(axis=(0, 1, 2, 3))
+        total = mean if total is None else total + mean
+        face_labels = [
+            clean_face_label(
+                label.decode("utf-8") if isinstance(label, bytes) else str(label)
+            )
+            for label in file[f"{tally_path}/grid/face"][()]
+        ]
+    return face_labels, total
 
 
 def clean_face_label(label):
@@ -95,24 +117,34 @@ def positive_log_edges(edges):
 
 
 def plot_source_current(mcdc_path, output_path):
-    fig, ax = plt.subplots(figsize=(8, 5))
     with h5py.File(mcdc_path, "r") as file:
-        for region, linestyle in zip(REGIONS, LINESTYLES):
-            energy_edges, energy_totals = source_energy_distribution(file, region)
-            ax.stairs(
-                energy_totals,
-                energy_edges,
-                label=region,
-                linestyle=linestyle,
-                color=REGION_COLORS[region],
-            )
-
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("Source energy [eV]")
-    ax.set_ylabel("MCDC current-in [crossings/source]")
-    ax.set_title("CubeSat Geant4 Handoff Source Current")
-    ax.legend(frameon=False)
+        species_list = run_species(file)
+        # one panel per species; species energy grids differ
+        fig, axes = plt.subplots(
+            1, len(species_list), figsize=(8 * len(species_list), 5), squeeze=False
+        )
+        for ax, species in zip(axes[0], species_list):
+            for region, linestyle in zip(REGIONS, LINESTYLES):
+                tally_path = dict(source_tallies(file, region)).get(species)
+                if tally_path is None:
+                    continue
+                energy_edges, energy_totals = source_energy_distribution(
+                    file, tally_path
+                )
+                ax.stairs(
+                    energy_totals,
+                    energy_edges,
+                    label=region,
+                    linestyle=linestyle,
+                    color=REGION_COLORS[region],
+                )
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+            ax.set_xlabel("Source energy [eV]")
+            ax.set_ylabel("MCDC current-in [crossings/source]")
+            title = "CubeSat Geant4 Handoff Source Current"
+            ax.set_title(title if species is None else f"{title}: {species}s")
+            ax.legend(frameon=False)
     fig.tight_layout()
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
@@ -188,7 +220,7 @@ def plot_spatial_current(mcdc_path, output_path):
             ax.set_xticks(range(all_spatial[region].shape[1]))
             ax.set_yticks(range(all_spatial[region].shape[2]))
 
-    fig.suptitle("CubeSat MCDC Spatial Current by Handoff Face")
+    fig.suptitle("CubeSat MCDC Spatial Current by Handoff Face (all source species)")
     fig.colorbar(
         image,
         ax=axes,

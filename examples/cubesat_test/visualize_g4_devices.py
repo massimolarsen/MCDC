@@ -4,7 +4,12 @@ import argparse
 from pathlib import Path
 import numpy as np
 
-from cubesat_G4_devices import build_detector_sizes_mm, build_device_components
+import cubesat_G4_devices
+import cubesat_G4_devices_1um
+
+# "1um" is the current model (1 um SVs, metal stacks, mold compound, FR-4);
+# "original" is the earlier device model
+GEOMETRIES = {"1um": cubesat_G4_devices_1um, "original": cubesat_G4_devices}
 
 
 MATERIAL_COLORS = {
@@ -18,9 +23,18 @@ MATERIAL_COLORS = {
     "G4_Si": "royalblue",
     "G4_Sn": "silver",
     "LiCoO2": "crimson",
+    "MoldCompound": "sienna",
+    "FR4": "seagreen",
+    "G4_W": "purple",
+    "G4_SILICON_DIOXIDE": "paleturquoise",
 }
 
 SCORED_COLOR = "magenta"
+
+
+def _load_geometry(name):
+    module = GEOMETRIES[name]
+    return module.build_device_components(), module.build_detector_sizes_mm()
 
 
 def _as_array(component, field):
@@ -75,6 +89,19 @@ def _region_offsets(detector_sizes, regions, spacing_mm):
         offsets[region] = np.array([x_cursor - center_x, 0.0, 0.0])
         x_cursor += width + spacing_mm
     return offsets
+
+
+def _focus_bounds(devices, regions, offsets, name, z_scale):
+    """Camera bounds around one component, in the z-scaled view."""
+    for region in regions:
+        for component in devices[region]:
+            if component["name"] == name:
+                low, high = _bounds(component)
+                low, high = low + offsets[region], high + offsets[region]
+                pad = 0.15 * (high[:2] - low[:2])
+                return [low[0] - pad[0], high[0] + pad[0], low[1] - pad[1], high[1] + pad[1],
+                        low[2] * z_scale, high[2] * z_scale]
+    raise SystemExit(f"No component named {name!r} in region(s) {regions}")
 
 
 def _print_summary(devices, detector_sizes, regions):
@@ -140,21 +167,20 @@ def _add_pyvista_envelope(plotter, pv, size_mm, offset):
     )
 
 
-def _visualize_pyvista(args):
+def _visualize_pyvista(args, devices, detector_sizes):
     try:
         import pyvista as pv
     except ImportError as exc:
         print("PyVista is not installed. Use --backend matplotlib.")
         raise SystemExit(1) from exc
 
-    devices = build_device_components()
-    detector_sizes = build_detector_sizes_mm()
     regions = _selected_regions(devices, args.region)
     offsets = _region_offsets(detector_sizes, regions, args.spacing_mm)
     plotter = pv.Plotter(off_screen=bool(args.screenshot))
     plotter.set_background("white")
-    plotter.add_axes()
-    plotter.show_grid()
+    if args.axes:
+        plotter.add_axes()
+        plotter.show_grid()
 
     labels = []
     for region in regions:
@@ -206,13 +232,21 @@ def _visualize_pyvista(args):
             always_visible=False,
         )
 
-    plotter.add_text(
-        f"CubeSat Geant4 devices: {args.region}",
-        position="upper_left",
-        font_size=12,
-        color="black",
-    )
+    if args.title:
+        plotter.add_text(
+            f"CubeSat Geant4 devices: {args.region}",
+            position="upper_left",
+            font_size=12,
+            color="black",
+        )
     plotter.camera_position = "iso"
+    # stretch z so micron-thin layers (metal stacks, SVs) become visible
+    if args.z_scale != 1.0:
+        plotter.set_scale(zscale=args.z_scale)
+    if args.focus:
+        plotter.reset_camera(
+            bounds=_focus_bounds(devices, regions, offsets, args.focus, args.z_scale)
+        )
 
     if args.screenshot:
         output = Path(args.screenshot)
@@ -220,6 +254,23 @@ def _visualize_pyvista(args):
         plotter.show(screenshot=str(output), auto_close=True)
         print(f"Wrote {output}")
     else:
+        # press "k" in the window to save the current view
+        shot_dir = Path(args.screenshot_dir)
+        count = [0]
+
+        def save_view():
+            shot_dir.mkdir(parents=True, exist_ok=True)
+            count[0] += 1
+            name = args.focus or args.region
+            path = shot_dir / f"devices_{name}_{count[0]}.png"
+            while path.exists():
+                count[0] += 1
+                path = shot_dir / f"devices_{name}_{count[0]}.png"
+            plotter.screenshot(str(path), scale=args.screenshot_scale)
+            print(f"Wrote {path}")
+
+        plotter.add_key_event("k", save_view)
+        print('Press "k" in the window to save the current view; "q" closes it.')
         plotter.show()
 
 
@@ -280,7 +331,7 @@ def _set_axes_equal(ax, low, high):
     ax.set_zlabel("z [mm]")
 
 
-def _visualize_matplotlib(args):
+def _visualize_matplotlib(args, devices, detector_sizes):
     if args.screenshot:
         import matplotlib
 
@@ -289,8 +340,6 @@ def _visualize_matplotlib(args):
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    devices = build_device_components()
-    detector_sizes = build_detector_sizes_mm()
     regions = _selected_regions(devices, args.region)
     offsets = _region_offsets(detector_sizes, regions, args.spacing_mm)
     fig = plt.figure(figsize=(10, 7))
@@ -351,25 +400,41 @@ def _visualize_matplotlib(args):
         plt.show()
 
 
-def visualize(args):
+def visualize(args, devices, detector_sizes):
     if args.backend == "pyvista":
-        _visualize_pyvista(args)
+        _visualize_pyvista(args, devices, detector_sizes)
         return
     if args.backend == "matplotlib":
-        _visualize_matplotlib(args)
+        _visualize_matplotlib(args, devices, detector_sizes)
         return
 
     try:
         import pyvista  # noqa: F401
     except ImportError:
-        _visualize_matplotlib(args)
+        _visualize_matplotlib(args, devices, detector_sizes)
     else:
-        _visualize_pyvista(args)
+        _visualize_pyvista(args, devices, detector_sizes)
 
 
 def parse_args():
-    devices = build_device_components()
+    devices = cubesat_G4_devices_1um.build_device_components()
     parser = argparse.ArgumentParser(description="Visualize CubeSat Geant4 devices.")
+    parser.add_argument(
+        "--geometry",
+        choices=list(GEOMETRIES),
+        default="1um",
+        help="Device model: the current 1 um model or the original one.",
+    )
+    parser.add_argument(
+        "--focus",
+        help="Frame one component, e.g. Comms_BasebandDie (PyVista only).",
+    )
+    parser.add_argument(
+        "--z-scale",
+        type=float,
+        default=1.0,
+        help="Vertical exaggeration, e.g. 50 to see metal-stack layers (PyVista only).",
+    )
     parser.add_argument(
         "--region",
         choices=["all", *devices.keys()],
@@ -417,6 +482,29 @@ def parse_args():
         help="Write a screenshot instead of opening an interactive window.",
     )
     parser.add_argument(
+        "--no-axes",
+        dest="axes",
+        action="store_false",
+        help="Hide the labeled grid and the orientation axes (PyVista).",
+    )
+    parser.add_argument(
+        "--no-title",
+        dest="title",
+        action="store_false",
+        help="Hide the title text (PyVista).",
+    )
+    parser.add_argument(
+        "--screenshot-dir",
+        default=".",
+        help='Where "k" saves views in the interactive PyVista window.',
+    )
+    parser.add_argument(
+        "--screenshot-scale",
+        type=int,
+        default=2,
+        help="Resolution multiplier for saved views (2 = twice the window size).",
+    )
+    parser.add_argument(
         "--summary",
         action="store_true",
         help="Print scored-volume summary without opening the viewer.",
@@ -427,13 +515,20 @@ def parse_args():
 
 def main():
     args = parse_args()
-    devices = build_device_components()
-    detector_sizes = build_detector_sizes_mm()
+    devices, detector_sizes = _load_geometry(args.geometry)
+    if args.focus and args.region == "all":
+        # draw only the region holding the focused component
+        args.region = next(
+            (r for r, comps in devices.items() if any(c["name"] == args.focus for c in comps)),
+            "all",
+        )
+    if (args.focus or args.z_scale != 1.0) and args.backend == "matplotlib":
+        raise SystemExit("--focus and --z-scale need the PyVista backend.")
     regions = _selected_regions(devices, args.region)
     if args.summary:
         _print_summary(devices, detector_sizes, regions)
         return
-    visualize(args)
+    visualize(args, devices, detector_sizes)
 
 
 if __name__ == "__main__":
