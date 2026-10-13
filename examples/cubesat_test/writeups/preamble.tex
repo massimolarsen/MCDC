@@ -1,0 +1,28 @@
+% Shared preamble for the CubeSat coupling writeups.
+% Build any writeup with: pdflatex NAME; bibtex NAME; pdflatex NAME; pdflatex NAME
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\sisetup{detect-all, per-mode=symbol}
+\setlist{nosep, leftmargin=*}
+
+% Code paths, relative to the repository roots
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+% MC/DC repository (feature/g4-hpc) and Geant4 bridge repository (main)
+\newcommand{\mcdc}{MC/DC}
+\newcommand{\gfour}{Geant4}
+
+% A labelled assumption, numbered within each writeup
+\newcounter{assumption}
+\newcommand{\assumption}[1]{\refstepcounter{assumption}\par\smallskip\noindent\textbf{Assumption A\theassumption.}~#1\par\smallskip}
+
+\bibliographystyle{unsrtnat}

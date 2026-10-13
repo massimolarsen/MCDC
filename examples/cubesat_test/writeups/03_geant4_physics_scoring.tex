@@ -1,0 +1,94 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 3:\\\gfour{} physics configuration and energy-deposition scoring}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note documents the \gfour{} side of the coupling as it ran for the CubeSat results: the physics list and what it contains, the production thresholds, how energy deposited in the sensitive volumes (SVs) is scored and split into ionizing and non-ionizing parts, and what is written out per run and per event. Code references are to the bridge repository (\code{couple_mcdc_g4}, branch \code{main}): \code{bridge/session.cpp}, \code{bridge/seu_scoring.hpp}, \code{bridge/detector_construction.cpp}. The device geometry and materials are described in the separate geometry writeup.
+\end{abstract}
+
+\section{Versions}
+Production runs used \gfour{} 11.3.2 on the HPC; the local viewer uses 11.4.0. Statements below about \gfour{} internals were checked in the 11.4.0 source \citep{g4source}.
+
+\section{Physics list}
+The handoff requests \code{physics_list="QGSP_BIC_HP"}. The bridge builds it with \code{G4PhysListFactory::GetReferencePhysList}; with no electromagnetic suffix (\code{_EMZ}, \code{_LIV}, \ldots) the factory keeps the list's own constructors. From \code{QGSP_BIC_HP.cc} \citep{g4source,g4physlistguide}:
+\begin{itemize}
+  \item \code{G4EmStandardPhysics_option4} (electromagnetic, ``option 4'');
+  \item \code{G4EmExtraPhysics} (gamma- and lepto-nuclear, synchrotron);
+  \item \code{G4DecayPhysics} and \code{G4RadioactiveDecayPhysics};
+  \item \code{G4HadronElasticPhysicsHP} and \code{G4HadronPhysicsQGSP_BIC_HP}: high-precision data-driven neutron transport below \SI{20}{MeV} (G4NDL \citep{mendoza2014g4ndl}) and the Binary Cascade for nucleon--nucleus inelastic reactions in the energy range of this problem \citep{folger2004binary};
+  \item \code{G4StoppingPhysics}, \code{G4IonElasticPhysics}, \code{G4IonPhysics}.
+\end{itemize}
+The list sets a default range cut of \SI{0.7}{mm} and a proton cut of zero.
+
+Relevant option-4 settings (\code{G4EmStandardPhysics_option4.cc}): electron tracking down to \SI{100}{eV} (\code{SetLowestElectronEnergy}), atomic de-excitation (fluorescence) on, ICRU90 stopping data on, ion step function $(0.1,\ \SI{1}{\micro m})$, the Lindhard--S{\o}rensen model for generic-ion ionization \citep{lindhard1996relativistic}, and nuclear stopping enabled up to \SI{1}{MeV} (\code{SetMaxNIELEnergy(1 MeV)}).
+
+\section{Production thresholds}
+
+\subsection{What the bridge sets}
+With \code{em_production_cut_mm} $>0$ (\SI{0.001}{mm} in the CubeSat input), \code{DetectorConstruction} creates a region \code{ElectronicsRegion} whose root logical volumes are the parents of the scored SVs, i.e.\ the silicon dies. In that region the gamma, e$^-$, and e$^+$ range cuts are \SI{1}{\micro m} and the proton cut is zero. Everything else (packages, metal stack, boards, envelope) keeps the physics list default of \SI{0.7}{mm}.
+
+\gfour{} converts range cuts to energy thresholds per material, with a lower limit of \SI{990}{eV} by default \citep{g4appdev}. The output file records the thresholds actually applied in the region: for G4\_Si, \SI{0.99}{keV} for gamma, e$^-$, and e$^+$, and 0 for protons (run 21738977). The \SI{1}{\micro m} cut therefore sits at the \gfour{} floor in silicon.
+
+\subsection{Proton cut and nuclear recoils}
+The ``proton'' cut sets the recoil threshold of hadronic elastic scattering: \code{G4HadronElasticProcess} passes the proton energy cut of the current material to the model as \code{SetRecoilEnergyThreshold} \citep{g4source}. With a zero proton cut, every elastic recoil nucleus is produced and tracked as an ion, so it deposits its energy through ionization and nuclear stopping rather than locally at the interaction point.
+
+\assumption{\textbf{Delta rays from the metal stack.} The \SI{1}{\micro m} cut applies only inside the dies. In the metal stack directly above each SV and in the package, the \SI{0.7}{mm} default applies. Electrons below that material's threshold are not produced there; their energy is deposited locally in that layer as continuous loss. The delta rays that would cross from the metal stack into the SV are therefore missing, while those produced in the silicon around the SV are present. A proton of \SI{200}{MeV} can produce delta electrons of at most $T_\text{max}\approx2m_ec^2\beta^2\gamma^2\approx\SI{0.48}{MeV}$ \citep{pdg2022}; if the \SI{0.7}{mm} threshold in copper and tungsten exceeds this, no proton-induced delta rays are produced in the metal layers at all. This biases SV ionizing dose low by an amount not yet quantified; the fix is to include the metal-stack and package volumes in \code{ElectronicsRegion} and check cut convergence.}
+
+\section{Scoring}
+
+\subsection{Sensitive volumes}
+Each scored component is a \SI{1}{\micro m}-thick silicon layer at the transistor surface of a die (writeup on geometry), flagged \code{score=True} in the device description. A region has several SVs (e.g.\ COMMS has three: RF, baseband, and control dies). Their masses are computed by \gfour{} from the volumes and materials (\code{component_mass_kg}).
+
+\subsection{Step-level scoring}
+\code{BridgeSteppingAction::UserSteppingAction} looks up the logical volume of the step's pre-step point by name (worker threads hold cloned volumes, so pointer comparison is not used). \gfour{} limits steps at volume boundaries, so each step lies in one volume. For a step in SV $i$, \code{AddSeUStep} accumulates, for the current event,
+\begin{align}
+  E^{\text{tot}}_i &\mathrel{+}= \text{\code{GetTotalEnergyDeposit()}},\\
+  E^{\text{NIEL}}_i &\mathrel{+}= \text{\code{GetNonIonizingEnergyDeposit()}},\\
+  E^{\text{ion}}_i &= E^{\text{tot}}_i - E^{\text{NIEL}}_i,
+\end{align}
+and splits $E^{\text{ion}}_i$ by the depositing particle (electron/positron, proton, neutron, gamma, alpha, other ion, other) and by primary versus secondary track. A step with a negative, non-finite, or $E^{\text{NIEL}}>E^{\text{tot}}$ deposit stops the run.
+
+This follows the energy-deposit pattern of the \gfour{} basic examples: B1 sums \code{GetTotalEnergyDeposit()} of each step in a scoring volume in its stepping action and accumulates it per event \citep{g4exampleB1}; B4 shows the same quantity with sensitive detectors and with the \code{G4PSEnergyDeposit} primitive scorer \citep{g4exampleB4}. The bridge differs from the examples in subtracting the non-ionizing part, which does not create electron--hole pairs (writeup 4).
+
+\subsection{Event-level accumulation}
+At the end of each event, with event weight $w$ (writeup 2), \code{AddSeUEvent} adds per SV:
+\begin{itemize}
+  \item $\sum w E^{\text{ion}}$ and $\sum (wE^{\text{ion}})^2$ (for the dose and its standard error), split also by the source species of the event's primary;
+  \item $\sum w E^{\text{NIEL}}$;
+  \item a histogram of the event's $E^{\text{ion}}_i$: 150 log bins from \SI{1}{keV} to \SI{50}{MeV}, plus a zero slot, an underflow slot, and an overflow slot; each slot stores the event count, $\sum w$, and $\sum w^2$, also split by source species.
+\end{itemize}
+The histogram is filled with the event's unweighted $E^{\text{ion}}_i$; the weight goes into $\sum w$. Every event fills every SV's histogram (most in the zero slot).
+
+\subsection{Per-event diagnostic rows}
+With \code{record_seu_events=True}, an event writes rows to \code{seu_diagnostics} when the largest $E^{\text{ion}}_i$ over the region's SVs is at least \code{diagnostic_min_Eion_mev} (\SI{0.001}{MeV} in the CubeSat runs):
+\begin{itemize}
+  \item \code{E}: one row per SV with $E^{\text{tot}}$, $E^{\text{NIEL}}$, $E^{\text{ion}}$, primary/secondary and per-species ionizing parts, the primary PDG code, and the weight;
+  \item \code{I}: SV entries (particle, position, direction, energy at each entry);
+  \item \code{N}: nuclear products born in the event;
+  \item \code{R}: the random-engine state at the start of the event, when $E^{\text{ion}}\ge$ \code{rng_state_min_Eion_mev} (\SI{0.1}{MeV}), for replay (writeup 7).
+\end{itemize}
+These rows are complete above the threshold: every event with $E^{\text{ion}}\ge\SI{1}{keV}$ in some SV is present, with all of its SVs (including zeros).
+
+\section{Ionizing and non-ionizing energy}
+
+\subsection{Where \gfour{} puts NIEL}
+In option 4, the non-ionizing deposit comes from \code{G4NuclearStopping}, registered for protons, alphas, $^3$He, and generic ions \citep{g4source}. Its along-step action computes the nuclear (elastic Coulomb) stopping loss of the moving particle over the step,
+\[
+  \Delta E_\text{nuc} = \ell\;\left(\frac{dE}{dx}\right)_\text{nuc}\!\big(\tfrac12(T_1+T_2)\big),
+\]
+and reports it both as local energy deposit and as non-ionizing deposit. It acts only when the post-step kinetic energy $T_2>0$ and $T_2\,m_p/M < Z^2\,\si{MeV}$, and below the \SI{1}{MeV} option-4 limit on the scaled energy.
+
+So $E^{\text{NIEL}}$ is the energy each charged particle transfers to target nuclei by elastic Coulomb collisions while slowing down, and $E^{\text{ion}}=E^{\text{tot}}-E^{\text{NIEL}}$ is its electronic loss. This is the partition between electronic and nuclear stopping of the recoil itself, the basis of Lindhard's treatment \citep{lindhard1963integral}; it does not follow the secondary cascade of the struck target atoms, whose energy is counted as non-ionizing in full.
+
+\assumption{\textbf{NIEL accuracy.} The nuclear loss is computed for the whole step from the mean step energy $\tfrac12(T_1+T_2)$, capped by the pre-step energy $T_1$, and skipped when $T_2=0$. Short-range heavy recoils stop within a few steps, so the split between ionizing and non-ionizing energy of an individual recoil depends on how its last steps fall. In the Ni-62 recoil event replayed in writeup 7, the non-ionizing deposit was overcounted in the recoil's final step, while its ionizing deposit agreed with a Lindhard estimate. Displacement damage dose is therefore not used in the presented results; it is also dominated by single events (writeup 5).}
+
+\section{Threads and seeds}
+Each region runs in a \code{G4MTRunManager} with the region's seed. The master engine draws two seeds per event in order; event $k$'s seeds are therefore fixed by the master seed and $k$, independent of the number of threads \citep{g4source,g4appdev}. This is what allows a finished run's event to be replayed (writeup 7).
+
+\bibliography{refs}
+\end{document}

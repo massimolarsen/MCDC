@@ -1,0 +1,82 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 8:\\Trapped-electron source spectrum (AE9)}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note documents the trapped-electron source table \code{examples/cubesat_test/ae9_10MeV.csv}, which replaces the earlier AE8 table (\code{ae8_7MeV.csv}) for electron runs. It was taken from a published AE9 orbit-averaged spectrum at 550~km by reading the curve coordinates from the figure's vector source file, then converted to the \mcdc{} source-table format in the same way as the proton and neutron tables. It also gives the electron flux $\Phi_e$ that normalizes electron results (writeup 1).
+\end{abstract}
+
+\section{Previous table (AE8)}
+\code{ae8_7MeV.csv} holds an AE8 spectrum for a 500~km circular orbit at \ang{90}, solar minimum, tabulated at 30 energies from 0.04 to \SI{7}{MeV}. Both ends are the limits of the AE8 model, which covers 0.04--\SI{7}{MeV} (inner-zone electrons only up to \SI{4.5}{MeV}) \citep{vette1991ae8}. It differs from the proton source in orbit (500~km and \ang{90} against 550~km and \ang{97}) and model generation (AE8 against AP9), was never refined for linear-PDF sampling, and has no recorded omnidirectional flux.
+
+\section{Source of the AE9 spectrum}
+\citet{ripa2020comparison} computed orbit-averaged trapped-particle spectra for circular LEO orbits at 500, 550, and 600~km and inclinations from \ang{0} to \ang{90}, with the AFRL IRENE software v1.50 \citep{ginet2013ae9}:
+\begin{itemize}
+  \item AE9 at the 50\% confidence level (CL50, the median), from the Monte Carlo mode with 100 runs, which includes the model's statistical uncertainty and space-weather variation;
+  \item omnidirectional differential flux, sampled every \SI{10}{s} over 60 days (2020-01-01 to 2020-03-01), with the right ascension of the ascending node stepped by \ang{5} every 10 days (\ang{0} to \ang{25}) to avoid repeating ground tracks;
+  \item averaged over the whole trajectory.
+\end{itemize}
+We use their figure ``AE9 CL 50 Differential e$^-$ Flux at 550 km'' (twelve inclinations, 0.04--\SI{10}{MeV}). AE9 covers electrons from \SI{40}{keV} to \SI{10}{MeV} \citep{ginet2013ae9}.
+
+\section{Extraction from the vector figure}
+The arXiv e-print of \citet{ripa2020comparison} includes the figure as an IDL-generated Encapsulated PostScript file (\code{images/average_spectra_AE9_CL_50_A550.eps}). The data are drawn as polylines in device coordinates, so they were read directly rather than digitized from an image:
+\begin{enumerate}
+  \item The PostScript path operators were parsed into polylines with their RGB colors. Each inclination is a distinct color, and its data line is the polyline that starts on the left frame edge.
+  \item The axes were calibrated from the tick marks. The $x$ axis has major ticks at 0.1, 1, and \SI{10}{MeV}, 7617.5 device units per decade, which puts the frame edges at exactly 0.04 and \SI{20}{MeV}. The $y$ axis spans $10^{-6}$ to $10^{8}$ \si{cm^{-2}.s^{-1}.MeV^{-1}} at 1152 units per decade.
+  \item The vertices of each line are the model's data points. The recovered energies match the AE9 energy grid (0.04, 0.07, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, \ldots, 7, 8.5, \SI{10}{MeV}) within 0.05\% and were snapped to it. Coordinates are integers, so the flux resolution is $1/1152$ decade (0.2\%).
+  \item All twelve curves were re-plotted from the extracted values and checked against the published figure.
+\end{enumerate}
+
+\section{Inclination}
+The paper stops at \ang{90}. A circular orbit of inclination $i>\ang{90}$ reaches the same maximum geographic latitude as one of $\ang{180}-i$, so the \ang{97} CubeSat orbit covers latitudes up to \ang{83}. The spectrum was interpolated in log flux between the \ang{80} and \ang{90} curves:
+\begin{equation}
+  \log F_{83}(E) = 0.7\,\log F_{80}(E) + 0.3\,\log F_{90}(E).
+\end{equation}
+The \ang{80} and \ang{90} curves differ by 7--14\% at every energy.
+
+\assumption{An orbit-averaged trapped-electron spectrum depends on inclination mainly through the range of latitudes the orbit covers, so the \ang{97} (retrograde) orbit is represented by the \ang{83} prograde one. The paper's averaging over several RAAN values supports treating the result as independent of the ground-track phase.}
+
+\section{Source table}
+As for \code{ap9_200MeV.csv} and \code{ecss_200MeV.csv} (writeup 1), the 21-point spectrum was log--log interpolated onto 50 points per decade, keeping every original point, and normalized to unit integral with the trapezoid rule, because \mcdc{} samples tables as piecewise-linear PDFs. The result has 140 points from \SI{0.04}{MeV} to \SI{10}{MeV}, in \si{eV} and \si{eV^{-1}}.
+
+\section{Flux and shape}
+Integrating the \ang{83} spectrum with power-law segments between the tabulated points:
+\begin{equation}
+  \Phi_e(\SIrange{0.04}{10}{MeV}) = \SI{3.06e5}{cm^{-2}.s^{-1}}
+\end{equation}
+(\num{3.12e5} for the \ang{80} curve and \num{2.91e5} for \ang{90}). Electron results are normalized with $R_e=\Phi_eA/(4N_e)$ (writeup 1).
+
+\begin{table}[h]
+\centering
+\caption{Integral flux above energy thresholds for the AE9 table (\ang{83}, 550~km), and the fraction of the source above each threshold compared with the previous AE8 table.}
+\label{tab:shape}
+\begin{tabular}{lrcc}
+\toprule
+Threshold & AE9 flux (\si{cm^{-2}.s^{-1}}) & AE9 fraction & AE8 table fraction \\
+\midrule
+\SI{0.1}{MeV} & \num{1.48e5} & 0.48 & --- \\
+\SI{0.5}{MeV} & \num{1.15e4} & \num{3.8e-2} & --- \\
+\SI{1}{MeV}   & \num{1.56e3} & \num{5.1e-3} & \num{1.7e-2} \\
+\SI{2}{MeV}   & 106          & \num{3.5e-4} & \num{3.0e-3} \\
+\SI{4}{MeV}   & 1.9          & \num{6.3e-6} & \num{9.6e-5} \\
+\SI{7}{MeV}   & 0.034        & \num{1.1e-7} & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The AE9 spectrum is softer than the AE8 table above about \SI{1}{MeV}. This is consistent with Van Allen Probes measurements that found no MeV electrons above background in the inner zone, while current radiation-belt models and earlier publications show them \citep{fennell2015inner}.
+
+\assumption{The source uses the AE9 median (CL50) over the paper's 60-day period in early 2020. It does not represent storm-time enhancements of relativistic electrons; a higher confidence level (e.g.\ CL90, also in \citet{ripa2020comparison}) would be the corresponding bound.}
+
+\assumption{Electrons outside the AE9 range, below \SI{40}{keV} and above \SI{10}{MeV}, are omitted. This includes the secondary (atmospheric albedo) and cosmic-ray electrons that extend from MeV to GeV energies in LEO \citep{cumani2019background}.}
+
+\section{Provenance}
+The parsing, calibration, and table-building scripts and a CSV of all twelve extracted inclinations were kept with the session's working files; the table itself is \code{examples/cubesat_test/ae9_10MeV.csv}. The proton table (\code{ap9_1000MeV.csv}) uses a different energy grid (1, 1.5, 2, 3, \ldots, \SI{1000}{MeV}) and comes from a different source than \citet{ripa2020comparison}; the electron and proton sources therefore come from different publications.
+
+\bibliography{refs}
+\end{document}

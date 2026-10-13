@@ -1,0 +1,115 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 7:\\Consistency checks, comparison with flight data, and event replay}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note collects the checks applied to the coupled results: transmission of the environment into the electronics boxes (\mcdc{} level), the ionizing dose rate in the SVs against the Shields-1 CubeSat dosimetry (\gfour{} level), and exact replay of individual \gfour{} events for inspection in the viewer. Numbers are from run 21738977 (MT5-fixed data, metal-stack device geometry, $N_n=N_p=10^6$, \num{2.5e7} \gfour{} events per species per region) unless stated otherwise.
+\end{abstract}
+
+\section{Transmission into the boxes}
+Transmission is defined in writeup 5. Table~\ref{tab:trans} gives the totals.
+
+\begin{table}[h]
+\centering
+\caption{Total transmission into each box (\mcdc{} standard errors).}
+\label{tab:trans}
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{Protons} & \multicolumn{2}{c}{Neutrons} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Region & 21738977 & 21756183 & 21738977 & 21756183 \\
+\midrule
+OBC   & $0.092\pm0.002$ & $0.0892\pm0.0007$ & $1.004\pm0.007$ & $1.021\pm0.007$ \\
+EPS   & $0.083\pm0.002$ & $0.0840\pm0.0006$ & $1.001\pm0.006$ & $1.022\pm0.006$ \\
+ADCS  & $0.095\pm0.001$ & $0.0945\pm0.0004$ & $0.988\pm0.004$ & $1.017\pm0.004$ \\
+COMMS & $0.085\pm0.006$ & $0.0849\pm0.0019$ & $0.998\pm0.020$ & $0.988\pm0.020$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Neutrons} reach the boxes essentially unattenuated (writeup 6), as expected for thin, weakly absorbing structures.
+  \item \textbf{Protons}: 8--10\% of the \SIrange{1}{200}{MeV} environment current crosses into the boxes. The proton energies are those at the box, after slowing down in the structure. Transmission by face (\code{proton_transmission.png}) is lowest through the COMMS $z^-$ face (0.05), which looks down through the board stack.
+  \item The two runs agree within errors for protons, so the \gfour{} results of run 21738977 are not biased by its smaller proton count, only noisier (writeup 2, Table 3).
+\end{itemize}
+
+\section{Ionizing dose rate against Shields-1}
+
+\subsection{Model results}
+\begin{table}[h]
+\centering
+\caption{Ionizing dose rate in the SVs of each region, rad(Si)/yr (writeup 5). Errors are \gfour{} statistics only; the \mcdc{} source uncertainty (writeup 2, Table 3: 1.4--7\% for the proton sources of this run) is not included.}
+\label{tab:tid}
+\begin{tabular}{lccc}
+\toprule
+Region & Proton source & Neutron source & Total \\
+\midrule
+OBC   & $64.8\pm0.2$ & $0.018\pm0.001$ & 64.9 \\
+EPS   & $53.8\pm0.3$ & $0.016\pm0.002$ & 53.9 \\
+ADCS  & $54.7\pm0.3$ & $0.022\pm0.003$ & 54.7 \\
+COMMS & $47.0\pm0.1$ & $0.016\pm0.001$ & 47.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Shields-1}
+Shields-1 was a NASA CubeSat in a polar low Earth orbit (500 km, \ang{85} inclination) that measured total ionizing dose behind aluminum and Z-graded shields of known areal density with Teledyne $\mu$Dosimeters \citep{thomsen2022shields}. Table~\ref{tab:shields} lists the measured dose rates and the mission's modeled values (AP8/AE8, solar proton model; slab and sphere shielding).
+
+\begin{table}[h]
+\centering
+\caption{Shields-1 dose rates, rad(Si)/yr, from \citet{thomsen2022shields} (17-day accumulation for UDOS 1--7, two months for the vault). Modeled values are 2$\pi$ slab unless marked.}
+\label{tab:shields}
+\begin{tabular}{lcccl}
+\toprule
+Shield & Areal density (\si{g/cm^2}) & Measured & Modeled protons & Modeled electrons \\
+\midrule
+Al     & 1.26 & $90.9\pm2.7$ & $32.24\pm0.11$ & $8.79\pm0.29$ \\
+AlTi   & 1.33 & $89.7\pm2.7$ & $32.77\pm0.11$ & $6.36\pm0.25$ \\
+Al     & 1.69 & $84.3\pm2.5$ & $28.67\pm0.10$ & $2.00\pm0.14$ \\
+AlTiTa & 2.08 & $84.3\pm2.5$ & $28.79\pm0.10$ & $0.15\pm0.03$ \\
+Al     & 3.00 & $73.6\pm3.2$ & $21.77\pm0.09$ & $0.36\pm0.03$ \\
+AlTiTa & 3.02 & $81.9\pm3.4$ & $25.68\pm0.10$ & $0.18\pm0.04$ \\
+Al     & 6.00 & $70.0\pm3.0$ & $13.48\pm0.06$ & $0.21\pm0.03$ \\
+Z-shield vault & 3.02 & $75.6\pm3.2$ & $75.6\pm6.1$ (sphere) & 0 \\
+Al (sphere) & 3.00 & --- & $64.7\pm8.4$ (sphere) & $1.5\pm1.5$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Comparison}
+\begin{itemize}
+  \item The model gives 47--65 rad(Si)/yr in the SVs; Shields-1 measured 70--91 rad(Si)/yr behind \SIrange{1.26}{6.00}{g/cm^2}, and its sphere model behind \SI{3}{g/cm^2} of aluminum gives 64.7 rad(Si)/yr from protons. The model is of the same magnitude, 0.5--0.9 of the measured values.
+  \item Shields-1's modeled electron dose is below 9 rad(Si)/yr behind \SI{1.26}{g/cm^2} and essentially zero behind \SI{2}{g/cm^2} or more \citep{thomsen2022shields}. This supports leaving trapped electrons out of the coupled transport for electronics inside the spacecraft.
+  \item Both the measurement and the model show a weak dependence on shielding: the measured dose falls only from 91 to 70 rad(Si)/yr between \num{1.26} and \SI{6}{g/cm^2}. The model's spread between regions (47--65) is similarly modest.
+\end{itemize}
+
+\assumption{The comparison is an order-of-magnitude consistency check, not a validation. The orbits differ (550 km at \ang{97} against 500 km at \ang{85}), as do the environment models (AP9 mean against AP8), the epoch (Shields-1 flew in 2019), the geometry (thin SVs in a specific spacecraft against dosimeters behind slabs), and the dosimeter response. Of the model's own limitations, the missing delta rays from the metal stack (writeup 3) and the \mcdc{} source uncertainty (writeup 2) both act on the model value.}
+
+\section{Event replay}
+
+\subsection{Purpose}
+To inspect individual events (for example the largest deposits), the exact \gfour{} event is re-run with trajectories recorded and viewed in \gfour{}'s Qt viewer. The replay must reproduce the original event exactly, not a statistically similar one.
+
+\subsection{Method}
+\begin{itemize}
+  \item \textbf{Species and primary.} Events are assigned to species by event-ID ranges (writeup 2), and the replay sets the bridge's event-ID offset so the source is sampled for the original event number.
+  \item \textbf{Seed replay (finished runs).} In \code{G4MTRunManager} the master engine fills two seeds per event, in event order, with \code{flatArray}, and event $k$ receives seed pair $k$ \citep{g4source}. The bridge's \code{ReplayMTRunManager} overrides \code{InitializeSeeds} to draw and discard $2k$ master random numbers and then lets \gfour{} fill seeds as usual, so a one-event run gets the seeds of event $k$ of the original run. This holds for any thread count, as the seed sequence does not depend on which worker processes an event.
+  \item \textbf{State replay (newer runs).} When an event's largest SV deposit is at least \SI{0.1}{MeV}, the run saves the worker's engine state at the start of the event (\code{R} rows, writeup 3); the replay restores it before sampling the primary.
+  \item \textbf{Verification.} \code{mcdc/coupling/geant4_replay.py} compares the replayed event's diagnostic rows (per-SV deposits, nuclear births, SV entries, secondary summary) with the original rows field by field, requiring exact equality, and refuses to write the replay file on any difference.
+\end{itemize}
+Replays run on the HPC with the same \gfour{} build (11.3.2) as the production run; the replay file (geometry and tracks) is viewed locally (\code{geant4_view.py}).
+
+\subsection{Replayed events}
+\begin{itemize}
+  \item \textbf{COMMS, run 21616157, event \num{26612987}} (seed replay): a \SI{136}{MeV} proton undergoes a proton-inelastic reaction inside \code{Comms_BasebandActive}, producing two alphas, $^3$He, $^{16}$O, a proton, and two neutrons; the SV receives \SI{10.205}{MeV}, of which \SI{10.180}{MeV} ionizing (\SI{453}{fC}). All rows matched exactly.
+  \item \textbf{EPS, run 21738977, event \num{29021869}} (state replay): a proton-inelastic reaction in the local copper layer of the EPS charger's metal stack ($^{63}$Cu$\to{}^{62}$Ni, with two protons of 80.5 and \SI{23.2}{MeV}) sends a \SI{2.78}{MeV} $^{62}$Ni recoil into the SV below, which it enters at \SI{1.15}{MeV}. The SV receives \SI{1.424}{MeV}, of which \SI{0.710}{MeV} ionizing. All rows matched exactly. This is the event used for the NIEL caveat in writeup 3.
+\end{itemize}
+The COMMS event is from the run before the MT5 fix (writeup 6) and the metal-stack geometry. It demonstrates the replay method; it is not part of the current results.
+
+\bibliography{refs}
+\end{document}

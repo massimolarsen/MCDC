@@ -1,0 +1,132 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 1:\\Source normalization and physical units}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note explains how one \mcdc{} source history is converted to a physical rate, and how the ``unshielded'' reference curves on the result plots are computed. It covers the source geometry in the input deck (\code{inputCE_G4NP_SUBMIT.py}), the isotropic-field relations it relies on, and the normalization used by every plotting script in \code{examples/cubesat_test/diag}. The proton and neutron spectra and their omnidirectional fluxes $\Phi_s$ are described in a separate environment writeup and are taken as inputs here; the trapped-electron spectrum and $\Phi_e$ are derived in writeup 8.
+\end{abstract}
+
+\section{Source geometry in the input deck}
+
+The CubeSat model sits inside a vacuum cube of side $L = \SI{15}{cm}$ centered at $(5,5,5)$~cm, with vacuum boundary conditions on all six faces. Each face carries one source per species (neutron, proton). Each source:
+\begin{itemize}
+  \item is uniform in position over its face, inset \SI{1e-6}{cm} inside the boundary;
+  \item has a ``white'' (cosine-law) angular distribution about the inward face normal, i.e.\ the number of particles emitted per unit area per unit solid angle is proportional to $\mu_n = \hat\Omega\cdot\hat n$ for $\mu_n>0$;
+  \item samples energy from the species' tabulated spectrum $p_s(E)$ (\code{ap9_200MeV.csv}, \code{ecss_200MeV.csv});
+  \item has selection probability $N_s/(6N)$, where $N_s$ is the number of histories assigned to species $s$ (\code{SPECIES_HISTORIES}) and $N=\sum_s N_s$.
+\end{itemize}
+The source cube area is
+\begin{equation}
+  A = 6L^2 = \SI{1350}{cm^2}.
+\end{equation}
+Table~\ref{tab:runs} lists the history splits of the runs used in the plots.
+
+\begin{table}[h]
+\centering
+\caption{History counts of the runs referenced in these writeups.}
+\label{tab:runs}
+\begin{tabular}{lrrl}
+\toprule
+Run & $N_n$ & $N_p$ & Notes \\
+\midrule
+21616157 & \num{1e6} & \num{1e6} & old device geometry; before the MT5 data fix (writeup 6) \\
+21738977 & \num{1e6} & \num{1e6} & MT5-fixed data, metal-stack geometry; full Geant4 stage \\
+21756183 & \num{1e6} & \num{1e7} & MT5-fixed data, metal-stack geometry; \mcdc{} stage only so far \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Isotropic field relations}
+
+\subsection{One-way current of an isotropic flux}
+For an isotropic, omnidirectional flux $\Phi$ (particles \si{cm^{-2}.s^{-1}}), the angular flux is $\psi = \Phi/4\pi$ per steradian. The one-way current through any surface element is
+\begin{equation}
+  J^{+} = \int_{\hat\Omega\cdot\hat n>0} (\hat\Omega\cdot\hat n)\,\psi\,d\Omega
+        = \frac{\Phi}{4\pi}\int_0^{2\pi}\!\!\int_0^1 \mu\,d\mu\,d\varphi
+        = \frac{\Phi}{4},
+  \label{eq:jplus}
+\end{equation}
+the standard partial-current result for an isotropic angular flux \citep{duderstadt1976}.
+
+\subsection{A cosine-law boundary source produces a uniform isotropic field}
+Let the boundary emit an inward current density $J^+$ (particles \si{cm^{-2}.s^{-1}}) with a cosine-law angular distribution, so the emission per unit area per unit solid angle is $S(\mu_n) = J^+\mu_n/\pi$ (normalized so that $\int S\,d\Omega = J^+$). The angular flux leaving a boundary point in direction $\hat\Omega$ is the emission per unit area projected onto the plane normal to $\hat\Omega$, $\psi = S/\mu_n = J^+/\pi$, independent of position and direction. In vacuum $\psi$ is constant along straight lines, and every interior point is reached in every direction by a line from the convex boundary, so the field inside the cube is uniform and isotropic with
+\begin{equation}
+  \Phi = 4\pi\psi = 4J^+ .
+\end{equation}
+This is Eq.~\eqref{eq:jplus} read backwards: the white face sources reproduce, inside the cube, an isotropic field of omnidirectional flux $\Phi$ when they emit $J^+=\Phi/4$ per unit area.
+
+\assumption{The orbit-averaged environment is uniform and isotropic over the spacecraft, steady in time, and has no other species than those simulated (protons and neutrons). Directional structure of the environment is not modeled.}
+
+\assumption{Particles that leave the source cube are lost. This is consistent with assumption A1: in an isotropic field, the particles that would come back are already represented by the inward source.}
+
+\section{Physical rate of one source history}
+
+The cube emits $J^+ A = \Phi_s A/4$ particles of species $s$ per second. These are represented by $N_s$ histories, so each history stands for
+\begin{equation}
+  R_s = \frac{\Phi_s A}{4 N_s}\quad\text{particles per second}.
+  \label{eq:rate}
+\end{equation}
+\code{diag/plot_region_summary.py::source_rates} implements Eq.~\eqref{eq:rate}. With the environment-writeup fluxes $\Phi_p=\SI{168.5}{cm^{-2}.s^{-1}}$ (AP9 mean, \SIrange{1}{200}{MeV}) and $\Phi_n=\SI{0.564}{cm^{-2}.s^{-1}}$ (\SI{1}{eV}--\SI{200}{MeV}):
+\begin{align*}
+  \Phi_p A/4 &= \SI{5.687e4}{s^{-1}}, & R_p(N_p=10^6) &= \SI{5.687e-2}{s^{-1}},\\
+  \Phi_n A/4 &= \SI{190.4}{s^{-1}},   & R_n(N_n=10^6) &= \SI{1.904e-4}{s^{-1}}.
+\end{align*}
+For trapped electrons (writeup 8), $\Phi_e=\SI{3.06e5}{cm^{-2}.s^{-1}}$ over 0.04--\SI{10}{MeV}, so $\Phi_eA/4=\SI{1.03e8}{s^{-1}}$. $\Phi_s$ must be the integral of the environment over the same energy range as $p_s(E)$; otherwise $R_s$ is off by the missing fraction.
+
+\assumption{Each species is normalized independently with its own $N_s$ and $\Phi_s$. A quantity scored per source history of species $s$ is converted to a rate by multiplying by $R_s$; contributions of different species are added only after this conversion.}
+
+\section{Tally normalization in \mcdc}
+
+\mcdc{} \citep{morgan2024mcdc} reports each tally bin as a mean per source history over all $N$ histories of the run, with a history-based standard error of the mean (Welford's running moments \citep{welford1962}, \code{mcdc/transport/tally/closeout.py}). Because the species are sampled with probability $N_s/N$, the number of weighted crossings of species $s$ in bin $b$ \emph{per history of that species} is
+\begin{equation}
+  c_b = \bar x_b\,\frac{N}{N_s},
+\end{equation}
+where $\bar x_b$ is the reported mean. The total weighted crossings in the run are $C_b = \bar x_b N$.
+
+\section{Unshielded reference}
+
+\subsection{Crossings into a convex box}
+In a uniform isotropic field, the one-way current into any convex surface is $\Phi/4$ per unit area, so the inward crossing rate into a convex box of surface area $S$ is $\Phi S/4$. Equivalently, a fraction $S/A$ of the cube's emitted particles cross into the box. This is the integral-geometry result that the number of random straight tracks hitting a convex body in a $\mu$-random (isotropic uniform) field is proportional to its surface area (Cauchy's theorem; \citet{kellerer1971}).
+
+\begin{table}[h]
+\centering
+\caption{SV box surface areas and the unshielded crossing fraction $S/A$, against neutron crossings per neutron history in run 21738977 (neutrons are barely attenuated, writeup 7).}
+\label{tab:boxes}
+\begin{tabular}{lcrrr}
+\toprule
+Region & Box (cm) & $S$ (\si{cm^2}) & $S/A$ & \mcdc{} neutron crossings / $N_n$ \\
+\midrule
+OBC   & $3.6\times2.7\times0.6$   & 27.00 & 0.0200 & 0.0201 \\
+EPS   & $2.5\times6.5\times0.23$  & 36.64 & 0.0271 & 0.0272 \\
+ADCS  & $4.5\times4.5\times1.8$   & 72.90 & 0.0540 & 0.0533 \\
+COMMS & $1.1\times0.97\times0.27$ & 3.252 & 0.00241 & 0.00241 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Reference spectrum}
+The unshielded line on the box-spectrum plots is the current per unit box area that the box would receive with no spacecraft present, in each tally energy bin $b=[E_b,E_{b+1}]$:
+\begin{equation}
+  j_b^{\text{unsh}} = \frac{\Phi_s}{4}\,P_b,\qquad P_b = \int_{E_b}^{E_{b+1}} p_s(E)\,dE,
+\end{equation}
+with $P_b$ from the trapezoid-integrated source CDF (\code{diag/run_info.py::spectrum_bin_probability}). In per-history units (no $\Phi_s$), the same quantity is $P_b/A$ per \si{cm^2} of box surface. Bins outside the source spectrum's energy range (below \SI{1}{MeV} for protons, below \SI{1}{eV} for neutrons) are zero by construction, so any current there is produced inside the spacecraft (slowing down or secondary production).
+
+\section{Spectrum tables}
+The spectrum tables are sampled by \mcdc{} as piecewise-linear PDFs. Coarse tables of a power-law spectrum overweight each interval under linear interpolation, so both tables were log--log interpolated onto 50 points per decade, keeping every original point, and renormalized to unit integral (commits \code{5ce250ef}, \code{bb0c3714}). For the neutron table the coarse version had $+3.9\%$ excess integral and a mean energy of \SI{25.35}{MeV} against \SI{25.83}{MeV} for the log--log form. The proton table is truncated at the \SI{200}{MeV} limit of the proton data and keeps 96.9\% of the \SIrange{1}{1000}{MeV} AP9 flux. The trapped-electron table (\code{ae9_10MeV.csv}, AE9 median at 550~km, 0.04--\SI{10}{MeV}) was built the same way from 21 published points (writeup 8); it replaces the 30-point AE8 table (\code{ae8_7MeV.csv}), which was not refined.
+
+\assumption{Environment particles above \SI{200}{MeV} are omitted (the data limit). For protons this is 3.1\% of the \SIrange{1}{1000}{MeV} flux. $\Phi_s$ is quoted over the truncated range, so the normalization is consistent, but the omitted high-energy particles are the most penetrating.}
+
+\section{Summary of the conversion}
+For a quantity $X$ scored per run of a species (a sum over that species' $N_s$ histories, or over Geant4 events weighted as in writeup 2), the physical rate is
+\begin{equation}
+  \dot X = X\,\frac{\Phi_s A}{4N_s}.
+\end{equation}
+Every per-second, per-day, and per-year number in writeups 4, 5, and 7 is computed this way.
+
+\bibliography{refs}
+\end{document}

@@ -1,0 +1,87 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 6:\\Energy-dependent reaction yields (ACE $|TY|>100$) and the data patch}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Runs before 21738977 overproduced neutrons by a large factor because the neutron data library stored an encoded yield flag as a literal multiplicity. This note describes the error, the code fix that was ported to \code{feature/g4-hpc}, the in-place patch of the combined neutron--proton library used by the CubeSat runs, and how the fix was verified.
+\end{abstract}
+
+\section{The ACE yield convention}
+In an ACE continuous-energy table, each reaction's TY value gives the number of secondary neutrons and the frame of their distributions. $|TY|$ of 1--4 is a fixed integer multiplicity; $|TY|>100$ means the multiplicity is energy dependent and tabulated, with $|TY|-100$ an offset into the DLW block where a yield table $\nu(E)$ is stored; the sign gives the reference frame \citep{conlin2019ace}.
+
+MT-5 is the ENDF reaction $(z,\text{anything})$, the sum of all reactions not given explicitly \citep{trkov2018endf6}. In the JENDL-5 \citep{iwamoto2023jendl5} ACE files of the CubeSat nuclides (and the FENDL-3.0 file for Li-7), MT-5 has an energy-dependent neutron yield, written as $TY=101$ (Table~\ref{tab:patched}).
+
+\section{The error}
+The \mcdc{} neutron data generator (\code{tools/data_library_generator/neutron}) wrote the raw TY value as an integer multiplicity. The transport then emitted 101 neutrons in every MT-5 event. In the CubeSat, neutrons therefore multiplied in every structure: the neutron current into the electronics boxes was 5 to 10 times the unshielded value (run 21616157; Table~\ref{tab:verify}), and neutron-source energy deposition was inflated accordingly.
+
+\section{Code fix}
+Commit \code{0751e69a} (ported to \code{feature/g4-hpc}):
+\begin{itemize}
+  \item the generator writes, for $|TY|>100$, a group \code{multiplicity_table} with the yield $\nu(E)$ (lin-lin, $E$ in MeV) and sets \code{multiplicity = -1};
+  \item the inelastic reaction object carries the table, and warns if old data still carries an encoded multiplicity;
+  \item the sampler emits $n=\lfloor \nu(E) + \xi\rfloor$ secondaries, $\xi\sim U(0,1)$. With $\nu = m + f$ ($m$ integer, $0\le f<1$), $n=m+1$ with probability $f$ and $m$ otherwise, so $\mathbb{E}[n]=\nu(E)$.
+\end{itemize}
+Commit \code{be31c7b5} makes the unit test \code{test/unit/transport/test_tabulated_multiplicity.py} run with neutron transport enabled, so it exercises the sampler.
+
+\section{Patching the library in place}
+The combined library \code{hdf5libProton/with_neutron_200MeV} (JENDL-5 neutrons, FENDL-3.0 \citep{forrest2012fendl3} for Li-7, TENDL-2021 \citep{koning2019tendl} protons) was patched rather than regenerated, with the script \code{patch_tabulated_yields.py}. For each nuclide it loads the ACE file the library was generated from (JENDL-5 ACE, \code{ace_j50_neu_0300.0k} \citep{jendl5ace}; the FENDL-3.0 file for Li-7) and, before touching a reaction, checks that:
+\begin{enumerate}
+  \item the HDF5 energy grid equals the ACE principal energy grid;
+  \item the reaction's stored multiplicity has $|TY|>100$ and has no yield table yet;
+  \item the ACE file has the same MT with $|TY|>100$;
+  \item the stored cross section and its grid offset equal the ACE values exactly.
+\end{enumerate}
+Only then is the multiplicity replaced by $-1$ and the ACE yield table written, with the same routine the fixed generator uses. Any failed check aborts. The unpatched library is kept in \code{with_neutron_200MeV_preMT5fix}, and the HPC copy was verified identical to the local patched copy by MD5 checksum.
+
+\begin{table}[h]
+\centering
+\caption{Reactions patched. All are MT-5 with $TY=101$; tables span \SI{1e-11}{MeV} to \SI{200}{MeV}.}
+\label{tab:patched}
+\begin{tabular}{lrl}
+\toprule
+Nuclide & Points & Yield range $\nu(E)$ \\
+\midrule
+C-12  & 25 & 0--1.85 \\
+Li-7  & 42 & 0.127--1.03 \\
+O-16  & 33 & 0--1.73 \\
+Mg-24 & 29 & 0--2.15 \\
+Al-27 & 33 & 0--2.48 \\
+Si-28 & 63 & 0--1.94 \\
+Co-59 & 43 & 0--3.1 \\
+Cu-63 & 32 & 0--2.91 \\
+Cu-65 & 32 & 0--3.42 \\
+Zn-64 & 43 & 0--2.59 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Verification}
+The CubeSat walls and boards are thin (of order \si{g/cm^2}) and neutrons are rarely absorbed or multiplied in them, so the neutron current into the boxes is expected to stay close to the unshielded value: scattering mainly redistributes neutrons in direction and energy. A transmission of 5--10 requires a large net source of neutrons inside the spacecraft. We use $T\approx1$ as a consistency check, not as an exact expectation; capture lowers it and $(n,xn)$ reactions and proton-born neutrons raise it. Table~\ref{tab:verify} compares runs before and after the patch.
+
+\begin{table}[h]
+\centering
+\caption{Neutron transmission into each box, $T=$ crossings / unshielded crossings (writeup 5), with \mcdc{} standard errors.}
+\label{tab:verify}
+\begin{tabular}{lccc}
+\toprule
+Region & 21616157 (before) & 21738977 (after, $N_p=10^6$) & 21756183 (after, $N_p=10^7$) \\
+\midrule
+OBC   & $7.22\pm0.02$ & $1.004\pm0.007$ & $1.021\pm0.007$ \\
+EPS   & $7.54\pm0.02$ & $1.001\pm0.006$ & $1.022\pm0.006$ \\
+ADCS  & $5.12\pm0.01$ & $0.988\pm0.004$ & $1.017\pm0.004$ \\
+COMMS & $9.64\pm0.06$ & $0.998\pm0.020$ & $0.988\pm0.020$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+After the patch the transmission is $1.00\pm0.02$, and the neutron-source event rates in the \gfour{} stage fell by a factor of 5--6 at all charges. The small rise from $N_p=10^6$ to $10^7$ is the proton-born neutron contribution (writeup 2, species attribution).
+
+\assumption{Results from runs before 21738977 (including 21616157) have the wrong neutron transport and are not used for neutron-source quantities.}
+
+\bibliography{refs}
+\end{document}

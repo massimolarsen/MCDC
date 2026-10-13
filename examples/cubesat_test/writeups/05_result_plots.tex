@@ -1,0 +1,96 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 5:\\How each result plot is computed}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+For every figure produced by \code{examples/cubesat_test/diag}, this note gives the input data, the formula, the units, the uncertainty shown, and the caveats. Notation: species $s\in\{n,p\}$ with $N_s$ \mcdc{} histories and environment flux $\Phi_s$; source cube area $A=\SI{1350}{cm^2}$; $R_s=\Phi_sA/(4N_s)$ (writeup 1); \gfour{} event weight $w$ (writeup 2); $E_\text{ion}$, $E_\text{NIEL}$ per SV per event (writeup 3); $k=\SI{44.50}{fC/MeV}$ (writeup 4). All scripts take the run directory and read the archived input, payloads, and outputs, so no run-specific numbers are hard-coded (\code{diag/run_info.py}). Default fluxes in \code{plot_region_summary.py}: $\Phi_p=168.5$, $\Phi_n=\SI{0.564}{cm^{-2}.s^{-1}}$.
+\end{abstract}
+
+\section{Constants}
+\begin{itemize}
+  \item \SI{1}{MeV} $=\SI{1.602176634e-13}{J}$; \SI{1}{Gy} $=\SI{1}{J/kg}$; \SI{1}{rad} $=\SI{0.01}{Gy}$ \citep{nist811}.
+  \item One year $=\SI{3.15576e7}{s}$ (Julian year); one day $=\SI{86400}{s}$.
+  \item rad(Si): dose to silicon, since every SV is silicon.
+\end{itemize}
+
+\section{\mcdc{} level}
+
+\subsection{Box spectra (\code{plot_box_spectra.py})}
+\textbf{Data:} the \code{current-in} interface tally of each region and species (writeup 2), summed over $\mu$, $\varphi$, time, face, and face mesh.
+
+\textbf{Per-history mode} (\code{box_spectra.png}): in energy bin $b$, crossings per species history per \si{cm^2} of box surface,
+\begin{equation}
+  y_b = \frac{\bar x_b\,N/N_s}{S},
+\end{equation}
+with $S$ the box surface area (writeup 1, Table 2). The unshielded line is $P_b/A$ (writeup 1).
+
+\textbf{Physical mode} (\code{box_spectra_flux.png}, \code{--flux}): $y_b\cdot\Phi_sA/4$ in particles \si{cm^{-2}.s^{-1}} per bin, and the unshielded line $\Phi_sP_b/4$. Values are per bin, not per unit energy; the bins are log-uniform with the same width in $\ln E$ for both species (writeup 2, Table 1), so per-bin values compare like per-lethargy values within one species. The unshielded line is drawn through bin centers $\sqrt{E_bE_{b+1}}$; empty bins are left blank.
+
+\textbf{Caveats:} neutron bins below \SI{1}{eV} have no unshielded value (the source starts at \SI{1}{eV}); everything there is moderated in the spacecraft. Region curves can exceed the unshielded line in individual bins because of secondary production and moderation inside the spacecraft. The neutron curves mix albedo neutrons with proton-born neutrons at the wrong normalization (writeup 2, species attribution).
+
+\subsection{Transmission (\code{plot_transmission.py})}
+Ratio of tallied crossings to those an unshielded box would receive:
+\begin{equation}
+  T_b = \frac{C_b}{N_s\,(S/A)\,P_b},\qquad
+  T_f = \frac{C_f}{N_s\,S_f/A},\qquad
+  T = \frac{\sum_b C_b}{N_s\,(S/A)\,\sum_b P_b},
+\end{equation}
+where $C_b=\bar x_bN$ are the crossings of the run in energy bin $b$, $C_f$ the crossings through face $f$ of area $S_f$. Energies are those at the box, so slowed particles move to lower bins and $T_b$ is not a per-energy attenuation. Error bars: \mcdc{} standard errors of the bins added in quadrature (covariance between bins neglected). Only bins with more than 5 expected unshielded crossings are plotted.
+
+\section{\gfour{} level, region summaries (\code{plot_region_summary.py})}
+
+\subsection{Ionizing dose rate (\code{region_dose.png}, left)}
+For region $r$ with SV masses $m_i$, and source species $s$,
+\begin{equation}
+  \dot D_{r,s} = R_s\,\frac{\sum_{i\in r}\sum_e w_e\,E_{\text{ion},i,e}}{\sum_{i\in r} m_i}
+  \times \SI{1.602176634e-13}{J/MeV}\times100\,\frac{\text{rad}}{\text{Gy}}\times\SI{3.15576e7}{s/yr},
+\end{equation}
+from the run accumulators \code{component_primary_species_ionizing_mev} (split by the source species of the event primary). The bars stack the two species.
+
+\textbf{Error bar:} the \gfour{} standard error of each SV's weighted sum $X=\sum_e x_e$ ($x_e = w_eE_{\text{ion},e}$),
+\begin{equation}
+  \sigma_X = \sqrt{\frac{n}{n-1}\left(\sum_e x_e^2 - \frac{X^2}{n}\right)},
+\end{equation}
+added in quadrature over the region's SVs, with $n$ the number of events of the region run. $n$ counts the events of both species; for one species the events of the other are structural zeros, which changes $\sigma_X^2$ by $X^2(1/n_s - 1/n)$, a relative change of order $1/(n\,\text{RE}^2)\sim10^{-3}$ for the CubeSat runs and negligible. The error bar does not include the \mcdc{} source uncertainty (writeup 2).
+
+\subsection{Non-ionizing energy (\code{region_dose.png}, right)}
+$\sum (E_\text{tot}-E_\text{ion})$ per gram per year, in \si{MeV/g/yr}, from the same accumulators. Not used in the presented results: it is dominated by a few events (in run 21738977, a single event provides 68\% of EPS's and 71\% of ADCS's proton-source value), has no error bar, and inherits the NIEL caveat of writeup 3.
+
+\subsection{Dose by event size (\code{region_edep_spectrum.png})}
+From the per-event rows with $E_{\text{ion},i}\ge E_\text{min}$ (\SI{1}{keV}), the ionizing dose rate contributed by SV deposits in each of 40 log bins of event deposit $\varepsilon$ from $E_\text{min}$ to \SI{50}{MeV}:
+\begin{equation}
+  \dot D_{r,s}(\varepsilon\in\text{bin}) = R_s\,\frac{\sum_{\text{rows}\in r,\,s,\,\varepsilon} w_e\,E_{\text{ion},i,e}}{\sum_{i\in r}m_i}\times(\text{same unit factors}).
+\end{equation}
+Summed over bins it equals the region's dose rate from SV deposits $\ge\SI{1}{keV}$ (the script prints this sum next to the total, for comparison). It shows which size of event delivers the dose.
+
+\subsection{Event rate versus charge (\code{region_event_rate.png})}
+SV events per day with $E_\text{ion}\ge Q/k$, per region and source species; formula and assumptions in writeup 4. The shaded band marks $Q$ below the diagnostic threshold, where events are missing.
+
+\section{\gfour{} level, per SV}
+
+\subsection{\code{sv_deposition_bars.png}}
+Ionizing and non-ionizing energy per SV per source history of each species, $\sum_e w_eE/N_s$ (MeV per history).
+
+\subsection{\code{sv_integral_deposits.png}}
+Events per $10^6$ source histories with $E_\text{ion}\ge E$ in each SV, $10^6\sum_{E_\text{ion}\ge E} w_e/N_s$, with the charge $kE$ on the top axis.
+
+\subsection{\code{plot_sv_deposit_spectra.py}}
+Per region, a column per SV and a row per source species: events per $10^6$ source histories per bin of $E_\text{ion}$ in that SV, split by the depositing particle species (from the per-species ionizing parts of the rows), with the SV total in black. Complete above the \SI{1}{keV} threshold.
+
+\subsection{\code{sv_event_rates.py}}
+A table, per SV and species, of the expected number of events above fixed $E_\text{ion}$ thresholds per $10^6$ histories and per \si{cm^2} of SV area, with \gfour{} relative errors; with \code{--flux} also per day ($\times\Phi_sA/4\times86400$).
+
+\section{Common caveats}
+\begin{itemize}
+  \item All \gfour{} error bars are \gfour{} sampling errors only; the \mcdc{} source (Table 3 of writeup 2) is a common uncertainty of a region's results.
+  \item Neutron-source quantities omit most of the proton-born neutron contribution (writeup 2, species attribution).
+  \item Delta rays from the metal stack into the SVs are suppressed by the production cut (writeup 3), which biases ionizing quantities low by an unquantified amount.
+\end{itemize}
+
+\bibliography{refs}
+\end{document}

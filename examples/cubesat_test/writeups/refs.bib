@@ -1,0 +1,329 @@
+% Shared bibliography for the CubeSat coupling writeups.
+
+% ---------------------------------------------------------------- codes
+@article{morgan2024mcdc,
+  author  = {Morgan, Joanna Piper and Variansyah, Ilham and Pasmann, Samuel L. and Clements, Kayla B. and Cuneo, Braxton and Mote, Alexander and Goodman, Charles and Shaw, Caleb and Northrop, Jordan and Pankaj, Rohan and Lame, Ethan and Whewell, Benjamin and McClarren, Ryan G. and Palmer, Todd S. and Chen, Lizhong and Anistratov, Dmitriy Y. and Kelley, C. T. and Palmer, Camille J. and Niemeyer, Kyle E.},
+  title   = {{Monte Carlo / Dynamic Code (MC/DC)}: An accelerated {Python} package for fully transient neutron transport and rapid methods development},
+  journal = {Journal of Open Source Software},
+  volume  = {9},
+  number  = {96},
+  pages   = {6415},
+  year    = {2024},
+  doi     = {10.21105/joss.06415}
+}
+
+@article{agostinelli2003geant4,
+  author  = {Agostinelli, S. and others},
+  title   = {{Geant4}---a simulation toolkit},
+  journal = {Nuclear Instruments and Methods in Physics Research Section A},
+  volume  = {506},
+  number  = {3},
+  pages   = {250--303},
+  year    = {2003},
+  doi     = {10.1016/S0168-9002(03)01368-8}
+}
+
+@article{allison2006geant4,
+  author  = {Allison, J. and others},
+  title   = {{Geant4} developments and applications},
+  journal = {IEEE Transactions on Nuclear Science},
+  volume  = {53},
+  number  = {1},
+  pages   = {270--278},
+  year    = {2006},
+  doi     = {10.1109/TNS.2006.869826}
+}
+
+@article{allison2016recent,
+  author  = {Allison, J. and others},
+  title   = {Recent developments in {Geant4}},
+  journal = {Nuclear Instruments and Methods in Physics Research Section A},
+  volume  = {835},
+  pages   = {186--225},
+  year    = {2016},
+  doi     = {10.1016/j.nima.2016.06.125}
+}
+
+@manual{g4physlistguide,
+  author       = {{Geant4 Collaboration}},
+  title        = {Guide for Physics Lists},
+  note         = {Release 11.3/11.4. Reference physics lists, including QGSP\_BIC\_HP},
+  url          = {https://geant4-userdoc.web.cern.ch/UsersGuides/PhysicsListGuide/html/index.html}
+}
+
+@manual{g4appdev,
+  author       = {{Geant4 Collaboration}},
+  title        = {Book For Application Developers},
+  note         = {Release 11.3/11.4. Sections on production thresholds, regions, user actions, and multi-threading},
+  url          = {https://geant4-userdoc.web.cern.ch/UsersGuides/ForApplicationDeveloper/html/index.html}
+}
+
+@misc{g4source,
+  author       = {{Geant4 Collaboration}},
+  title        = {{Geant4} 11.4.0 source code},
+  note         = {Files cited: physics\_lists/lists/src/QGSP\_BIC\_HP.cc; physics\_lists/lists/src/G4PhysListFactory.cc; physics\_lists/constructors/electromagnetic/src/G4EmStandardPhysics\_option4.cc and G4EmBuilder.cc; processes/electromagnetic/standard/src/G4NuclearStopping.cc; processes/hadronic/processes/src/G4HadronElasticProcess.cc; run/src/G4MTRunManager.cc. The HPC runs used 11.3.2; the cited lines were checked to be unchanged between 11.3.2 and 11.4.0 for G4NuclearStopping},
+  year         = {2025},
+  url          = {https://gitlab.cern.ch/geant4/geant4}
+}
+
+@misc{g4exampleB1,
+  author = {{Geant4 Collaboration}},
+  title  = {Basic example {B1}},
+  note   = {examples/basic/B1 in the Geant4 distribution: B1::SteppingAction sums G4Step::GetTotalEnergyDeposit() in a scoring volume and B1::EventAction accumulates it per event},
+  url    = {https://gitlab.cern.ch/geant4/geant4/-/tree/master/examples/basic/B1}
+}
+
+@misc{g4exampleB4,
+  author = {{Geant4 Collaboration}},
+  title  = {Basic example {B4}},
+  note   = {examples/basic/B4 in the Geant4 distribution: energy deposit scored with user stepping action (B4a), sensitive detector hits (B4c), and primitive scorers G4PSEnergyDeposit (B4d)},
+  url    = {https://gitlab.cern.ch/geant4/geant4/-/tree/master/examples/basic/B4}
+}
+
+% ---------------------------------------------------------------- Geant4 physics models
+@article{mendoza2014g4ndl,
+  author  = {Mendoza, E. and Cano-Ott, D. and Koi, T. and Guerrero, C.},
+  title   = {New standard evaluated neutron cross section libraries for the {GEANT4} code and first verification},
+  journal = {IEEE Transactions on Nuclear Science},
+  volume  = {61},
+  number  = {4},
+  pages   = {2357--2364},
+  year    = {2014},
+  doi     = {10.1109/TNS.2014.2335538}
+}
+
+@article{folger2004binary,
+  author  = {Folger, G. and Ivanchenko, V. N. and Wellisch, J. P.},
+  title   = {The {Binary Cascade}: Nucleon nuclear reactions},
+  journal = {The European Physical Journal A},
+  volume  = {21},
+  pages   = {407--417},
+  year    = {2004},
+  doi     = {10.1140/epja/i2003-10219-7}
+}
+
+@article{lindhard1996relativistic,
+  author  = {Lindhard, J. and S{\o}rensen, A. H.},
+  title   = {Relativistic theory of stopping for heavy ions},
+  journal = {Physical Review A},
+  volume  = {53},
+  number  = {4},
+  pages   = {2443--2456},
+  year    = {1996},
+  doi     = {10.1103/PhysRevA.53.2443}
+}
+
+@article{lindhard1963integral,
+  author  = {Lindhard, J. and Nielsen, V. and Scharff, M. and Thomsen, P. V.},
+  title   = {Integral equations governing radiation effects},
+  journal = {Matematisk-fysiske Meddelelser Kongelige Danske Videnskabernes Selskab},
+  volume  = {33},
+  number  = {10},
+  pages   = {1--42},
+  year    = {1963}
+}
+
+@article{pdg2022,
+  author  = {Workman, R. L. and others},
+  collaboration = {Particle Data Group},
+  title   = {Review of Particle Physics},
+  journal = {Progress of Theoretical and Experimental Physics},
+  volume  = {2022},
+  pages   = {083C01},
+  year    = {2022},
+  note    = {Section 34, Passage of particles through matter},
+  doi     = {10.1093/ptep/ptac097}
+}
+
+% ---------------------------------------------------------------- transport theory and statistics
+@article{kellerer1971,
+  author  = {Kellerer, Albrecht M.},
+  title   = {Considerations on the random traversal of convex bodies and solutions for general cylinders},
+  journal = {Radiation Research},
+  volume  = {47},
+  number  = {2},
+  pages   = {359--376},
+  year    = {1971}
+}
+
+@book{duderstadt1976,
+  author    = {Duderstadt, James J. and Hamilton, Louis J.},
+  title     = {Nuclear Reactor Analysis},
+  publisher = {John Wiley \& Sons},
+  address   = {New York},
+  year      = {1976}
+}
+
+@article{welford1962,
+  author  = {Welford, B. P.},
+  title   = {Note on a method for calculating corrected sums of squares and products},
+  journal = {Technometrics},
+  volume  = {4},
+  number  = {3},
+  pages   = {419--420},
+  year    = {1962},
+  doi     = {10.1080/00401706.1962.10490022}
+}
+
+@techreport{nist811,
+  author      = {Thompson, Ambler and Taylor, Barry N.},
+  title       = {Guide for the Use of the International System of Units ({SI})},
+  institution = {National Institute of Standards and Technology},
+  number      = {NIST Special Publication 811},
+  year        = {2008},
+  url         = {https://www.nist.gov/pml/special-publication-811}
+}
+
+% ---------------------------------------------------------------- single-event effects
+@misc{cremeQcrit,
+  author       = {{Vanderbilt University ISDE}},
+  title        = {Critical Charge and Threshold {LET}},
+  howpublished = {{CR\`EME-MC} online help},
+  note         = {Gives $Q_c = L_\mathrm{th} T d e / X$ with $X = \SI{3.6}{eV}$ per electron--hole pair and $d = \SI{2.32}{g/cm^3}$ for Si, i.e.\ $Q_c = 1.03\times10^{-2}\,L_\mathrm{th} T$ pC (accessed 2026-10-12)},
+  url          = {https://creme.isde.vanderbilt.edu/CREME-MC/help/critical-charge-and-threshold-let}
+}
+
+@misc{sierawski2010creme,
+  author       = {Sierawski, Brian D. and Mendenhall, Marcus H. and Weller, Robert A. and Reed, Robert A. and Adams, James H. and Watts, John W. and Barghouty, Abdulnasser F.},
+  title        = {{CR\`EME-MC}: A Physics-Based Single Event Effects Tool},
+  howpublished = {Presentation, IEEE Nuclear Science Symposium},
+  month        = nov,
+  year         = {2010},
+  url          = {https://creme.isde.vanderbilt.edu/CREME-MC/public/CREME-MC%20A%20Physics-Based%20Single%20Event%20Effects%20Tool%20-NSS%2011-2010.pdf/at_download/file}
+}
+
+@article{weller2010mred,
+  author  = {Weller, Robert A. and Mendenhall, Marcus H. and Reed, Robert A. and Schrimpf, Ronald D. and Warren, Kevin M. and Sierawski, Brian D. and Massengill, Lloyd W.},
+  title   = {{Monte Carlo} simulation of single event effects},
+  journal = {IEEE Transactions on Nuclear Science},
+  volume  = {57},
+  number  = {4},
+  pages   = {1726--1746},
+  year    = {2010},
+  doi     = {10.1109/TNS.2010.2044807}
+}
+
+@article{dodd2003basic,
+  author  = {Dodd, Paul E. and Massengill, Lloyd W.},
+  title   = {Basic mechanisms and modeling of single-event upset in digital microelectronics},
+  journal = {IEEE Transactions on Nuclear Science},
+  volume  = {50},
+  number  = {3},
+  pages   = {583--602},
+  year    = {2003},
+  doi     = {10.1109/TNS.2003.813129}
+}
+
+% ---------------------------------------------------------------- nuclear data
+@article{iwamoto2023jendl5,
+  author  = {Iwamoto, Osamu and Iwamoto, Nobuyuki and Kunieda, Satoshi and Minato, Futoshi and Nakayama, Shinsuke and Abe, Yutaka and others},
+  title   = {Japanese evaluated nuclear data library version 5: {JENDL-5}},
+  journal = {Journal of Nuclear Science and Technology},
+  volume  = {60},
+  number  = {1},
+  pages   = {1--60},
+  year    = {2023},
+  doi     = {10.1080/00223131.2022.2141903}
+}
+
+@techreport{trkov2018endf6,
+  editor      = {Trkov, A. and Herman, M. and Brown, D. A.},
+  title       = {{ENDF-6} Formats Manual},
+  institution = {Brookhaven National Laboratory},
+  number      = {BNL-203218-2018-INRE (CSEWG Document ENDF-102)},
+  year        = {2018}
+}
+
+@article{koning2019tendl,
+  author  = {Koning, A. J. and Rochman, D. and Sublet, J.-Ch. and Dzysiuk, N. and Fleming, M. and van der Marck, S.},
+  title   = {{TENDL}: Complete nuclear data library for innovative nuclear science and technology},
+  journal = {Nuclear Data Sheets},
+  volume  = {155},
+  pages   = {1--55},
+  year    = {2019},
+  doi     = {10.1016/j.nds.2019.01.002}
+}
+
+@techreport{forrest2012fendl3,
+  author      = {Forrest, R. A. and Capote, R. and Otsuka, N. and Kawano, T. and Koning, A. J. and Kunieda, S. and Sublet, J.-Ch. and Watanabe, Y.},
+  title       = {{FENDL-3} Library Summary Documentation},
+  institution = {International Atomic Energy Agency, Nuclear Data Section},
+  number      = {INDC(NDS)-0628},
+  year        = {2012}
+}
+
+@misc{jendl5ace,
+  author       = {{Japan Atomic Energy Agency, Nuclear Data Center}},
+  title        = {{JENDL-5} {ACE} files (ace\_j50\_neu\_0300.0k), neutron sublibrary at 300 K},
+  howpublished = {JAEA Nuclear Data Center},
+  url          = {https://wwwndc.jaea.go.jp/jendl/j5/j5.html}
+}
+
+@techreport{conlin2019ace,
+  author      = {Conlin, Jeremy Lloyd and Romano, Paul},
+  title       = {A Compact {ENDF} ({ACE}) Format Specification},
+  institution = {Los Alamos National Laboratory},
+  number      = {LA-UR-19-29016},
+  year        = {2019}
+}
+
+% ---------------------------------------------------------------- trapped-particle environment
+@inproceedings{ripa2020comparison,
+  author    = {{\v{R}}{\'i}pa, Jakub and Dilillo, Giuseppe and Campana, Riccardo and Galg{\'o}czi, G{\'a}bor},
+  title     = {A comparison of trapped particle models in low {Earth} orbit},
+  booktitle = {Space Telescopes and Instrumentation 2020: Ultraviolet to Gamma Ray},
+  series    = {Proceedings of SPIE},
+  volume    = {11444},
+  year      = {2020},
+  eprint    = {2101.03090},
+  archivePrefix = {arXiv},
+  note      = {arXiv:2101.03090; figure source files (vector EPS) from the arXiv e-print},
+  url       = {https://arxiv.org/abs/2101.03090}
+}
+
+@article{ginet2013ae9,
+  author  = {Ginet, G. P. and O'Brien, T. P. and Huston, S. L. and Johnston, W. R. and Guild, T. B. and Friedel, R. and Lindstrom, C. D. and Roth, C. J. and Whelan, P. and Quinn, R. A. and Madden, D. and Morley, S. and Su, Yi-Jiun},
+  title   = {{AE9}, {AP9} and {SPM}: New models for specifying the trapped energetic particle and space plasma environment},
+  journal = {Space Science Reviews},
+  volume  = {179},
+  pages   = {579--615},
+  year    = {2013},
+  doi     = {10.1007/s11214-013-9964-y}
+}
+
+@techreport{vette1991ae8,
+  author      = {Vette, James I.},
+  title       = {The {AE-8} Trapped Electron Model Environment},
+  institution = {National Space Science Data Center},
+  number      = {NSSDC/WDC-A-R\&S 91-24},
+  year        = {1991},
+  url         = {https://ntrs.nasa.gov/citations/19920014985}
+}
+
+@article{fennell2015inner,
+  author  = {Fennell, J. F. and Claudepierre, S. G. and Blake, J. B. and O'Brien, T. P. and Clemmons, J. H. and Baker, D. N. and Spence, H. E. and Reeves, G. D.},
+  title   = {{Van Allen Probes} show that the inner radiation zone contains no {MeV} electrons: {ECT/MagEIS} data},
+  journal = {Geophysical Research Letters},
+  volume  = {42},
+  pages   = {1283--1289},
+  year    = {2015},
+  doi     = {10.1002/2014GL062874}
+}
+
+@article{cumani2019background,
+  author  = {Cumani, P. and Hernanz, M. and Kiener, J. and Tatischeff, V. and Zoglauer, A.},
+  title   = {Background for a gamma-ray satellite on a low-{Earth} orbit},
+  journal = {Experimental Astronomy},
+  year    = {2019},
+  note    = {Table of background components: secondary electrons/positrons 1\,MeV--20\,GeV, primary electrons/positrons 570\,MeV--429\,GeV}
+}
+
+% ---------------------------------------------------------------- flight data
+@misc{thomsen2022shields,
+  author       = {Thomsen III, D. Laurence},
+  title        = {{Shields-1} Dosimetry Measurements in Polar Low Earth Orbit},
+  howpublished = {NASA Langley Research Center presentation, NTRS 20220013680},
+  month        = sep,
+  year         = {2022},
+  url          = {https://ntrs.nasa.gov/citations/20220013680}
+}

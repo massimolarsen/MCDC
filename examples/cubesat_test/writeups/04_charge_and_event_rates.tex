@@ -1,0 +1,70 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 4:\\From deposited energy to charge and event rates}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\gfour{} scores the ionizing energy each event deposits in each sensitive volume (writeup 3). This note explains how that energy is turned into a charge and into the event rate versus charge on the result plots, what model of charge collection that implies, and how it compares with established single-event-effect tools. The conversion is done in post-processing (\code{diag/plot_region_summary.py}, \code{diag/plot_sv_deposition.py}), not inside \gfour{}.
+\end{abstract}
+
+\section{Energy-to-charge conversion}
+An ionizing deposit $E_\text{ion}$ in silicon creates on average $E_\text{ion}/\varepsilon$ electron--hole pairs, where $\varepsilon=\SI{3.6}{eV}$ is the mean energy per pair in silicon. The generated charge is
+\begin{equation}
+  Q = \frac{e\,E_\text{ion}}{\varepsilon}.
+\end{equation}
+Numerically, \SI{1}{MeV} gives $10^6/3.6 = \num{2.78e5}$ pairs, and
+\begin{equation}
+  k \equiv \frac{Q}{E_\text{ion}} = \frac{10^6}{3.6}\times\SI{1.602176634e-19}{C}
+  = \SI{44.50}{fC/MeV},\qquad k^{-1} = \SI{22.47}{MeV/pC}.
+\end{equation}
+In the scripts this is \code{FC_PER_MEV = 1.0e6 / 3.6 * 1.602176634e-19 / 1.0e-15}.
+
+\paragraph{Source.} The CR\`EME-MC documentation \citep{cremeQcrit} relates critical charge to threshold LET as $Q_c = L_\text{th}Td\,e/X$, with $X=\SI{3.6}{eV}$ per pair and $d=\SI{2.32}{g/cm^3}$ for silicon, which it evaluates to $Q_c = 1.03\times10^{-2}\,L_\text{th}T$~pC ($L_\text{th}$ in \si{MeV.cm^2/mg}, $T$ in \si{\micro m}). For $L_\text{th}T = 1$ the deposited energy is $\SI{1}{MeV.cm^2/mg}\times\SI{1e-4}{cm}\times\SI{2320}{mg/cm^3} = \SI{0.232}{MeV}$, so the same page implies $\SI{0.232}{MeV}/\SI{0.0103}{pC} = \SI{22.5}{MeV/pC}$, matching $k^{-1}$ above.
+
+\paragraph{Why NIEL is excluded.} Energy transferred to nuclei by elastic collisions (displacement) does not create electron--hole pairs, so only $E_\text{ion} = E_\text{tot} - E_\text{NIEL}$ is converted (writeup 3).
+
+\section{Charge-collection model}
+
+\assumption{\textbf{Full collection in one SV.} All charge generated inside an SV is collected and none generated outside it is. This is the single rectangular-parallelepiped (RPP) sensitive-volume model.}
+
+\assumption{\textbf{Mean pair-creation energy.} $\varepsilon = \SI{3.6}{eV}$ is used for every particle and deposit density. Fluctuations in the number of pairs and recombination in dense heavy-ion tracks are neglected.}
+
+\assumption{\textbf{SV size.} Each SV is the whole active area of a die, \SI{1}{\micro m} thick (writeup 3). It is not a single memory cell or transistor; a deposit in it is a deposit somewhere in the die's active layer.}
+
+\paragraph{Comparison with MRED / CR\`EME-MC.} Vanderbilt's \gfour{}-based tools (MRED, and CR\`EME-MC built on it) also compute ionizing energy deposited in sensitive volumes event by event and convert it linearly to collected charge, reporting event rates against collected charge and then imposing a critical charge \citep{weller2010mred,sierawski2010creme}. They generalize the RPP model with weighted, nested sensitive volumes,
+\[
+  Q_{\text{coll},j} = \sum_{i=1}^{N_j} \alpha_{j,i}\, I(Z)\, E_{\text{dep},j,i},
+\]
+where each volume $i$ of device $j$ has a collection efficiency $\alpha_{j,i}$ fitted to heavy-ion broad-beam data, and $I(Z)$ is a species-dependent factor \citep{sierawski2010creme}. Our model is the special case of one volume with $\alpha=1$ and $I(Z)=1$.
+
+\section{Event rate versus charge}
+
+\subsection{What counts as an event}
+One \gfour{} event is the history of one primary entering the region box (writeup 2). An \emph{SV event} is one event's ionizing deposit in one SV. The region curves count SV events summed over all SVs of the region, so an event that deposits above $Q$ in two SVs counts twice.
+
+\subsection{Formula}
+From the per-event diagnostic rows (\code{seu_diagnostics/event_sv}), for region $r$ and source species $s$:
+\begin{equation}
+  \dot N_{r,s}(\ge Q) = 86400\,R_s \sum_{\substack{\text{rows: SV}\in r,\\ \text{primary}=s,\ E_\text{ion}\ge Q/k}} w_e
+  \quad\text{SV events per day},
+\end{equation}
+with $w_e$ the event weight (writeup 2) and $R_s = \Phi_sA/(4N_s)$ (writeup 1). In code (\code{plot_event_rate}), rows are sorted by $E_\text{ion}$ and the weights are cumulated from the top.
+
+\subsection{Diagnostic threshold}
+Rows exist only for events whose largest SV deposit is $\ge\SI{1}{keV}$ (\code{diagnostic_min_Eion_mev}), i.e.\ $Q \ge \SI{0.0445}{fC}$. Above that threshold the curve is complete; below it events are missing, and the plot shades that range.
+
+\subsection{What the curve is not}
+It is the rate of charge deposition events, not an upset rate. An SEU rate needs, for a given circuit, a critical charge $Q_\text{crit}$ and the sensitive area of each node; because of assumption A3, $\dot N(\ge Q_\text{crit})$ would be the upset rate only if the die's entire active area were sensitive with that $Q_\text{crit}$.
+
+\subsection{Statistics}
+Within one species all events have the same weight, so the number of events $n$ above a given $Q$ has a relative standard error of about $n^{-1/2}$ from \gfour{} sampling. The high-$Q$ tail rests on few events, and every point also carries the \mcdc{} source uncertainty of the region (writeup 2), which is not shown.
+
+\section{Further reading}
+\citet{dodd2003basic} review the mechanisms and modeling of single-event upset in digital microelectronics.
+
+\bibliography{refs}
+\end{document}

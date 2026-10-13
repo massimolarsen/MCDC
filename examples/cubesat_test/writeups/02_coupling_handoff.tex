@@ -1,0 +1,143 @@
+\input{preamble}
+
+\title{CubeSat coupling writeup 2:\\The \mcdc{}--\gfour{} handoff (distribution mode)}
+\author{CARRE CubeSat MC/DC--Geant4 coupling}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note describes how particles crossing into each electronics box in \mcdc{} become \gfour{} primaries: the tally that records them, the payload passed to \gfour{}, the sampling in the bridge, the event weights, and why weighted \gfour{} sums carry the \mcdc{} normalization. It ends with the approximations this handoff makes. Code references: \code{mcdc/coupling/geant4_distribution.py} (payload), \code{bridge/source_distribution.cpp} and \code{bridge/bank_primary_generator_action.cpp} in the bridge repository (sampling).
+\end{abstract}
+
+\section{Two-stage scheme}
+\begin{enumerate}
+  \item \mcdc{} \citep{morgan2024mcdc} transports the environment source (writeup 1) through the whole CubeSat. Each of the four electronics regions (OBC, EPS, ADCS, COMMS) is one box cell in \mcdc{} filled with a single homogeneous material.
+  \item A surface-mesh \code{current-in} tally on each box records every inward crossing of the box surface, per species, binned in direction, energy, face, and position on the face.
+  \item After \mcdc{} finishes, the tally is converted into a payload per region and passed to the bridge, which runs \gfour{} \citep{agostinelli2003geant4,allison2006geant4,allison2016recent} in a world of $1.2\times$ the box size containing the detailed device model of that region (writeup 3).
+  \item \gfour{} samples primaries on the box surface from the tallied distribution and scores energy deposition in the sensitive volumes.
+\end{enumerate}
+The regions are independent: one \gfour{} run per region, each with its own random seed (\code{geant4_random_seeds} in the input).
+
+\section{The interface tally}
+\subsection{Definition}
+For each box and species, \mcdc{} scores the weight $w$ of every particle crossing the box surface inward into bin
+\[
+  (\mu_i,\;\varphi_j,\;E_k,\;f,\;u,\;v),
+\]
+where $\mu=\hat\Omega\cdot\hat z$ is the direction cosine about the global $+z$ axis, $\varphi\in(-\pi,\pi]$ the azimuth measured from $+x$, $E$ the kinetic energy at the crossing, $f$ the box face, and $(u,v)$ the cell of a $5\times5$ mesh on that face (face axes $x\!:\!y/z$, $y\!:\!x/z$, $z\!:\!x/y$). The payload builder requires the default polar reference $(0,0,1)$, because the bridge samples $\mu$ about $+z$.
+
+\subsection{Bin structure}
+\begin{table}[h]
+\centering
+\caption{Interface tally grids (\code{inputCE_G4NP_SUBMIT.py}).}
+\label{tab:bins}
+\begin{tabular}{lll}
+\toprule
+Axis & Neutrons & Protons \\
+\midrule
+$\mu$ & 8 uniform bins on $[-1,1]$ & same \\
+$\varphi$ & 8 uniform bins on $[-\pi,\pi]$ & same \\
+Energy & 75 log bins, \SI{1e-5}{eV}--\SI{200}{MeV} & 16 log bins, \SI{0.25}{MeV}--\SI{200}{MeV} \\
+ & (5.63 bins/decade, width ratio 1.505) & (5.51 bins/decade, width ratio 1.518) \\
+Face & 6 & 6 \\
+Face mesh & $5\times5$ & $5\times5$ \\
+Time & 1 (collapsed) & 1 (collapsed) \\
+\midrule
+Total bins & $8\cdot8\cdot75\cdot6\cdot25 = \num{720000}$ & $8\cdot8\cdot16\cdot6\cdot25 = \num{153600}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+The neutron grid starts at \SI{1e-5}{eV} so that neutrons moderated in the spacecraft are handed off; the proton grid starts at the \SI{0.25}{MeV} proton transport cutoff in \mcdc{}.
+
+\subsection{Bin edges and face normals}
+The $\varphi$ edges fall at multiples of $\pi/4$, including $0$, $\pm\pi/2$, and $\pm\pi$, and the $\mu$ edges include $\mu=0$. The inward condition on each face is a sign condition on one of $\cos\varphi$ (faces $x_\pm$), $\sin\varphi$ (faces $y_\pm$), or $\mu$ (faces $z_\pm$), and those sign changes are bin edges. Every $(\mu,\varphi)$ bin therefore lies entirely on one side of every face plane: a bin populated by inward crossings on a face contains only inward directions for that face, and directions sampled uniformly inside it never point out of the box.
+
+\section{Payload}
+\code{_species_source_block} (\code{geant4_distribution.py}) reads the \code{current-in} means $\bar x_b$, sums the (single) time bin, clips negatives to zero, and multiplies by the global $N$:
+\begin{equation}
+  W_b = \max(\bar x_b,0)\,N,\qquad W = \sum_b W_b .
+\end{equation}
+$W_b$ is the weighted number of crossings into bin $b$ in the whole \mcdc{} run, and $W$ the total for the species. The box bounds are shifted to the box center and converted to mm, the frame of the \gfour{} model. The payload stores, per species, the PDG code, the $\mu$, $\varphi$, and energy edges (MeV), the flat $W_b$ array (C order $\mu,\varphi,E,f,u,v$), the mesh size, and the number of \gfour{} events $N_{G4}$ (\num{2.5e7} per species per region in these runs).
+
+\section{Sampling in the bridge}
+\subsection{Species}
+Each species is one \code{SourceComponent}. Events are assigned to species by contiguous event-ID ranges in load order (neutrons first, then protons), so event $k$ always has the same species; this is what makes per-event replay possible (writeup 7).
+
+\subsection{One primary}
+For each event, \code{SourceComponent::Sample}:
+\begin{enumerate}
+  \item draws a bin $b$ with probability $W_b/W$ (binary search of the cumulative weights against $\xi W$);
+  \item samples $\mu \sim U(\mu_i,\mu_{i+1})$ and $\varphi\sim U(\varphi_j,\varphi_{j+1})$, and sets $\hat\Omega = (\sqrt{1-\mu^2}\cos\varphi,\ \sqrt{1-\mu^2}\sin\varphi,\ \mu)$;
+  \item samples $E\sim U(E_k,E_{k+1})$, linear in energy;
+  \item places the particle on face $f$ at a position uniform within mesh cell $(u,v)$;
+  \item assigns the weight
+  \begin{equation}
+    w = \frac{W}{N_{G4}}.
+    \label{eq:weight}
+  \end{equation}
+\end{enumerate}
+
+\subsection{Why the weighted \gfour{} sums carry the \mcdc{} normalization}
+Let $x(e)$ be any score of one \gfour{} event $e$ (e.g.\ ionizing energy in an SV). The weighted sum over the run is
+\begin{equation}
+  X = \sum_{e=1}^{N_{G4}} w\,x(e),\qquad
+  \mathbb{E}[X] = N_{G4}\,\frac{W}{N_{G4}}\sum_b \frac{W_b}{W}\,\mathbb{E}[x\mid b] = \sum_b W_b\,\mathbb{E}[x\mid b].
+\end{equation}
+This is the score that would be obtained by transporting, in \gfour{}, every weighted crossing of the \mcdc{} run once (to the extent that a crossing's response depends only on its bin, assumption A1 below). $X$ is therefore ``per \mcdc{} run of species $s$'', i.e.\ per $N_s$ histories, and converts to a rate with $R_s$ from writeup 1:
+\begin{equation}
+  \dot X = X\,\frac{\Phi_s A}{4N_s}.
+\end{equation}
+In the bridge, the weight is read from the primary (\code{G4PrimaryParticle::GetWeight}) at the end of each event, and step deposits are weighted with the pre-step point weight, which equals $w$ since no biasing is used.
+
+\section{Statistics of the handoff}
+\gfour{} resamples a fixed, finite set of tallied crossings. Table~\ref{tab:crossings} shows how many weighted crossings each source distribution is built from, how many of its bins are occupied, and the \mcdc{} relative standard error of the total $W$.
+
+\begin{table}[h]
+\centering
+\caption{\mcdc{} crossings behind each region's \gfour{} source. ``Bins'' is the fraction of the 720,000 (neutron) or 153,600 (proton) bins with nonzero weight. ``RE'' is the \mcdc{} relative standard error of $W$ (bin variances added, see assumption A4).}
+\label{tab:crossings}
+\begin{tabular}{ll rrr rrr}
+\toprule
+ & & \multicolumn{3}{c}{Run 21738977 ($N_p=10^6$)} & \multicolumn{3}{c}{Run 21756183 ($N_p=10^7$)} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+Region & Species & Crossings & Bins & RE & Crossings & Bins & RE \\
+\midrule
+OBC   & n & \num{20088} & 2.3\% & 0.007 & \num{20415} & 2.3\% & 0.007 \\
+      & p & \num{1845}  & 1.1\% & 0.023 & \num{17840} & 6.9\% & 0.007 \\
+EPS   & n & \num{27163} & 2.6\% & 0.006 & \num{27735} & 2.7\% & 0.006 \\
+      & p & \num{2241}  & 1.3\% & 0.021 & \num{22787} & 6.7\% & 0.007 \\
+ADCS  & n & \num{53332} & 5.2\% & 0.004 & \num{54935} & 5.3\% & 0.004 \\
+      & p & \num{5154}  & 2.9\% & 0.014 & \num{51041} & 13.9\% & 0.004 \\
+COMMS & n & \num{2405}  & 0.3\% & 0.020 & \num{2379}  & 0.3\% & 0.021 \\
+      & p & \num{204}   & 0.1\% & 0.070 & \num{2046}  & 1.3\% & 0.022 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With $N_{G4}=\num{2.5e7}$, each occupied proton bin of the COMMS source in run 21738977 is resampled about $10^5$ times. The \gfour{} result then converges to the response to those $\sim$200 tallied crossings, not to the true box current. This is the dominant uncertainty for small boxes and rare events, and it is not included in the \gfour{} error bars (writeup 5).
+
+\section{Approximations}
+
+\assumption{\textbf{Within-bin uniformity.} Inside a bin, direction is uniform in $(\mu,\varphi)$, energy uniform in $E$, and position uniform on the mesh cell. Correlations finer than the bins (e.g.\ between position on a face and direction, or between energy and direction) are lost. Linear sampling inside a log bin of width ratio $r\approx1.5$ puts the mean at $(1+r)/2 = 1.25$ times the lower edge; for an $E^{-2}$ spectrum the true mean is $\ln r/(1-1/r)=1.216$, and for $E^{-1}$ it is $(r-1)/\ln r = 1.233$, so the sampled mean energy is high by about 1--3\% within a bin.}
+
+\assumption{\textbf{Independent primaries.} Each \gfour{} event has exactly one primary, drawn independently. Particles that cross into the box together in one \mcdc{} history (for example several secondaries of one reaction) are simulated in separate events. Mean quantities (dose, mean deposit spectra) are unaffected; coincidences between particles from the same history (multi-particle deposits in one event) are not represented.}
+
+\assumption{\textbf{Steady state.} The single time bin is collapsed; arrival times are not passed to \gfour{}.}
+
+\assumption{\textbf{Statistics.} The \gfour{} error bars contain only \gfour{} sampling noise. The \mcdc{} uncertainty of the source ($W$ and its shape, Table~\ref{tab:crossings}) acts as a common normalization and shape error on all \gfour{} results of a region. Summing bin variances to get the RE in Table~\ref{tab:crossings} neglects covariance between bins (one history can cross a box more than once), so it is approximate.}
+
+\assumption{\textbf{One-way coupling per box.} Particles leaving the \gfour{} world are lost; they do not return to \mcdc{} or reach other boxes. Inside \mcdc{}, the box is a homogeneous block (silicon for OBC, ADCS, COMMS; LiCoO\textsubscript{2} for EPS) rather than the detailed device model, so scattering by the box contents is approximated in the \mcdc{} transport outside the box. A particle that leaves the \mcdc{} box and re-enters is tallied again and becomes a second, independent \gfour{} primary.}
+
+\assumption{\textbf{Species at the interface.} Only neutrons and protons are tallied and handed off. Other particles produced outside the box are not passed to \gfour{}; particles produced inside the box are generated by \gfour{} itself.}
+
+\assumption{\textbf{Species attribution.} The interface tallies filter on the species of the crossing particle, not on the species of the source history. Neutrons produced by proton histories (e.g.\ in the structure) are tallied with the albedo neutrons, handed off in the neutron source block, and later scaled with the neutron normalization $R_n$ (writeup 1); protons produced by neutron histories are scaled with $R_p$. The correct factor is the one of the history that produced them, so proton-born neutrons are underweighted by $R_p/R_n = (\Phi_p/\Phi_n)(N_n/N_p)$ (299 for $N_p=N_n$, 29.9 for $N_p=10N_n$) and neutron-born protons overweighted by the same factor.
+
+The size of the effect can be estimated from the two runs with $N_p=10^6$ and $N_p=10^7$ (same $N_n$): the neutron transmission into the boxes (writeup 7) rises by about 0.02 (OBC 0.016, EPS 0.021, ADCS 0.030; COMMS within its $\pm0.02$ error) when $N_p$ grows by $9\times10^6$. That is $\approx0.0022\,(S/A)$ proton-born neutron crossings per proton history, against $\approx1.0\,(S/A)$ albedo crossings per neutron history. Weighting each by its environment flux, proton-born neutrons are $0.0022\times168.5/0.564\approx0.66$ of the albedo-neutron current into the boxes, but they appear in the neutron results with a weight of only $\approx0.2\%$ ($N_p=N_n$) or $2\%$ ($N_p=10N_n$) of the albedo current. Neutron-source quantities in the results therefore omit most of the proton-born neutron contribution (a factor of up to $\sim1.6$ on neutron-source quantities, from a two-run difference with $\pm0.007$ errors). The corresponding proton transmission difference between the runs is consistent with zero ($|\Delta T|\lesssim0.003$), so neutron-born protons are a small part of the proton source. Separating the two would need source-species filtering of the tallies or separate single-species runs.}
+
+\section{Exact (bank) mode}
+The coupling also has a bank mode, which hands off each recorded crossing exactly (position, direction, energy, weight) instead of a binned distribution. It removes A1 but needs one \gfour{} event per crossing, so the \gfour{} statistics are limited to the \mcdc{} crossing count. All results in these writeups use distribution mode.
+
+\bibliography{refs}
+\end{document}
