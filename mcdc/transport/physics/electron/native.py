@@ -404,7 +404,8 @@ def sample_bremsstrahlung(
     # Current energy
     E = particle["E"]
 
-    dE = evaluate_eloss(E, bremsstrahlung, simulation, data)
+    # The interpolated loss can exceed E; the photon cannot take more than E
+    dE = min(evaluate_eloss(E, bremsstrahlung, simulation, data), E)
     E_out = E - dE
 
     # Check for cutoff
@@ -476,6 +477,11 @@ def sample_ionization(
     )
     T_dist = simulation["distributions"][dist_ID]
     T_delta = sample_distribution(E, T_dist, particle_container, simulation, data)
+
+    # The delta energy is sampled from tables interpolated in E and can exceed
+    # the available E - B, which made E_out negative and deposited a negative
+    # energy while the delta still carried T_delta. Cap it to conserve energy.
+    T_delta = min(T_delta, E - B)
 
     # Primary outgoing energy
     E_out = E - B - T_delta
