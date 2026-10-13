@@ -398,6 +398,29 @@ for name, cell, sv_surfaces in sensitive_volumes:
                 )
             )
 
+# Flux and energy deposition over the CubeSat body and in each SV, as in the
+# photon CubeSat model. Flux is a track-length score (track length in cm, not
+# divided by volume); energy deposition is a collision score in eV, so the two
+# need separate tallies. The deposition tallies have no energy filter: a
+# deposit is binned by the electron's post-collision energy, and an electron
+# stopped at the cutoff has E = 0 (inside the default [-1, inf) bin only).
+# 0.5 cm voxels as in the photon model; x and y add the 0.2 cm solar-panel
+# layers at -0.2->0 and 10->10.2 so the outer panels are in the map.
+body_mesh = mcdc.MeshStructured(
+    x=np.concatenate(([-0.2], np.linspace(0.0, 10.0, 21), [10.2])),
+    y=np.concatenate(([-0.2], np.linspace(0.0, 10.0, 21), [10.2])),
+    z=np.linspace(0.0, 11.0, 23),
+)
+tallies.append(mcdc.Tally(name="body_flux", mesh=body_mesh, scores=["flux"]))
+tallies.append(
+    mcdc.Tally(name="body_edep", mesh=body_mesh, scores=["energy_deposition"])
+)
+for name, cell, _ in sensitive_volumes:
+    tallies.append(mcdc.Tally(name=f"{name}_sv_flux", cell=cell, scores=["flux"]))
+    tallies.append(
+        mcdc.Tally(name=f"{name}_sv_edep", cell=cell, scores=["energy_deposition"])
+    )
+
 
 # =============================================================================
 # SETTINGS AND RUN
