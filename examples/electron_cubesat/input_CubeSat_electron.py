@@ -404,12 +404,15 @@ for name, cell, sv_surfaces in sensitive_volumes:
 # need separate tallies. The deposition tallies have no energy filter: a
 # deposit is binned by the electron's post-collision energy, and an electron
 # stopped at the cutoff has E = 0 (inside the default [-1, inf) bin only).
-# 0.5 cm voxels as in the photon model; x and y add the 0.2 cm solar-panel
-# layers at -0.2->0 and 10->10.2 so the outer panels are in the map.
+# 0.5 cm voxels as in the photon model. The mesh covers only the frame:
+# x, y = 0->10 (outer faces of rails and side shear panels) and z = 0.5->10.5
+# (outer faces of the -Z and +Z shear panels and small rails). The solar
+# panels, the antenna strips below the -Z panel (z = 0.2->0.5), and the 0.5 cm
+# rail ends beyond the panels lie outside it, so no outside space is scored.
 body_mesh = mcdc.MeshStructured(
-    x=np.concatenate(([-0.2], np.linspace(0.0, 10.0, 21), [10.2])),
-    y=np.concatenate(([-0.2], np.linspace(0.0, 10.0, 21), [10.2])),
-    z=np.linspace(0.0, 11.0, 23),
+    x=np.linspace(0.0, 10.0, 21),
+    y=np.linspace(0.0, 10.0, 21),
+    z=np.linspace(0.5, 10.5, 21),
 )
 tallies.append(mcdc.Tally(name="body_flux", mesh=body_mesh, scores=["flux"]))
 tallies.append(

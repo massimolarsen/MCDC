@@ -41,6 +41,11 @@ SVS = {
 }
 
 
+# Frame extent (cm), as the body mesh in input_CubeSat_electron.py; the mesh
+# plots of older runs, whose mesh extended past it, are cropped to it
+FRAME = {"x": (0.0, 10.0), "y": (0.0, 10.0), "z": (0.5, 10.5)}
+
+
 def box_volume(bounds):
     x0, x1, y0, y1, z0, z1 = bounds
     return (x1 - x0) * (y1 - y0) * (z1 - z0)
@@ -73,7 +78,24 @@ def voxel_volumes(mesh):
     return dx[:, None, None] * dy[None, :, None] * dz[None, None, :]
 
 
+def crop_to_frame(mesh):
+    """Keep the voxels inside the frame, dropping the solar panels, antenna
+    strips, and outside space (a no-op for runs with the frame-only mesh)."""
+    out = dict(mesh)
+    keep = {}
+    for a in "xyz":
+        edges = mesh[a]
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        keep[a] = (centers > FRAME[a][0]) & (centers < FRAME[a][1])
+        idx = np.flatnonzero(keep[a])
+        out[a] = edges[idx[0] : idx[-1] + 2]
+    for key in ("tl", "tl_sd", "ed", "ed_sd"):
+        out[key] = mesh[key][np.ix_(keep["x"], keep["y"], keep["z"])]
+    return out
+
+
 def plot_mesh(mesh, label):
+    mesh = crop_to_frame(mesh)
     vol = voxel_volumes(mesh)
     # Physical densities per voxel
     flux = mesh["tl"] / vol * RATE  # e / cm^2 / s
@@ -93,7 +115,7 @@ def plot_mesh(mesh, label):
         ("YZ, x-avg", 0, dx, y, z, "y [cm]", "z [cm]"),
     ]
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
-    fig.suptitle(f"{label}: body mesh (axis-averaged projections)", fontsize=13)
+    fig.suptitle(f"{label}: frame (x, y = 0-10, z = 0.5-10.5 cm), axis-averaged projections", fontsize=13)
     rows = [
         (flux, "Flux", "flux [e cm$^{-2}$ s$^{-1}$]", "viridis"),
         (edep, "Energy deposition", "deposition [MeV cm$^{-3}$ s$^{-1}$]", "magma"),
