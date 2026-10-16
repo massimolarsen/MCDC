@@ -1,0 +1,16 @@
+problem: resonance; collision-density basis; 200 passes x 20000 histories
+
+=== coll P0  |r|_1 = 1.4229   |r_c|_1 + |r_s|_1 = 0.0000 + 1.4229
+    split, 90/10 (current)     sum var / SMC sum var = 92.74992
+    split, mass-proportional   sum var / SMC sum var = 10.44225
+    one term (unsplit)         sum var / SMC sum var = 9.88050
+
+=== coll P1  |r|_1 = 0.1664   |r_c|_1 + |r_s|_1 = 0.0000 + 0.1664
+    split, 90/10 (current)     sum var / SMC sum var = 1.18555
+    split, mass-proportional   sum var / SMC sum var = 0.09881
+    one term (unsplit)         sum var / SMC sum var = 0.10100
+
+=== coll P2  |r|_1 = 0.0512   |r_c|_1 + |r_s|_1 = 0.0002 + 0.0512
+    split, 90/10 (current)     sum var / SMC sum var = 0.13763
+    split, mass-proportional   sum var / SMC sum var = 0.01474
+    one term (unsplit)         sum var / SMC sum var = 0.01477

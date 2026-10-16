@@ -1,0 +1,33 @@
+problem: smooth; G=30; 200 passes x 20000 histories
+
+=== flat P0
+  [early iterate (2 phase-1 its)]  |r|_1 = 1.593   |r_c|_1 + |r_s|_1 = 0.043 + 1.617 = 1.660
+    split, 90/10 (current)     sum var / SMC sum var = 140.1322
+    split, mass-proportional   sum var / SMC sum var = 14.7104
+    one term (unsplit)         sum var / SMC sum var = 14.7966
+    unbiasedness check: max |mean difference| / s.e. = 1.43
+  [phase-1 fixed point]  |r|_1 = 1.593   |r_c|_1 + |r_s|_1 = 0.026 + 1.617 = 1.643
+    split, 90/10 (current)     sum var / SMC sum var = 142.7924
+    split, mass-proportional   sum var / SMC sum var = 14.1554
+    one term (unsplit)         sum var / SMC sum var = 14.8240
+    unbiasedness check: max |mean difference| / s.e. = 1.29
+
+=== flat P1
+  [early iterate (2 phase-1 its)]  |r|_1 = 0.145   |r_c|_1 + |r_s|_1 = 0.019 + 0.142 = 0.161
+    split, 90/10 (current)     sum var / SMC sum var = 0.9430
+    split, mass-proportional   sum var / SMC sum var = 0.1480
+    one term (unsplit)         sum var / SMC sum var = 0.1139
+    unbiasedness check: max |mean difference| / s.e. = 1.84
+  [phase-1 fixed point]  |r|_1 = 0.141   |r_c|_1 + |r_s|_1 = 0.002 + 0.142 = 0.144
+    split, 90/10 (current)     sum var / SMC sum var = 0.9672
+    split, mass-proportional   sum var / SMC sum var = 0.1018
+    one term (unsplit)         sum var / SMC sum var = 0.0847
+    unbiasedness check: max |mean difference| / s.e. = 2.34
+
+Convergence with the full residual every iteration (40 x 20000, rms error, 5 repeats)
+  flat P0 split 90/10      last iterate 3.20e-02   averaged 6.57e-03 (+-1.9e-03)
+  flat P0 split mass-prop  last iterate 1.44e-02   averaged 2.67e-03 (+-1.3e-03)
+  flat P0 one term         last iterate 1.05e-02   averaged 2.82e-03 (+-1.3e-03)
+  flat P1 split 90/10      last iterate 3.53e-03   averaged 9.48e-04 (+-3.3e-04)
+  flat P1 split mass-prop  last iterate 2.40e-03   averaged 2.41e-04 (+-7.6e-05)
+  flat P1 one term         last iterate 1.09e-03   averaged 2.76e-04 (+-1.3e-04)

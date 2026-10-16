@@ -176,16 +176,68 @@ bins & $\|r\|_1$ at fixed point & fixed-point bias & RMC rms error \\
   phase-1 contraction improves from $\sim0.85$ to $\sim0.1$ per iteration.
   \item Once the basis is right, the schedule hardly matters: single-loop full-residual
   iterations with averaging match phase~1 + phase~2. The phases become optional.
-  \item Split vs.\ unsplit sampling is a second-order effect. It helps the flat basis
-  ($1.1\times10^{-2}\to7.3\times10^{-3}$), but in the collision basis $r_c\to0$ at the
-  fixed point, so the split is harmless (slightly better for $P_1$). The case for
-  unsplit there is simplicity and cost (no $\Sbar$, no budget split, no per-sample
-  quadrature), not variance.
+  \item Split vs.\ one-term sampling is measured directly in
+  Sec.~\ref{sec:split}: one term is never worse, and the current fixed 90/10 history
+  split costs up to $10\times$ in variance.
   \item With 16 refined bins, RMC reaches $1.1\times10^{-5}$ against SMC's
   $9.6\times10^{-4}$ for the same histories: about 90$\times$ lower error, or roughly
   $10^4\times$ in figure of merit at equal histories, before setup cost (the per-history
   transport cost of RMC and SMC was not compared).
 \end{itemize}
+
+
+\section{Split vs.\ one-term sampling: per-pass variance}\label{sec:split}
+
+\texttt{split\_vs\_unsplit.py} and \texttt{split\_vs\_unsplit\_coll.py} run 200
+independent passes of $2\times10^4$ histories at a \emph{fixed} trial function (no
+feedback between passes, as in a phase-2 correction pass). They report the summed per-bin
+variance of the flux correction divided by that of SMC with the same histories. Three
+samplers of the same volumetric residual are compared:
+\begin{itemize}
+  \item \emph{split, 90/10}: $r_c$ and $r_s$ sampled separately with
+  \texttt{collision\_fraction}\,=\,0.9 (the \texttt{feature/RMC} default);
+  \item \emph{split, mass-proportional}: the same, with histories $\propto\|r_c\|_1$,
+  $\|r_s\|_1$ (the best allocation of a split);
+  \item \emph{one term}: $r=q+T-\Sigt\tpsi$ sampled $\propto|r|$.
+\end{itemize}
+All three sample each term $\propto$ its own $|r|$ with the same defensive floor, and
+their means agree (max $|\Delta|$/s.e.\ over 30 bins: 1.3--2.3).
+
+\begin{center}
+\begin{tabular}{lll rrr}
+\toprule
+problem & basis & state & 90/10 & mass-prop. & one term \\
+\midrule
+resonance & flat $P_0$ & early iterate & 116 & 63 & 45 \\
+resonance & flat $P_0$ & phase-1 fixed point & 86 & 49 & 33 \\
+resonance & flat $P_1$ & early iterate & 31 & 35 & 24 \\
+smooth & flat $P_0$ & phase-1 fixed point & 143 & 14.2 & 14.8 \\
+smooth & flat $P_1$ & phase-1 fixed point & 0.97 & 0.10 & 0.085 \\
+resonance & collision $P_1$ & fixed point & 1.19 & 0.099 & 0.101 \\
+resonance & collision $P_2$ & fixed point & 0.138 & 0.0147 & 0.0148 \\
+smooth & collision $P_2$ & fixed point & 0.022 & 0.0025 & 0.0025 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent (Variance relative to SMC per pass; $<1$ means the pass is less noisy than SMC.
+Flat $P_1$ phase~1 diverges on the resonance problem, so its fixed point is not listed.)
+
+\paragraph{Why.} With proportional allocation the split's best source second moment is
+$(\|r_c\|_1+\|r_s\|_1)^2$; one term gives $\|r_c+r_s\|_1^2$, never larger by the triangle
+inequality. The gain is the cancellation between $r_c$ and $r_s$ inside a bin. With the
+flat basis on the resonance problem, $\Sigt(E)\tpsi$ in $r_c$ partly cancels the in-scatter
+shape in $r_s$ ($\|r\|_1=3.76$ against $2.55+1.65=4.20$), worth 30\% in variance. Where
+there is no cancellation ($r_c\approx0$: smooth cross sections, or the collision basis at
+its fixed point) the two coincide. The fixed split is a separate and larger loss: near
+convergence $r_s$ holds 95--100\% of the residual mass but gets 10\% of the histories, so
+its weights are $\sim10\times$ too large.
+
+\paragraph{For 3D.} Sampling the volumetric residual as one term costs nothing and gives
+$1.5$--$10\times$ lower variance than the current scheme. Face terms stay separate
+(surface sources), with histories proportional to their mass. The larger lever is the
+residual magnitude itself: per pass, flat $P_0$ is 15--90$\times$ \emph{noisier} than
+SMC, collision-density $P_2$ is 70--400$\times$ \emph{quieter}, with either
+mass-proportional sampler.
 
 \section{Caveats and what is untested}
 \begin{itemize}

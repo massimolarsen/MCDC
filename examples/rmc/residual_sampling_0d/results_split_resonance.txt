@@ -1,0 +1,33 @@
+problem: resonance; G=30; 200 passes x 20000 histories
+
+=== flat P0
+  [early iterate (2 phase-1 its)]  |r|_1 = 3.842   |r_c|_1 + |r_s|_1 = 2.839 + 1.595 = 4.434
+    split, 90/10 (current)     sum var / SMC sum var = 116.0165
+    split, mass-proportional   sum var / SMC sum var = 63.4853
+    one term (unsplit)         sum var / SMC sum var = 44.9875
+    unbiasedness check: max |mean difference| / s.e. = 2.04
+  [phase-1 fixed point]  |r|_1 = 3.763   |r_c|_1 + |r_s|_1 = 2.552 + 1.645 = 4.197
+    split, 90/10 (current)     sum var / SMC sum var = 85.6764
+    split, mass-proportional   sum var / SMC sum var = 48.7056
+    one term (unsplit)         sum var / SMC sum var = 32.7857
+    unbiasedness check: max |mean difference| / s.e. = 1.87
+
+=== flat P1
+  [early iterate (2 phase-1 its)]  |r|_1 = 2.693   |r_c|_1 + |r_s|_1 = 2.596 + 0.413 = 3.009
+    split, 90/10 (current)     sum var / SMC sum var = 30.8439
+    split, mass-proportional   sum var / SMC sum var = 34.8057
+    one term (unsplit)         sum var / SMC sum var = 24.3783
+    unbiasedness check: max |mean difference| / s.e. = 1.43
+  [phase-1 fixed point]  |r|_1 = 39142.649   |r_c|_1 + |r_s|_1 = 38212.545 + 5940.545 = 44153.090
+    split, 90/10 (current)     sum var / SMC sum var = 6208705583.5089
+    split, mass-proportional   sum var / SMC sum var = 5933473727.4725
+    one term (unsplit)         sum var / SMC sum var = 4584616622.8650
+    unbiasedness check: max |mean difference| / s.e. = 1.68
+
+Convergence with the full residual every iteration (40 x 20000, rms error, 5 repeats)
+  flat P0 split 90/10      last iterate 6.09e-02   averaged 1.48e-02 (+-4.9e-03)
+  flat P0 split mass-prop  last iterate 6.08e-02   averaged 1.24e-02 (+-3.7e-03)
+  flat P0 one term         last iterate 4.37e-02   averaged 1.02e-02 (+-2.0e-03)
+  flat P1 split 90/10      last iterate 3.27e-02   averaged 7.45e-03 (+-2.5e-03)
+  flat P1 split mass-prop  last iterate 2.12e-02   averaged 5.71e-03 (+-2.2e-03)
+  flat P1 one term         last iterate 2.17e-02   averaged 3.65e-03 (+-1.2e-03)

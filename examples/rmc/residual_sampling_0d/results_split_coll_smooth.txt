@@ -1,0 +1,16 @@
+problem: smooth; collision-density basis; 200 passes x 20000 histories
+
+=== coll P0  |r|_1 = 1.6175   |r_c|_1 + |r_s|_1 = 0.0000 + 1.6175
+    split, 90/10 (current)     sum var / SMC sum var = 139.08826
+    split, mass-proportional   sum var / SMC sum var = 13.81405
+    one term (unsplit)         sum var / SMC sum var = 13.56393
+
+=== coll P1  |r|_1 = 0.1423   |r_c|_1 + |r_s|_1 = 0.0000 + 0.1423
+    split, 90/10 (current)     sum var / SMC sum var = 0.94028
+    split, mass-proportional   sum var / SMC sum var = 0.09974
+    one term (unsplit)         sum var / SMC sum var = 0.09948
+
+=== coll P2  |r|_1 = 0.0250   |r_c|_1 + |r_s|_1 = 0.0003 + 0.0250
+    split, 90/10 (current)     sum var / SMC sum var = 0.02240
+    split, mass-proportional   sum var / SMC sum var = 0.00251
+    one term (unsplit)         sum var / SMC sum var = 0.00250

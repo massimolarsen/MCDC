@@ -318,3 +318,9 @@ reference). Findings:
 - Residual-driven energy refinement (split bins holding the top half of int |r|):
   30 -> 46 bins gives 1.1e-5 rms (about 90x lower error than SMC at equal histories).
 - Untested: 1D face jumps of the weighted basis at material interfaces, non-elastic laws.
+- Split vs one term, measured per pass at a fixed trial function
+  (`split_vs_unsplit*.py`): one term is never worse; it is 30% lower variance than a
+  mass-proportional split when r_c and r_s cancel inside bins (flat basis, resonances)
+  and equal otherwise. The current fixed `collision_fraction = 0.9` gives r_s (95-100%
+  of the residual mass near convergence) 10% of the histories: ~10x excess variance.
+  Per pass, flat P0 is 15-90x noisier than SMC; collision-density P2 70-400x quieter.

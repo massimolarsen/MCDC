@@ -10,3 +10,6 @@ sampling and schedules for continuous-energy RMC. See
 - `adapt.py`: residual-driven energy refinement.
 
 Recorded outputs: `results_*.txt` (defaults: G = 30, 20000 histories x 40 iterations).
+- `split_vs_unsplit.py`, `split_vs_unsplit_coll.py`: per-pass variance of split
+  (current 90/10, mass-proportional) vs one-term residual sampling, and convergence
+  with the full residual every iteration. `RMC0D_RES=0` runs the smooth problem.

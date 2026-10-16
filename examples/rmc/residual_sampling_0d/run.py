@@ -59,7 +59,7 @@ def evaluator(S, c):
     return psi, q, T, Tn, legendre_fn
 
 
-def iterate(S, c, mode, rng, seed):
+def iterate(S, c, mode, rng, seed, alloc="mass"):
     psi, q, T, Tn, legendre_fn = evaluator(S, c)
     psin = S.psi_fine(c)
     full_n = S.q + Tn - S.St * psin
@@ -86,7 +86,11 @@ def iterate(S, c, mode, rng, seed):
         parts.append((S.q + Sbn - S.St * psin, rc))
         parts.append((Tn - Sbn, rs))
     masses = np.array([np.trapezoid(np.abs(rn), S.Ef) for rn, _ in parts])
-    Ns = np.maximum(1, np.round(N * masses / masses.sum()).astype(int))
+    if alloc == "fixed" and len(parts) == 2:
+        # feature/RMC default: collision_fraction = 0.9 of the histories to r_c
+        Ns = np.array([int(0.9 * N), N - int(0.9 * N)])
+    else:
+        Ns = np.maximum(1, np.round(N * masses / masses.sum()).astype(int))
     Es, ws = [], []
     for (rn, rf), Ni in zip(parts, Ns):
         E, w = sample_term(rng, S.Ef, rn, rf, Ni)

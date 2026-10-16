@@ -15,8 +15,13 @@ continuous-energy in-scatter, evaluated through a precomputed bin-to-point table
 U[g'b](E_i) (the in-scatter at fine nodes from one incident basis function).
 """
 
+import os
+
 import numpy as np
 from numba import njit
+
+# RMC0D_RES=0 removes both resonances (smooth problem); numba freezes it at compile
+RES = float(os.environ.get("RMC0D_RES", "1"))
 
 # ---------------------------------------------------------------- problem data
 A = 12.0
@@ -25,17 +30,17 @@ E_MIN, E_MAX = 1.0, 1000.0
 SRC_LO = 1000.0 / 10 ** 0.1  # source uniform on [SRC_LO, E_MAX] (coarse top bin)
 
 
-@njit(cache=True)
+@njit
 def sig_s(E):
-    return 1.0 + 30.0 / (1.0 + ((E - 300.0) / 1.5) ** 2)
+    return 1.0 + RES * 30.0 / (1.0 + ((E - 300.0) / 1.5) ** 2)
 
 
-@njit(cache=True)
+@njit
 def sig_a(E):
-    return 0.02 * np.sqrt(100.0 / E) + 15.0 / (1.0 + ((E - 50.0) / 0.5) ** 2)
+    return 0.02 * np.sqrt(100.0 / E) + RES * 15.0 / (1.0 + ((E - 50.0) / 0.5) ** 2)
 
 
-@njit(cache=True)
+@njit
 def sig_t(E):
     return sig_s(E) + sig_a(E)
 
@@ -60,7 +65,7 @@ def fine_grid(edges, n_per_bin=400):
 
 
 # ---------------------------------------------------------------- reference
-@njit(cache=True)
+@njit
 def reference_collision_density(Ef, q):
     """F(E) = q + int_E^{min(E/alpha,Emax)} c F / ((1-alpha) E') dE', marched downward.
     Returns F at Ef. H(E) = int_E^Emax cF/((1-alpha)E'), F = q + H(E) - H(E/alpha)."""
@@ -215,7 +220,7 @@ def sample_term(rng, Ef, r_nodes, r_exact, N):
 
 
 # ---------------------------------------------------------------- transport (0D)
-@njit(cache=True)
+@njit
 def transport(E0, w0, edges, P, seed):
     """Expected-value 0D transport: each emission at E with weight w scores
     w/Sigma_t(E) * P_a(x_g(E)) into bin g; survival weight w*c(E); E -> U[alpha E, E].
