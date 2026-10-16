@@ -253,8 +253,8 @@ problem, 30 bins, $2\times10^4$ histories per pass, 40 iterations for the loop:
 \toprule
  & FP bias & $\|r\|_1$ & pass var & pass time & pass FOM & loop FOM & loop error\\
 \midrule
-flat $P_0$ & $4.6\times10^{-1}$ & 3.76 & 40 & 1.05 & 0.02 & 0.004 & $1.2\times10^{-2}$\\
-flat $P_1$ & $1.5\times10^{-1}$ & 1.45 & 6.4 & 1.12 & 0.14 & 0.03 & $4.4\times10^{-3}$\\
+flat $P_0$ & $4.6\times10^{-1}$ & 3.76 & 40 & 1.05 & 0.02 & 0.003 & $1.2\times10^{-2}$\\
+flat $P_1$ & $1.5\times10^{-1}$ & 1.45 & 6.4 & 1.12 & 0.14 & 0.02 & $4.4\times10^{-3}$\\
 flat $P_2$ & $4.0\times10^{-2}$ & 1.00 & 3.1 & 1.39 & 0.23 & 0.03 & $3.6\times10^{-3}$\\
 collision $P_0$ & $3.7\times10^{-2}$ & 1.42 & 9.8 & 1.10 & 0.09 & 0.08 & $2.4\times10^{-3}$\\
 collision $P_1$ & $3.1\times10^{-3}$ & 0.166 & 0.13 & 1.29 & 6.0 & 2.8 & $4.0\times10^{-4}$\\
@@ -270,9 +270,9 @@ pass FOM is 7.8, 191, 507, 1594 for $P_1$..$P_4$ (\texttt{results\_order\_smooth
 
 \paragraph{Cost.} Going from $P_1$ to $P_2$ costs one more tally score per track and one
 more basis evaluation per source point. The time per pass changed by 0.95--1.25$\times$
-here, while the variance fell 6--30$\times$. The moments and the in-scatter table use the
+here, while the variance fell 6--40$\times$. The moments and the in-scatter table use the
 same kernel evaluations, weighted by $P_{a'}(x_{g'}(E'))$ and $P_a(x_g(E))$, so setup
-grows only through the $(p+1)^2$ storage. The FOM gain from $P_1$ to $P_2$ (7--25$\times$)
+grows only through the $(p+1)^2$ storage. The FOM gain from $P_1$ to $P_2$ (7--30$\times$)
 tolerates a large per-score tally cost in MC/DC before it disappears.
 
 \paragraph{Stability at low histories per bin} (\texttt{low\_histories.py}). The update
@@ -290,7 +290,7 @@ cell). Pointwise flux $L^1$ error, resonance problem: 30$\times P_0$ 6.4\%,
 5.8\%, 2.0\%, 1.4\%, 1.3\%. Order buys accuracy per unknown up to $P_2$. Beyond that,
 narrow resonances need bins rather than order.
 
-\paragraph{Recommendation.} Collision-density $P_2$: 7--25$\times$ the FOM of $P_1$ for
+\paragraph{Recommendation.} Collision-density $P_2$: 7--30$\times$ the FOM of $P_1$ for
 about the same time per pass, and stable down to $\sim$30 histories per bin. $P_3$ and
 $P_4$ gain another 3--10$\times$ when histories per bin are plentiful, but are the first
 to diverge when they are not. Use them only where the phase-space bin count leaves
