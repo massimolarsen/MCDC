@@ -1,0 +1,11 @@
+G=30, 40 iterations x 20000 histories
+SMC, same histories                      rms err 9.57e-04 (+-3.5e-04)
+flat P0, split, every iteration          rms err 1.08e-02 (+-3.7e-03)   |r|_1 5.846
+flat P0, unsplit, every iteration        rms err 7.34e-03 (+-2.0e-03)   |r|_1 5.528
+flat P0, phase 1 + phase 2 (split)       rms err 4.26e-03 (+-6.0e-04)   |r|_1 3.719
+coll P1, split, every iteration          rms err 2.53e-04 (+-4.2e-05)   |r|_1 0.168
+coll P1, unsplit, every iteration        rms err 4.19e-04 (+-3.1e-05)   |r|_1 0.166
+coll P1, phase 1 + phase 2 (unsplit)     rms err 4.02e-04 (+-6.7e-05)   |r|_1 0.166
+coll P2, split, every iteration          rms err 1.18e-04 (+-1.0e-05)   |r|_1 0.055
+coll P2, unsplit, every iteration        rms err 1.48e-04 (+-7.7e-05)   |r|_1 0.054
+coll P2, phase 1 + phase 2 (unsplit)     rms err 1.12e-04 (+-3.9e-05)   |r|_1 0.051

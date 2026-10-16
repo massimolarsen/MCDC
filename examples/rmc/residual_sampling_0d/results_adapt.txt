@@ -1,0 +1,5 @@
+round 0: G= 30  |r|_1 at FP=0.0512  Galerkin FP bias=7.34e-04  RMC(40x20000) rms err=1.68e-04
+round 1: G= 33  |r|_1 at FP=0.0254  Galerkin FP bias=3.28e-04  RMC(40x20000) rms err=4.46e-05
+round 2: G= 36  |r|_1 at FP=0.0109  Galerkin FP bias=6.13e-05  RMC(40x20000) rms err=1.77e-05
+round 3: G= 41  |r|_1 at FP=0.0065  Galerkin FP bias=2.87e-05  RMC(40x20000) rms err=1.68e-05
+round 4: G= 46  |r|_1 at FP=0.0038  Galerkin FP bias=1.13e-05  RMC(40x20000) rms err=1.07e-05

@@ -296,3 +296,25 @@ unbiased against SMC. At 200 histories per bin none lowers the phase-1 plateau; 
 angle plateaus slightly higher (eps ~0.08-0.13 vs 0.02-0.09). The plateau there is the
 single-iteration noise, which the slope coefficients (~sqrt(3) noisier tallies) raise;
 the trial-space gain needs more histories per bin to show.
+
+## 11. Full-residual sampling without two phases: 0D prototype (2026-10-16)
+
+`writeups/residual_sampling.tex`, prototype `examples/rmc/residual_sampling_0d`
+(standalone numpy/numba, A = 12 elastic, absorption and scattering resonances, exact
+reference). Findings:
+
+- The stall is the floor ||r(Pi psi)||_1, the residual of the best trial function; a
+  sampler can only approach it. With the flat basis it is dominated by the in-bin shapes
+  of Sigma_t(E) psi~ and of T. The flat P0 phase-1 fixed point there is 46% wrong
+  (infinite-dilution resonance absorption) and contracts only ~0.85 per iteration.
+- Collision-density basis (psi~ = sum c_b P_b / Sigma_t, `self_shielded_basis.tex`):
+  the Sigma_t term vanishes identically, ||r||_1 drops 100x (P2), phase 1 contracts
+  ~0.1 per iteration, and single-loop full-residual iterations with iterate averaging
+  match phase 1 + phase 2. Error at 40 x 20k histories: 1.1e-4 to 1.5e-4 vs SMC 9.6e-4
+  and flat phase 1 + 2 4.3e-3.
+- Split vs unsplit residual is second order once the basis is right. Unsplit sampling
+  from a precomputed bin-to-point in-scatter table U (T = sum c U) is proposed for
+  simplicity and cost: no S_bar, no budget split, no per-sample quadrature.
+- Residual-driven energy refinement (split bins holding the top half of int |r|):
+  30 -> 46 bins gives 1.1e-5 rms (about 90x lower error than SMC at equal histories).
+- Untested: 1D face jumps of the weighted basis at material interfaces, non-elastic laws.
