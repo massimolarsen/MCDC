@@ -1,5 +1,6 @@
 import sys
 import time
+from collections import defaultdict
 
 import numpy as np
 
@@ -59,7 +60,12 @@ def evaluator(S, c):
     return psi, q, T, Tn, legendre_fn
 
 
+# wall time per pass component (residual build / sampling / transport), accumulated
+TIMES = defaultdict(float)
+
+
 def iterate(S, c, mode, rng, seed, alloc="mass"):
+    t0 = time.perf_counter()
     psi, q, T, Tn, legendre_fn = evaluator(S, c)
     psin = S.psi_fine(c)
     full_n = S.q + Tn - S.St * psin
@@ -91,6 +97,8 @@ def iterate(S, c, mode, rng, seed, alloc="mass"):
         Ns = np.array([int(0.9 * N), N - int(0.9 * N)])
     else:
         Ns = np.maximum(1, np.round(N * masses / masses.sum()).astype(int))
+    t1 = time.perf_counter()
+    TIMES["residual"] += t1 - t0
     Es, ws = [], []
     for (rn, rf), Ni in zip(parts, Ns):
         E, w = sample_term(rng, S.Ef, rn, rf, Ni)
@@ -98,8 +106,11 @@ def iterate(S, c, mode, rng, seed, alloc="mass"):
         ws.append(w)
     E = np.concatenate(Es)
     w = np.concatenate(ws)
+    t2 = time.perf_counter()
+    TIMES["sample"] += t2 - t1
     t = transport(E, w, S.edges, S.P, seed)
     dc = np.einsum("gab,gb->ga", S.Binv, t)
+    TIMES["transport"] += time.perf_counter() - t2
     return dc, masses.sum(), np.trapezoid(np.abs(full_n), S.Ef)
 
 

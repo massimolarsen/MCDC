@@ -13,3 +13,7 @@ Recorded outputs: `results_*.txt` (defaults: G = 30, 20000 histories x 40 iterat
 - `split_vs_unsplit.py`, `split_vs_unsplit_coll.py`: per-pass variance of split
   (current 90/10, mass-proportional) vs one-term residual sampling, and convergence
   with the full residual every iteration. `RMC0D_RES=0` runs the smooth problem.
+- `order_sweep.py`: P0-P4 for both bases: fixed-point bias, residual, per-pass variance,
+  timing and FOM against SMC.
+- `low_histories.py`: stability vs histories per bin; `bins_vs_order.py`: fewer wide
+  high-order bins vs many low-order bins at equal unknowns.

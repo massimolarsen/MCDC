@@ -324,3 +324,9 @@ reference). Findings:
   and equal otherwise. The current fixed `collision_fraction = 0.9` gives r_s (95-100%
   of the residual mass near convergence) 10% of the histories: ~10x excess variance.
   Per pass, flat P0 is 15-90x noisier than SMC; collision-density P2 70-400x quieter.
+- Energy order (`order_sweep.py`, `low_histories.py`, `bins_vs_order.py`), FOM =
+  1/(err^2 time) vs SMC, collision-density basis, resonance problem: per-pass FOM 6 (P1),
+  40 (P2), 131 (P3), 372 (P4); time per pass 1.2-1.8x SMC's, nearly flat in p. P2 is
+  the sweet spot: stable at >= 33 histories per energy bin, degraded at 10. P3 and P4
+  diverge at 10 per bin (threshold ~5 histories per coefficient per iteration). In 3D
+  that limit (histories per phase-space bin), not tally cost, bounds the order.

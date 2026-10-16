@@ -239,6 +239,64 @@ residual magnitude itself: per pass, flat $P_0$ is 15--90$\times$ \emph{noisier}
 SMC, collision-density $P_2$ is 70--400$\times$ \emph{quieter}, with either
 mass-proportional sampler.
 
+
+\section{Higher energy order: accuracy, cost and figure of merit}\label{sec:order}
+
+\texttt{order\_sweep.py} solves the Galerkin system directly for each order (no Monte
+Carlo) and then times one-term residual passes and single-loop runs. FOM
+$=1/(\text{error}^2\times\text{time})$ relative to SMC with the same histories; time is
+measured wall time (residual build, sampling, transport; transport dominates). Resonance
+problem, 30 bins, $2\times10^4$ histories per pass, 40 iterations for the loop:
+
+\begin{center}
+\begin{tabular}{l rrr rrr r}
+\toprule
+ & FP bias & $\|r\|_1$ & pass var & pass time & pass FOM & loop FOM & loop error\\
+\midrule
+flat $P_0$ & $4.6\times10^{-1}$ & 3.76 & 40 & 1.05 & 0.02 & 0.004 & $1.2\times10^{-2}$\\
+flat $P_1$ & $1.5\times10^{-1}$ & 1.45 & 6.4 & 1.12 & 0.14 & 0.03 & $4.4\times10^{-3}$\\
+flat $P_2$ & $4.0\times10^{-2}$ & 1.00 & 3.1 & 1.39 & 0.23 & 0.03 & $3.6\times10^{-3}$\\
+collision $P_0$ & $3.7\times10^{-2}$ & 1.42 & 9.8 & 1.10 & 0.09 & 0.08 & $2.4\times10^{-3}$\\
+collision $P_1$ & $3.1\times10^{-3}$ & 0.166 & 0.13 & 1.29 & 6.0 & 2.8 & $4.0\times10^{-4}$\\
+collision $P_2$ & $7.3\times10^{-4}$ & 0.051 & 0.020 & 1.22 & 40 & 34 & $1.1\times10^{-4}$\\
+collision $P_3$ & $1.5\times10^{-4}$ & 0.027 & 0.0048 & 1.59 & 131 & 151 & $5.1\times10^{-5}$\\
+collision $P_4$ & $1.4\times10^{-5}$ & 0.014 & 0.0015 & 1.80 & 372 & 238 & $3.9\times10^{-5}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent (pass var and pass time relative to an SMC pass; SMC with $8\times10^5$
+histories: $7.1\times10^{-4}$ rms.) On the smooth problem the two bases coincide, and the
+pass FOM is 7.8, 191, 507, 1594 for $P_1$..$P_4$ (\texttt{results\_order\_smooth.txt}).
+
+\paragraph{Cost.} Going from $P_1$ to $P_2$ costs one more tally score per track and one
+more basis evaluation per source point. The time per pass changed by 0.95--1.25$\times$
+here, while the variance fell 6--30$\times$. The moments and the in-scatter table use the
+same kernel evaluations, weighted by $P_{a'}(x_{g'}(E'))$ and $P_a(x_g(E))$, so setup
+grows only through the $(p+1)^2$ storage. The FOM gain from $P_1$ to $P_2$ (7--25$\times$)
+tolerates a large per-score tally cost in MC/DC before it disappears.
+
+\paragraph{Stability at low histories per bin} (\texttt{low\_histories.py}). The update
+is noisier for higher moments (the $P_a$ tally carries a factor $2a+1$), so the
+iteration's noise gain grows with $p$. All orders were stable at $\ge 33$ histories per
+energy bin per iteration. At 10 per bin, $P_2$ lost accuracy, $P_3$ diverged in 3 of 8
+smooth runs, and $P_4$ in 8 of 8. The observed threshold is roughly 5 histories per
+coefficient per iteration. In 3D the count that matters is histories per
+phase-space bin (cell $\times$ energy $\times$ angle), so this, not tally cost, limits
+the order.
+
+\paragraph{Fewer bins at higher order} (\texttt{bins\_vs\_order.py}, 30 coefficients per
+cell). Pointwise flux $L^1$ error, resonance problem: 30$\times P_0$ 6.4\%,
+15$\times P_1$ 2.7\%, 10$\times P_2$ 2.4\%, 6$\times P_4$ 2.6\%. Smooth problem:
+5.8\%, 2.0\%, 1.4\%, 1.3\%. Order buys accuracy per unknown up to $P_2$. Beyond that,
+narrow resonances need bins rather than order.
+
+\paragraph{Recommendation.} Collision-density $P_2$: 7--25$\times$ the FOM of $P_1$ for
+about the same time per pass, and stable down to $\sim$30 histories per bin. $P_3$ and
+$P_4$ gain another 3--10$\times$ when histories per bin are plentiful, but are the first
+to diverge when they are not. Use them only where the phase-space bin count leaves
+$\gtrsim 50$ histories per bin. The flat basis needs $P_4$ to reach SMC's FOM on the
+resonance problem; higher order does not replace the collision-density weighting.
+
 \section{Caveats and what is untested}
 \begin{itemize}
   \item 0D, synthetic data, isotropic COM elastic only. Free-gas upscatter, anisotropic
@@ -249,6 +307,8 @@ mass-proportional sampler.
   interfaces. They are sampleable exactly (closed form in $E$), but their size relative
   to the flat-basis face residual is unmeasured. The 1D plateau in \texttt{NOTES.md}
   Secs.~2b and~9 is a separate, spatial/angular, issue.
+  \item Timings are from the prototype (numba transport, numpy residual); the per-score tally
+  cost in MC/DC 3D mesh tallies is unmeasured.
   \item $\Sigt>0$ is required (no vacuum cells in this basis; use the flux basis there).
   $U$ and $M$ are per material, not per nuclide.
   \item The table $\hat U$ is a deterministic approximation; refinement can only drive the

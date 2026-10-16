@@ -97,7 +97,13 @@ def reference_collision_density(Ef, q):
 
 # ---------------------------------------------------------------- basis helpers
 def legendre(b, x):
-    return np.ones_like(x) if b == 0 else (x if b == 1 else 1.5 * x * x - 0.5)
+    """Legendre P_b(x) by the three-term recurrence."""
+    p0, p1 = np.ones_like(x), x
+    if b == 0:
+        return p0
+    for n in range(1, b):
+        p0, p1 = p1, ((2 * n + 1) * x * p1 - n * p0) / (n + 1)
+    return p1
 
 
 class Setup:
@@ -160,15 +166,7 @@ class Setup:
 
     # trial function at fine nodes
     def psi_fine(self, c):
-        out = np.zeros(self.Ef.size)
-        for g in range(self.G):
-            i0, i1 = self.masks[g]
-            for b in range(self.P):
-                E = self.Ef[i0 : i1 + 1]
-                x = (2 * E - self.edges[g] - self.edges[g + 1]) / (self.edges[g + 1] - self.edges[g])
-                w = 1.0 / sig_t(E) if self.basis == "coll" else 1.0
-                out[i0 : i1 + 1] += c[g, b] * legendre(b, x) * w
-        return out
+        return np.einsum("gb,gbn->n", c, self.phi)
 
     def T_fine(self, c):
         return c.reshape(-1) @ self.U
@@ -240,11 +238,11 @@ def transport(E0, w0, edges, P, seed):
             st = sig_t(E)
             x = (2 * E - edges[g] - edges[g + 1]) / (edges[g + 1] - edges[g])
             s = w / st
+            p0, p1 = 1.0, x
             t[g, 0] += s
-            if P > 1:
-                t[g, 1] += s * x
-            if P > 2:
-                t[g, 2] += s * (1.5 * x * x - 0.5)
+            for a in range(1, P):
+                t[g, a] += s * p1
+                p0, p1 = p1, ((2 * a + 1) * x * p1 - a * p0) / (a + 1)
             w *= sig_s(E) / st
             # Russian roulette on tiny weights (unbiased)
             if abs(w) < 1e-3 * abs(w0[n]):
