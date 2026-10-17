@@ -1,0 +1,145 @@
+\documentclass[11pt]{article}
+\input{preamble}
+
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\E}{\mathbb{E}}
+
+\title{Allocating correction-pass histories between residual terms}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent A correction pass (\texttt{rmc\_math.tex}) samples the full residual as
+separate terms,
+\begin{equation}
+  r = \underbrace{(r_c + r_e)}_{i=1} + \underbrace{r_s}_{i=2} + \underbrace{r_f}_{i=3},
+  \qquad r_s = T_s - \Sbar_s,\quad r_f = T_f - \Sbar_f ,
+\end{equation}
+each with its own proposal and its own number of histories $N_i$,
+$\sum_i N_i = N$. Until now the split was fixed: $N_1 = 0.9N$
+(\texttt{collision\_fraction}), and the rest went to $r_s$ and $r_f$. This note derives
+the split that minimizes the variance of a pass and describes its implementation
+(\texttt{correction\_allocation="mass"}, \texttt{driver.allocate\_histories}).
+
+\section{The optimal split}
+
+A pass estimates a linear response $R$ of $\teps = L^{-1}r$, for example a bin average,
+as a sum of independent term estimates,
+\begin{equation}
+  \hat R = \sum_i \hat R_i,\qquad
+  \hat R_i = \frac{1}{N_i}\sum_{k=1}^{N_i} Y_{ik},\qquad
+  \operatorname{Var}\hat R = \sum_i \frac{\sigma_i^2}{N_i},
+\end{equation}
+with $Y_{ik}$ the response of history $k$ of term $i$ (its source weight times the
+transported response) and $\sigma_i^2$ its per-history variance. Each $\hat R_i$ is
+unbiased for any $N_i\ge1$, so the split affects only the variance. Minimizing
+$\sum_i\sigma_i^2/N_i$ subject to $\sum_iN_i=N$ (a Lagrange multiplier) gives
+\begin{equation}
+  N_i = N\,\frac{\sigma_i}{\sum_k\sigma_k},\qquad
+  \operatorname{Var}\hat R = \frac{\big(\sum_i\sigma_i\big)^2}{N},
+  \label{eq:neyman}
+\end{equation}
+the optimal allocation of stratified sampling [1, 2, 3].
+
+\paragraph{Why the $L^1$ masses.} Each term is sampled with a proposal proportional to
+its own $|r_i|$, by bin (the collision and edge masses, \texttt{rmc\_math.tex}; the
+correction masses of the integrated sampler). With such a proposal every source weight
+has magnitude $\|r_i\|_1$, exactly when $|r_i|$ is constant in each bin and nearly so
+otherwise, so
+\begin{equation}
+  \sigma_i \approx \|r_i\|_1\,\rho_i,
+\end{equation}
+with $\rho_i^2$ the second moment of the response to one unit-weight history of term
+$i$. The terms start in the same phase space and share the transport, so their
+$\rho_i$ are comparable, and \eqref{eq:neyman} becomes
+\begin{equation}
+  N_i \propto \|r_i\|_1 ,
+\end{equation}
+which is what \texttt{correction\_allocation="mass"} uses.
+
+\paragraph{What the fixed split costs.} With fractions $f_i$ and masses $m_i =
+\|r_i\|_1$, the source second moment is $\sum_i m_i^2/f_i$, against
+$(\sum_i m_i)^2$ for the mass split, a ratio of
+\begin{equation}
+  \frac{\sum_i m_i^2/f_i}{(\sum_i m_i)^2}\ \ge 1 ,
+\end{equation}
+with equality only when $f_i = m_i/\sum_k m_k$. Near the collision-only fixed point the
+binned residual $r_c + r_e$ is small, by construction of the fixed point, and $r_s$
+holds most of the mass. With $m_s$ at 95\% of the total and $f_s = 0.1$ the ratio is
+$0.05^2/0.9 + 0.95^2/0.1 \approx 9$. A 0D prototype of these samplers measured the same
+effect, about $10\times$ excess variance per pass at the fixed point [4].
+
+\section{Implementation}
+
+\begin{itemize}
+  \item $\|r_c + r_e\|_1$ is exact: the sum of the collision and edge sampling masses
+  (\texttt{Residual.collision\_edge\_norm}).
+  \item $\|r_s\|_1$ and $\|r_f\|_1$ come from the integrated sampler's deterministic
+  pilot, which already evaluates $|T - \Sbar|$ at $2\times2$ Gauss points per bin
+  (\texttt{source.correction\_masses\_l1}). The proposal adds a floor of
+  $0.1\,|\Sbar|$ per bin, so that every bin receiving in-scatter can be sampled. That
+  floor is not residual mass and is excluded from the allocation; near the fixed point
+  it can exceed $\|T-\Sbar\|_1$.
+  \item The pilot is an estimate, so its error affects only the efficiency of the
+  split, not the bias.
+  \item Rounding uses largest remainders, so that $\sum_iN_i=N$ exactly, and gives
+  every term with positive mass at least one history.
+  \item The histories of each pass are stored in \texttt{RMCResult.correction\_allocation}.
+\end{itemize}
+
+\paragraph{The pointwise sampler keeps the fixed split.} Its source weights are far
+from $\|r_s\|_1$ in magnitude: on the A\,=\,1 problem its second moment is several
+hundred times $\|r_s\|_1^2$ (\texttt{scattering\_correction\_samplers.tex}). So
+$\sigma_s\not\approx\|r_s\|_1\rho_s$, and the mass rule would give $r_s$ too few
+histories. It also lacks the pilot that gives $\|r_s\|_1$. With
+\texttt{correction\_allocation="auto"} (the default), the integrated sampler uses
+\texttt{"mass"} and the pointwise sampler \texttt{"fixed"}. The general rule
+\eqref{eq:neyman} with $\sigma_i$ estimated from a pilot of actual weights would
+cover both; it is not implemented.
+
+\section{Measurement}
+
+\texttt{examples/rmc/residual\_allocation/measure.py} uses the A\,=\,1 slowing-down
+problem of \texttt{test\_analytic\_slowing\_down\_A1} ($c=1/2$, $G=20$ collided bins,
+analytic flux). It runs the collision-only iterations to the fixed point, then 30
+correction passes with each split from that same fixed point. Its output is in
+\texttt{results.txt}:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+ & \texttt{"fixed"} (0.9) & \texttt{"mass"} & ratio \\
+\midrule
+histories $r_c+r_e$ / $r_s$ / $r_f$ & 18\,900 / 2\,100 / 0 & 1 / 20\,999 / 0 & \\
+summed per-bin variance of a pass & $4.37\times10^{-7}$ & $4.05\times10^{-8}$ & 10.8 \\
+per-bin variance ratio (median, min--max) & & & 9.8 (4.1--14.6) \\
+rms error, fixed point + mean correction & $1.04\times10^{-3}$ & $6.5\times10^{-4}$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent The two splits agree in mean (largest difference 1.7 standard errors over the
+20 bins), so the gain is variance alone. Its size, $10.8\times$, matches the estimate
+of Sec.~1 with $m_s$ near 100\% of the mass. Here the cross sections are constant in
+energy, so at the collision-only fixed point $r_c$ vanishes, $r_e = 0$ in an infinite
+medium, and all of the remaining residual is the in-bin shape of the in-scatter: the
+mass split gives $r_c+r_e$ a single history. With energy-dependent cross sections or
+faces, $r_c+r_e$ keeps a share in proportion to its mass.
+
+\begin{thebibliography}{9}
+\bibitem{neyman} J.~Neyman, ``On the two different aspects of the representative
+  method: the method of stratified sampling and the method of purposive selection,''
+  \emph{J.\ R.\ Stat.\ Soc.} \textbf{97}(4), 558--625 (1934).
+\bibitem{cochran} W.~G.~Cochran, \emph{Sampling Techniques}, 3rd ed., Wiley (1977)
+  (optimum allocation in stratified sampling).
+\bibitem{owen} A.~B.~Owen, \emph{Monte Carlo Theory, Methods and Examples} (2013),
+  chapters on stratification.
+\bibitem{prototype} 0D residual-sampling prototype, branch
+  \texttt{claude/rmc-residual-sampling-uyqnqi},
+  \texttt{examples/rmc/residual\_sampling\_0d/split\_vs\_unsplit*.py} (per-pass
+  variance of the fixed and mass-proportional splits at a frozen trial function).
+\end{thebibliography}
+
+\end{document}

@@ -76,7 +76,7 @@ from mcdc.rmc.source import (
     PROPOSAL_UNIFORM_LETHARGY,
     PROPOSAL_UNIFORM_LINEAR,
     binned_in_scatter,
-    correction_masses,
+    correction_masses_l1,
     sample_collision_edge,
     sample_collision_linear_z,
     sample_correction,
@@ -128,6 +128,8 @@ class RMCResult:
         self.time_precompute = 0.0  # [s] model compile and transfer moments
         self.time_iteration = []  # [s] per collision-only iteration
         self.time_correction = []  # [s] per correction pass
+        # Histories of r_c + r_e, r_s and r_f in each correction pass
+        self.correction_allocation = []
 
     @property
     def psi_cell(self):
@@ -168,6 +170,9 @@ class RMCResult:
                     "corrections_slope", data=np.array(self.corrections_slope)
                 )
             group.create_dataset("time_correction", data=np.array(self.time_correction))
+            group.create_dataset(
+                "correction_allocation", data=np.array(self.correction_allocation)
+            )
         group.attrs["N_history"] = self.N_history
         group.attrs["energy_basis"] = self.energy_basis
         group.attrs["spatial_basis"] = self.spatial_basis
@@ -301,12 +306,18 @@ def nuclide_moments(
     tol_low,
     cache_dir,
     energy_order=0,
+    angular_key=None,
+    N_theta=N_THETA_DEFAULT,
 ):
     """
     Transfer moments of one nuclide, from the on-disk cache when a file with the
     same provenance (data contents, format version, grids, effective quadrature
     settings) exists. Rank 0 checks the cache and writes it; all ranks agree on
     whether to enter the collective computation.
+
+    For 3D angular patches (`mcdc.rmc.patches`), mu_edges holds the cumulative patch
+    solid angles that the kernel reads; angular_key (the patch edges) and N_theta
+    (the patch table resolution) then identify the layout in the cache.
     """
     comm = MPI.COMM_WORLD
     if cache_dir is not None:
@@ -323,8 +334,13 @@ def nuclide_moments(
                 energy_order,
                 table.shape[0] - 1,
             )
+            if angular_key is not None:
+                provenance["angular_layout"] = "patches"
+                provenance["N_theta"] = int(N_theta)
         provenance = comm.bcast(provenance, root=0)
-        key = _cache_key(provenance, E_edges, mu_edges)
+        key = _cache_key(
+            provenance, E_edges, mu_edges if angular_key is None else angular_key
+        )
         path = os.path.join(cache_dir, f"{nuclide['name']}-{key}.h5")
         valid = (
             _read_cache(path, provenance) is not None if comm.Get_rank() == 0 else None
@@ -404,6 +420,38 @@ def _emission_integrals(program, data, tables, xs, E_edges):
 # ======================================================================================
 
 
+ALLOCATIONS = ("auto", "mass", "fixed")
+
+
+def allocate_histories(N, masses):
+    """
+    Split N histories over residual terms in proportion to their L1 masses (largest
+    remainders; every term with positive mass gets at least one history while N
+    allows). With unbiased samplers whose source weights have magnitude ~||r_i||_1,
+    this minimizes the variance of the summed response (writeups/residual_allocation.tex).
+    """
+    masses = np.asarray(masses, dtype=float)
+    out = np.zeros(len(masses), dtype=np.int64)
+    total = masses.sum()
+    if total <= 0.0 or N <= 0:
+        return out
+    share = N * masses / total
+    out[:] = np.floor(share).astype(np.int64)
+    positive = masses > 0.0
+    for i in np.flatnonzero(positive & (out == 0)):
+        if out.sum() < N:
+            out[i] = 1
+    remainder = N - out.sum()
+    if remainder > 0:
+        order = np.argsort(-(share - np.floor(share)))
+        for i in order[:remainder]:
+            out[i] += 1
+    elif remainder < 0:
+        for i in np.argsort(-out)[:-remainder]:
+            out[i] -= 1
+    return out
+
+
 def _xs_arrays(xs):
     offsets = np.concatenate(([0], np.cumsum([len(x[0]) for x in xs]))).astype(np.int64)
     return (
@@ -441,6 +489,7 @@ class RMCSolver:
         energy_basis="constant",
         spatial_basis="constant",
         angular_basis="constant",
+        correction_allocation="auto",
     ):
         z_edges = np.asarray(z_edges, dtype=float)
         E_edges = np.asarray(E_edges, dtype=float)
@@ -482,6 +531,17 @@ class RMCSolver:
             print_error(f"RMC: unknown collision_xs {collision_xs}")
         if correction_sampler not in ("integrated", "pointwise"):
             print_error(f"RMC: unknown correction_sampler {correction_sampler}")
+        if correction_allocation not in ALLOCATIONS:
+            print_error(f"RMC: unknown correction_allocation {correction_allocation}")
+        if correction_allocation == "auto":
+            correction_allocation = (
+                "mass" if correction_sampler == "integrated" else "fixed"
+            )
+        if correction_allocation == "mass" and correction_sampler != "integrated":
+            print_error(
+                "RMC: correction_allocation='mass' needs the integrated correction "
+                "sampler (its pilot gives the correction masses)"
+            )
         settings = simulation.settings
         if settings.neutron_eigenvalue_mode:
             print_error("RMC: only fixed-source problems are supported")
@@ -604,6 +664,7 @@ class RMCSolver:
         self.collision_fraction = collision_fraction
         self.proposal = PROPOSALS[proposal]
         self.correction_sampler = correction_sampler
+        self.correction_allocation = correction_allocation
         self.defensive_fraction = defensive_fraction
         self.boundary = (BOUNDARIES[boundary[0]], BOUNDARIES[boundary[1]])
         self.seed = seed
@@ -717,7 +778,7 @@ class RMCSolver:
                     S_right = binned_in_scatter(
                         psi_right, M_term, cm, self.E_edges, self.mu_edges, self.P
                     )
-                mass = correction_masses(
+                mass, l1 = correction_masses_l1(
                     psi_left,
                     S_bar,
                     psi_right,
@@ -732,7 +793,7 @@ class RMCSolver:
                     data,
                     self.P,
                 )
-                terms.append((S_bar, S_right, mass))
+                terms.append((S_bar, S_right, mass, l1))
             size_scatter = np.sum(terms[0][2])
             size_fission = np.sum(terms[1][2])
         else:
@@ -754,16 +815,28 @@ class RMCSolver:
                 )
                 for k in range(K)
             )
-        N_correction = 0
-        if corrections and size_scatter + size_fission > 0.0:
-            N_correction = N_total - int(self.collision_fraction * N_total)
-        N_collision = N_total - N_correction
-        N_fission = int(
-            round(
-                N_correction * size_fission / max(size_scatter + size_fission, 1e-300)
+        N_scatter = N_fission = 0
+        if not (corrections and size_scatter + size_fission > 0.0):
+            N_collision = N_total
+        elif self.correction_allocation == "mass":
+            # Histories in proportion to the L1 masses of r_c + r_e, r_s and r_f
+            #   (the pilot estimates of ||T - S_bar||_1, without the proposal floor)
+            N_collision, N_scatter, N_fission = allocate_histories(
+                N_total,
+                [residual.collision_edge_norm, terms[0][3], terms[1][3]],
             )
-        )
-        N_scatter = N_correction - N_fission
+        else:
+            N_correction = N_total - int(self.collision_fraction * N_total)
+            N_collision = N_total - N_correction
+            N_fission = int(
+                round(
+                    N_correction
+                    * size_fission
+                    / max(size_scatter + size_fission, 1e-300)
+                )
+            )
+            N_scatter = N_correction - N_fission
+        self.last_allocation = (int(N_collision), int(N_scatter), int(N_fission))
 
         # Fill the source bank: this rank's slice of the global sample indices
         #   (collision/edge, then scattering, then fission); seeds depend only on the
@@ -891,7 +964,7 @@ class RMCSolver:
             (N_fission, self.M_fission, self.emission_fission, self.tables_fission, 2),
         ):
             if integrated:
-                S_bar, S_right, mass = terms[salt - 1]
+                S_bar, S_right, mass, _ = terms[salt - 1]
                 sample_correction_integrated(
                     *local_range(offset, N_term),
                     N_term,
@@ -993,6 +1066,7 @@ def run(
     energy_basis="constant",
     spatial_basis="constant",
     angular_basis="constant",
+    correction_allocation="auto",
 ):
     """
     Solve a fixed-source CE problem with Residual Monte Carlo, in two phases:
@@ -1026,11 +1100,18 @@ def run(
         total, N_per_bin * K * G * J, is rounded to an integer.
     N_correction : int
         Number of final full-residual correction passes (0: none; the result is the
-        collision-only fixed point, as in the NSE article).
+        collision-only fixed point).
     collision_fraction : float
-        In correction passes, the fraction of histories assigned to r_c + r_e; the
-        rest go to the scattering and fission corrections in proportion to their
-        binned source magnitudes.
+        With correction_allocation="fixed": in correction passes, the fraction of
+        histories assigned to r_c + r_e; the rest go to the scattering and fission
+        corrections in proportion to their binned source magnitudes.
+    correction_allocation : {"auto", "mass", "fixed"}
+        How correction passes split their histories between r_c + r_e, r_s and r_f.
+        "mass": in proportion to each term's L1 mass (the exact collision and edge
+        masses, and the pilot estimates of ||T - S_bar||_1); needs the integrated
+        sampler. "fixed": collision_fraction. "auto" (default): "mass" with the
+        integrated sampler, "fixed" with the pointwise one. See
+        writeups/residual_allocation.tex.
     proposal : {"defensive", "uniform-linear", "uniform-lethargy"}
         Proposal for the scattering/fission corrections.
     stop : {"fixed", "tol"}
@@ -1092,6 +1173,7 @@ def run(
         energy_basis,
         spatial_basis,
         angular_basis,
+        correction_allocation,
     )
     result = RMCResult(
         solver.z_edges,
@@ -1138,6 +1220,7 @@ def run(
         time_start = MPI.Wtime()
         corrections.append(solver.iterate(psi, N_iteration + m))
         result.time_correction.append(MPI.Wtime() - time_start)
+        result.correction_allocation.append(solver.last_allocation)
         result.corrections.append(corrections[-1][..., 0])
         if P > 1:
             result.corrections_slope.append(corrections[-1][..., 1])

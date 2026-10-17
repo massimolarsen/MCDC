@@ -436,12 +436,15 @@ def _lab_spectrum_inner(
     if not correlated:
         if angle_type == ANGLE_ISOTROPIC:
             # The outgoing direction is independent of the incident one: only the
-            #   b' = b = 0 moments are nonzero
+            #   b' = b = 0 moments are nonzero, A_{j j'} = |j| |j'| / |sphere| with
+            #   the bin measures as differences of mu_edges (polar bins: total 2;
+            #   3D angular patches pass cumulative solid angles: total 4 pi)
+            total = mu_edges[J] - mu_edges[0]
             for j in range(J):
                 for jp in range(J):
                     dmu_j = mu_edges[j + 1] - mu_edges[j]
                     dmu_jp = mu_edges[jp + 1] - mu_edges[jp]
-                    angle_factor[0, 0, j, jp] = 0.5 * dmu_j * dmu_jp
+                    angle_factor[0, 0, j, jp] = dmu_j * dmu_jp / total
         else:
             mu_pieces = _pieces(
                 -1.0, 1.0, _angle_breakpoints(E_in, angle_type, mu_ID, simulation, data)

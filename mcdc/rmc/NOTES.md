@@ -296,3 +296,76 @@ unbiased against SMC. At 200 histories per bin none lowers the phase-1 plateau; 
 angle plateaus slightly higher (eps ~0.08-0.13 vs 0.02-0.09). The plateau there is the
 single-iteration noise, which the slope coefficients (~sqrt(3) noisier tallies) raise;
 the trial-space gain needs more histories per bin to show.
+
+## 11. 3D Cartesian solver, piecewise-constant trial space (2026-10-16)
+
+Branch `feature/RMC-3D`. `mcdc.rmc.driver3d.run3d`, with the math in
+`writeups/cartesian_3d.tex`:
+
+- **Trial space:** constant on structured x-y-z cells x energy bins x angular patches
+  (`patches.py`: polar-cosine x azimuthal edges, each patch inside one octant).
+- **Residual** (`mesh3d.py`): the collision residual with binned in-scatter, plus the
+  face residual -(Omega . e_a) D delta on all six faces of every cell, with vacuum or
+  reflective boundaries per face (reflection maps patches; the layout must be
+  symmetric).
+- **Collision-only iterations only;** no correction passes yet.
+- **Patch transfer table:** A_jj'(mu0) = int_{patch j'} (fraction of the scattering
+  circle in patch j). The arc fractions are exact (circle-edge crossings); the
+  incident-patch quadrature is 12-point Gauss panels split at every kink (cone and
+  plane tangencies, corner passages, and the moving kinks meeting the patch's own phi
+  edges). Without that last kink set, single entries were off by 1.5e-4; with it,
+  4.5e-6 (transpose asymmetry). Row sums are exact, and the slab reduction holds to
+  1e-8.
+  - Rotation and mirror symmetry fill most columns; the table is MPI-parallel and
+    cached on disk.
+  - Cost: 8 octant patches, about 74 s on one process; 32 patches, about 10 min.
+- **Shared energy machinery:** the kernel and cache code are shared with the slab
+  solver. The kernel's isotropic shortcut now reads w_j w_j' / sum(w), bit-identical
+  for polar bins. `nuclide_moments` takes the patch layout as its cache key.
+
+Tests (`test_patches.py`, `test_mesh3d.py`, `test_driver3d.py`):
+- **Pure-absorber box** against SMC per (cell, patch): rms z 0.97, max |z| 2.0. The
+  residual is exact, so the iteration is unbiased. Bins no particle can reach stay
+  exactly 0.
+- **A = 1 infinite medium:** within 3e-3 of the analytic flux; ||eps|| falls about
+  10x per iteration at 200 histories per bin.
+- **The two-material slab built in 3D** against the slab solver's plateau mean: rms z
+  1.13. Same fixed point.
+
+The example `examples/rmc/verification_3d` plots RMC, SMC and the analytic references
+together. The absorber's analytic reference is the exact ray integral, averaged by
+scrambled Sobol quadrature, and agrees with SMC (rms z 1.13 on 4e5 histories).
+
+Next:
+- correction passes in 3D (the pointwise kernel f(E' -> E, Omega' . Omega) / 2 pi
+  needs no azimuthal integral);
+- linear bases;
+- mixed-material cells;
+- sparse M psi;
+- Kobayashi and Ganapol-type benchmarks, with one group emulated by a synthetic
+  nuclide of very large A.
+
+The write-ups cite the M&C 2013 ECMC paper inconsistently: `continuous_linear_space.tex`
+and `self_shielded_basis.tex` attribute it to Bolding and Morel, while their `peterson`
+entries attribute the same title to Peterson, Morel and Ragusa. The new note uses
+Peterson, Morel and Ragusa. Check and fix those two bibliographies.
+
+## 12. Correction passes: histories by residual mass (2026-10-16)
+
+`correction_allocation` (`writeups/residual_allocation.tex`):
+- **"mass"** (the default with the integrated sampler): correction passes split
+  their histories between r_c + r_e, r_s and r_f in proportion to their L1 masses.
+  - This is the optimal stratified (Neyman) allocation when each term's weights have
+    magnitude ~||r_i||_1.
+  - r_c + r_e mass: exact.
+  - r_s, r_f masses: the integrated sampler's pilot estimate of ||T - S_bar||_1,
+    without its 0.1 |S_bar| proposal floor.
+- **"fixed"**: the old `collision_fraction`. The pointwise sampler keeps it, because its
+  weights are far from |r|-proportional.
+
+A = 1, c = 1/2, G = 20, from the same fixed point (`examples/rmc/residual_allocation`):
+- variance per pass is 10.8x lower (median per bin 9.8x);
+- the means agree (max |z| 1.7).
+
+The 0D prototype on `claude/rmc-residual-sampling-uyqnqi` had found the same ~10x
+excess for the fixed split.

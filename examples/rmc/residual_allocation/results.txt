@@ -1,0 +1,9 @@
+A = 1, c = 1/2, G = 20 collided bins, 21000 histories per pass, 30 correction passes per allocation, from the same collision-only fixed point
+fixed point: max relative error vs analytic 1.29e-03
+
+fixed: histories r_c+r_e / r_s / r_f = 18900 / 2100 / 0;  sum of per-bin variance 4.369e-07;  rms relative error of fixed point + mean correction 1.04e-03
+mass : histories r_c+r_e / r_s / r_f = 1 / 20999 / 0;  sum of per-bin variance 4.048e-08;  rms relative error of fixed point + mean correction 6.49e-04
+
+variance ratio fixed / mass (summed over bins): 10.79
+per-bin variance ratio: median 9.81, min 4.05, max 14.63
+means agree: max |z| = 1.73 over 20 bins

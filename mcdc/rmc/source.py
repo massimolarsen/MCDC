@@ -1005,7 +1005,7 @@ def _interpolated_cell(psi_left, psi_right, k, s):
 
 
 @njit(cache=True)
-def correction_masses(
+def correction_masses_l1(
     psi,
     S_bar,
     psi_right,
@@ -1025,16 +1025,20 @@ def correction_masses(
     n_energy=0,
 ):
     """
-    Sampling masses A[k, g, j] ~ int_bin |T - S_bar| from 2 x 2 Gauss points per bin,
-    plus 0.1 h dE dmu sum_a |S_bar_a| so every bin that receives in-scatter (where r
-    can be nonzero) has positive probability. Only the proposal depends on these.
-    With linear_z, psi / S_bar are the cells' left and psi_right / S_right their
-    right nodal values, and the pilot is evaluated at the cell midpoint.
+    (A, L1): sampling masses A[k, g, j] ~ int_bin |T - S_bar| from 2 x 2 Gauss points
+    per bin, plus 0.1 h dE dmu sum_a |S_bar_a| so every bin that receives in-scatter
+    (where r can be nonzero) has positive probability; and L1, the pilot estimate of
+    ||T - S_bar||_1 itself (the masses without that floor), used to allocate
+    histories between residual terms (writeups/residual_allocation.tex). Only the
+    proposal depends on A. With linear_z, psi / S_bar are the cells' left and
+    psi_right / S_right their right nodal values, and the pilot is evaluated at the
+    cell midpoint.
     """
     K, G, J = psi.shape[:3]
     P = n_energy if n_energy > 0 else psi.shape[3]
     B = psi.shape[3] // P
     A = np.zeros((K, G, J))
+    L1 = 0.0
     x = np.array([-0.5773502691896258, 0.5773502691896258])
     for k in range(K):
         m = cell_material[k]
@@ -1089,7 +1093,50 @@ def correction_masses(
                         )
                         mean += 0.25 * abs(T - S)
                 A[k, g, j] = h * dE * dmu * (mean + 0.1 * floor)
-    return A
+                L1 += h * dE * dmu * mean
+    return A, L1
+
+
+@njit(cache=True)
+def correction_masses(
+    psi,
+    S_bar,
+    psi_right,
+    S_right,
+    linear_z,
+    z_edges,
+    E_edges,
+    mu_edges,
+    cell_material,
+    rx_offsets,
+    rx_ID,
+    rx_nuclide,
+    rx_density,
+    rx_type,
+    simulation,
+    data,
+    n_energy=0,
+):
+    """The sampling masses A of `correction_masses_l1`."""
+    return correction_masses_l1(
+        psi,
+        S_bar,
+        psi_right,
+        S_right,
+        linear_z,
+        z_edges,
+        E_edges,
+        mu_edges,
+        cell_material,
+        rx_offsets,
+        rx_ID,
+        rx_nuclide,
+        rx_density,
+        rx_type,
+        simulation,
+        data,
+        n_energy,
+    )[0]
 
 
 @njit(cache=True)
