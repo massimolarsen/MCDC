@@ -1,6 +1,6 @@
 """
 Residual of the 3D Cartesian, piecewise-constant RMC trial space
-(writeups/cartesian_3d.tex).
+(writeups/cartesian_3d/cartesian_3d.tex).
 
 psi~[kx, ky, kz, g, j] is constant on each cell x energy bin x angular patch
 (`mcdc.rmc.patches`). Its residual r = q - L psi~ has two parts:
@@ -29,7 +29,7 @@ from numba import njit, uint64
 import mcdc.numba_types as type_
 import mcdc.transport.particle_bank as particle_bank_module
 import mcdc.transport.rng as rng
-from mcdc.constant import PARTICLE_NEUTRON
+from mcdc.constant import COINCIDENCE_TOLERANCE_DIRECTION, PARTICLE_NEUTRON
 from mcdc.rmc.patches import AXIS_X, AXIS_Y, AXIS_Z, sample_direction_abs
 from mcdc.rmc.residual import (
     BOUNDARY_REFLECTIVE,
@@ -191,6 +191,107 @@ def _uniform(edges, k, container):
     return edges[k] + rng.lcg(container) * (edges[k + 1] - edges[k])
 
 
+# MC/DC's tally filter assigns a direction within COINCIDENCE_TOLERANCE_DIRECTION of a
+#   polar or azimuthal bin edge to the lower bin. Residual particles are kept this far
+#   inside their patch, so each is scored in the patch it was sampled in.
+_PATCH_MARGIN = 2.0 * COINCIDENCE_TOLERANCE_DIRECTION
+
+
+@njit(cache=True)
+def _inside(value, low, high):
+    return min(max(value, low + _PATCH_MARGIN), high - _PATCH_MARGIN)
+
+
+@njit(cache=True)
+def _face_particle(
+    idx,
+    Kx,
+    Ky,
+    Kz,
+    G,
+    J,
+    container,
+    x_edges,
+    y_edges,
+    z_edges,
+    E_edges,
+    mu_low,
+    mu_high,
+    phi_low,
+    phi_high,
+    abs_integral,
+    jump_x,
+    jump_y,
+    jump_z,
+):
+    """
+    A particle of the face residual from face bin idx (x, then y, then z face grids,
+    each (face, g, j) flattened): uniform on the face and in energy, direction with
+    density |Omega_a| on the patch. Returns its phase-space point and int r over the
+    bin, so that its weight is that times (total mass / bin mass).
+    """
+    N_fx = (Kx + 1) * Ky * Kz * G * J
+    N_fy = Kx * (Ky + 1) * Kz * G * J
+    if idx < N_fx:
+        axis = AXIS_X
+        n_x, n_y, n_z = Kx + 1, Ky, Kz
+    elif idx < N_fx + N_fy:
+        axis = AXIS_Y
+        idx -= N_fx
+        n_x, n_y, n_z = Kx, Ky + 1, Kz
+    else:
+        axis = AXIS_Z
+        idx -= N_fx + N_fy
+        n_x, n_y, n_z = Kx, Ky, Kz + 1
+    rest, j = divmod(idx, J)
+    rest, g = divmod(rest, G)
+    rest, kz = divmod(rest, n_z)
+    kx, ky = divmod(rest, n_y)
+    E = _uniform(E_edges, g, container)
+    mu, phi = sample_direction_abs(
+        axis,
+        mu_low[j],
+        mu_high[j],
+        phi_low[j],
+        phi_high[j],
+        rng.lcg(container),
+        rng.lcg(container),
+    )
+    mu = _inside(mu, mu_low[j], mu_high[j])
+    phi = _inside(phi, phi_low[j], phi_high[j])
+    s = math.sqrt(max(0.0, 1.0 - mu * mu))
+    if axis == AXIS_X:
+        omega = s * math.cos(phi)
+        D = jump_x[kx, ky, kz, g, j]
+        x = x_edges[kx] + math.copysign(FACE_NUDGE, omega)
+        y = _uniform(y_edges, ky, container)
+        z = _uniform(z_edges, kz, container)
+        face = (y_edges[ky + 1] - y_edges[ky]) * (z_edges[kz + 1] - z_edges[kz])
+    elif axis == AXIS_Y:
+        omega = s * math.sin(phi)
+        D = jump_y[kx, ky, kz, g, j]
+        x = _uniform(x_edges, kx, container)
+        y = y_edges[ky] + math.copysign(FACE_NUDGE, omega)
+        z = _uniform(z_edges, kz, container)
+        face = (x_edges[kx + 1] - x_edges[kx]) * (z_edges[kz + 1] - z_edges[kz])
+    else:
+        omega = mu
+        D = jump_z[kx, ky, kz, g, j]
+        x = _uniform(x_edges, kx, container)
+        y = _uniform(y_edges, ky, container)
+        z = z_edges[kz] + math.copysign(FACE_NUDGE, omega)
+        face = (x_edges[kx + 1] - x_edges[kx]) * (y_edges[ky + 1] - y_edges[ky])
+    # q = mass / total / (face dE) |Omega_a| / int_patch |Omega_a|
+    value = (
+        math.copysign(1.0, -omega)
+        * D
+        * face
+        * (E_edges[g + 1] - E_edges[g])
+        * abs_integral[axis, j]
+    )
+    return x, y, z, E, mu, phi, value
+
+
 @njit(cache=True)
 def sample_residual_3d(
     i_start,
@@ -228,8 +329,6 @@ def sample_residual_3d(
     """
     Kx, Ky, Kz, G, J = psi.shape
     N_c = Kx * Ky * Kz * G * J
-    N_fx = (Kx + 1) * Ky * Kz * G * J
-    N_fy = Kx * (Ky + 1) * Kz * G * J
     cdf = np.zeros(len(mass) + 1)
     cdf[1:] = np.cumsum(mass)
     total = cdf[-1]
@@ -240,10 +339,9 @@ def sample_residual_3d(
             _bank(container, 0.0, 0.0, 0.0, -1.0, 1.0, 0.0, 0.0, simulation)
             continue
         n = _sample_cdf(cdf, rng.lcg(container))
-        idx = n
-        if idx < N_c:
+        if n < N_c:
             # Collision residual: uniform in cell, energy bin and patch
-            rest, j = divmod(idx, J)
+            rest, j = divmod(n, J)
             rest, g = divmod(rest, G)
             rest, kz = divmod(rest, Kz)
             kx, ky = divmod(rest, Ky)
@@ -253,6 +351,8 @@ def sample_residual_3d(
             E = _uniform(E_edges, g, container)
             mu = mu_low[j] + rng.lcg(container) * (mu_high[j] - mu_low[j])
             phi = phi_low[j] + rng.lcg(container) * (phi_high[j] - phi_low[j])
+            mu = _inside(mu, mu_low[j], mu_high[j])
+            phi = _inside(phi, phi_low[j], phi_high[j])
             m = cell_material[(kx * Ky + ky) * Kz + kz]
             start = xs_offsets[m]
             end = xs_offsets[m + 1]
@@ -267,64 +367,27 @@ def sample_residual_3d(
             )
             w = r * measure * total / mass[n]
         else:
-            # Face residual: uniform on the face and in energy, |Omega_a| on the patch
-            idx -= N_c
-            if idx < N_fx:
-                axis = AXIS_X
-                n_x, n_y, n_z = Kx + 1, Ky, Kz
-            elif idx < N_fx + N_fy:
-                axis = AXIS_Y
-                idx -= N_fx
-                n_x, n_y, n_z = Kx, Ky + 1, Kz
-            else:
-                axis = AXIS_Z
-                idx -= N_fx + N_fy
-                n_x, n_y, n_z = Kx, Ky, Kz + 1
-            rest, j = divmod(idx, J)
-            rest, g = divmod(rest, G)
-            rest, kz = divmod(rest, n_z)
-            kx, ky = divmod(rest, n_y)
-            E = _uniform(E_edges, g, container)
-            mu, phi = sample_direction_abs(
-                axis,
-                mu_low[j],
-                mu_high[j],
-                phi_low[j],
-                phi_high[j],
-                rng.lcg(container),
-                rng.lcg(container),
+            x, y, z, E, mu, phi, value = _face_particle(
+                n - N_c,
+                Kx,
+                Ky,
+                Kz,
+                G,
+                J,
+                container,
+                x_edges,
+                y_edges,
+                z_edges,
+                E_edges,
+                mu_low,
+                mu_high,
+                phi_low,
+                phi_high,
+                abs_integral,
+                jump_x,
+                jump_y,
+                jump_z,
             )
-            s = math.sqrt(max(0.0, 1.0 - mu * mu))
-            if axis == AXIS_X:
-                omega = s * math.cos(phi)
-                D = jump_x[kx, ky, kz, g, j]
-                x = x_edges[kx] + math.copysign(FACE_NUDGE, omega)
-                y = _uniform(y_edges, ky, container)
-                z = _uniform(z_edges, kz, container)
-                face = (y_edges[ky + 1] - y_edges[ky]) * (z_edges[kz + 1] - z_edges[kz])
-            elif axis == AXIS_Y:
-                omega = s * math.sin(phi)
-                D = jump_y[kx, ky, kz, g, j]
-                x = _uniform(x_edges, kx, container)
-                y = y_edges[ky] + math.copysign(FACE_NUDGE, omega)
-                z = _uniform(z_edges, kz, container)
-                face = (x_edges[kx + 1] - x_edges[kx]) * (z_edges[kz + 1] - z_edges[kz])
-            else:
-                omega = mu
-                D = jump_z[kx, ky, kz, g, j]
-                x = _uniform(x_edges, kx, container)
-                y = _uniform(y_edges, ky, container)
-                z = z_edges[kz] + math.copysign(FACE_NUDGE, omega)
-                face = (x_edges[kx + 1] - x_edges[kx]) * (y_edges[ky + 1] - y_edges[ky])
-            # q = mass / total / (face dE) |Omega_a| / int_patch |Omega_a|
-            w = (
-                math.copysign(1.0, -omega)
-                * D
-                * face
-                * (E_edges[g + 1] - E_edges[g])
-                * abs_integral[axis, j]
-                * total
-                / mass[n]
-            )
+            w = value * total / mass[n]
         # MC/DC divides the tallies by N_total, so w = r / q estimates int r
         _bank(container, x, y, z, E, mu, phi, w, simulation)

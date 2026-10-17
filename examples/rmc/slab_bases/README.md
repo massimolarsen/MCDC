@@ -12,8 +12,8 @@ Monte Carlo (SMC) reference on the same MC/DC model:
 | **z: continuous linear** | `z-linear_mu-constant` | `z-linear_mu-linear` |
 
 The energy trial space is piecewise constant in all four. The math is in
-`mcdc/rmc/writeups/continuous_linear_space.tex` and
-`mcdc/rmc/writeups/linear_discontinuous_angle.tex`.
+`mcdc/rmc/writeups/bases/continuous_linear_space.tex` and
+`mcdc/rmc/writeups/bases/linear_discontinuous_angle.tex`.
 
 ## The problem
 

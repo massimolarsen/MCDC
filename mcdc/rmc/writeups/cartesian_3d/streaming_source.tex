@@ -1,0 +1,206 @@
+\documentclass[11pt]{article}
+\input{../preamble}
+\title{Characteristic scattering-source trials for three-dimensional RMC}
+\date{}
+\begin{document}
+\maketitle
+
+\section{Purpose and scope}
+The research objective is a general construction with a better total-cost figure
+of merit than standard Monte Carlo, not an isolated favorable example.
+The prototype in \texttt{examples/rmc/streaming\_source} tests a prespecified
+matrix of optical thickness, scattering ratio, source localization and material
+contrast. It is steady, one-group, isotropically scattering transport on a
+structured Cartesian mesh with vacuum boundaries. Its transport kernel is shared
+by both methods. It is not a replacement for MC/DC's continuous-energy solver.
+
+\section{Representation and residual}
+Let $q(\mathbf x)$ be total isotropic external emission density,
+$T=\boldsymbol\Omega\cdot\nabla+\Sigma_t(\mathbf x)$, and
+$S\psi=\Sigma_s\phi/(4\pi)$ with $\phi=\int\psi\,\mathrm d\Omega$.
+Represent an approximate collision source by a cellwise constant total emission
+density $Q$. Define
+\begin{equation}
+ \psi_t=T^{-1}\frac{q+Q}{4\pi},\qquad
+ r=q/(4\pi)-(T-S)\psi_t
+   =\frac{\Sigma_s\phi_t-Q}{4\pi}.
+\end{equation}
+The trial satisfies streaming, attenuation and vacuum conditions through
+characteristics, with no artificial jumps in the trial flux at material faces.
+Along a backward ray the scalar-direction integral is
+\begin{equation}
+ I(\mathbf x,\Omega)=\int_0^{s_b}(q+Q)(\mathbf x-s\Omega)
+ \exp\left[-\int_0^s\Sigma_t(\mathbf x-u\Omega)\,\mathrm du\right]\mathrm ds.
+\end{equation}
+It is integrated exactly for piecewise constant coefficients: a segment of length
+$d$ contributes incoming attenuation times
+$(q+Q)(1-e^{-\Sigma_t d})/\Sigma_t$, with the continuous limit $(q+Q)d$ in voids.
+Then $\phi_t=\mathbb E_{\Omega\sim U(S^2)}I$.
+
+\section{A computable frozen source}
+Let $P_{ij}$ map isotropic emission density in cell $j$ to average uncollided
+scalar flux in cell $i$. Forward ray integration from uniform positions and
+directions in each source cell estimates $P$ without a reference transport solve.
+Solve the small source system
+\begin{equation}
+ (I-\mathop{\rm diag}(\Sigma_s)\widehat P)Q
+ =\mathop{\rm diag}(\Sigma_s)\widehat Pq.
+\end{equation}
+Every sample obeys $\sum_i V_i\Sigma_{t,i}\widehat P_{ij}\le V_j$.
+Thus $\mathop{\rm diag}(\Sigma_s)\widehat P$ is a contraction in the volume-weighted
+$\ell^1$ norm when $\max\Sigma_s/\Sigma_t<1$ over nonvoid material cells
+(voids contribute zero scattering). Positivity and invertibility do not
+depend on statistical agreement of $\widehat P$ with $P$. Errors in $Q$ affect
+efficiency, not the exact residual identity. Source construction is frozen before
+independent final estimates. The prototype stores a dense matrix; sparse or
+matrix-free source solves are required before scaling to large meshes.
+
+\section{Randomized baseline and residual estimates}
+The cell-average trial tally is not known analytically. Estimate it using
+independent scrambled Sobol integrations over position (three coordinates) and
+direction (two coordinates), separately in every cell. Each scramble is unbiased;
+the variance of their mean is estimated across independent scrambles.
+The same local Sobol coordinates may be shared across cells to amortize generator
+construction. Cell estimates are then correlated within a scramble; independence
+across scrambles is retained. The per-cell variances and mean of per-cell relative
+variances remain valid. A combined response must use the covariance or its
+scramble-level totals, not a sum of independent-cell variances.
+
+At each residual birth position estimate $\phi_t$ with $K$ spherical directions.
+For independent uniform random shifts $U,V$ use
+\begin{equation}
+ \mu_k=2\{(k+1/2)/K+U\}-1,\qquad
+ \varphi_k=2\pi\{k(\sqrt5-1)/2+V\}.
+\end{equation}
+Each direction is marginally uniform, so $\widehat\phi_t=K^{-1}\sum_k I_k$
+is unbiased for every finite $K$. Directions are correlated within the inner
+estimate; shifts are independent across residual histories. No deterministic
+angular interpolation is substituted for the residual.
+
+Choose a cell with fixed probability $p_i>0$, a position uniformly inside it,
+and an independent isotropic outgoing direction. The total source weight is
+\begin{equation}
+ w=\frac{V_i}{p_i}(\Sigma_{s,i}\widehat\phi_t-Q_i).
+\end{equation}
+The initial proposal is uniform in volume. It neither accepts nor rejects a birth
+using its noisy residual value. Analog transport with signed weights estimates
+the cell response to this random source. Conditional expectation over the inner
+rays gives the exact residual source. The final estimator is the independent
+trial-tally estimate plus the transported residual response. Conditional on $Q$
+its expectation is the true scalar flux. Independent source-construction noise
+therefore adds no variance through a random conditional mean.
+
+\paragraph{Antipodal inner rays.}
+For even $K$, an optional inner estimator draws $K/2$ randomized lattice
+directions and evaluates both $\Omega$ and $-\Omega$. Each direction remains
+marginally uniform, while the average removes all odd angular components of the
+ray integrand exactly. The ray count and expectation are unchanged. This can
+reduce inner variance when odd components dominate; it does not guarantee a
+lower variance for every angular distribution. Pair covariance is included by
+the outer residual-history statistics. It changes neither the residual proposal
+support nor the analog transport kernel.
+
+\section{Error and cost}
+\paragraph{Uncollided/collided control.}
+Setting $Q=0$ gives the simpler hybrid split with trial $T^{-1}q$ and residual
+$ST^{-1}q$. The unfitted control uses the same randomized baseline, inner
+integration, proposal pilot and transport, but skips the collision-source solve.
+It still builds the first-flight response matrix for pilot response scales.
+This comparison separates gains due to the fitted RMC source from gains due to
+randomized quadrature or analytically integrated uncollided transport alone.
+Efficiency against analog SMC does not by itself establish an advantage over
+this or other optimized hybrid/variance-reduced baselines.
+
+\paragraph{Forward baseline and frozen response proposal.}
+Backward ray estimates can have high variance when a source occupies a small
+region. An equivalent forward estimate samples positions and directions in
+each emitting cell, integrates attenuated track lengths, and accumulates
+$\widehat P(q+Q)$ on all destination cells. Independent scrambles give its
+variance. Both baseline estimators are unbiased; compare them on the entire
+case matrix, including their cost.
+
+For the correction, a separate pilot estimates the second moment $v_i$ of
+the vector of transported cell responses from birth cell $i$, normalized by
+approximate cell fluxes from the source solve. Freeze
+$p_i=0.9\sqrt{v_i}/\sum_j\sqrt{v_j}+0.1V_i/\sum_jV_j$ for final histories.
+Pilot draws are discarded from final estimates, with independent final seeds.
+The uniform mixture preserves support even when the pilot misses a contribution.
+The response normalization needs no reference SMC solve. This is an efficiency
+heuristic for the aggregate relative-variance objective, not an optimality claim
+for every individual response or for unequal history costs. Pilot cost is part
+of source/setup time.
+
+\paragraph{Source-directed angular importance.}
+Another unbiased baseline samples an emitting cell $j$ with probability
+$a_j\propto |q_j+Q_j|V_j$. At a uniform target point, its bounding sphere
+subtends a cone containing every ray that can intersect the emitter. Sample
+uniformly in that cone (the full sphere when the point lies inside the bounding
+sphere), integrate only emitter $j$ along the attenuated ray, and multiply by
+$\Delta\Omega_j/(4\pi a_j)$. Summing expectations over emitters gives the same
+trial scalar flux. This avoids requiring an unconstrained random direction to
+find a small remote source. Ray attenuation still includes all traversed
+materials; no attenuation or emission is replaced by a cell-average optical
+length. Six-dimensional scrambled Sobol points provide position, emitting-cell
+selection and cone direction. The finite cone contains the complete emitting
+cell, so no physical contribution is excluded.
+
+\paragraph{Separating external and collision emission.}
+Linearity permits independent estimates of $T^{-1}q$ and $T^{-1}Q$.
+The split experiment uses source-directed integration only for localized external
+emission, and ordinary direction integration for the smoother collision source.
+Its fixed geometry rule is to split when fewer than half the cells emit external
+particles; otherwise use the original combined backward estimator. This is a
+heuristic, not a general optimality result. Shared randomness within a replicate
+is allowed, but the variance is computed from the combined replicate values,
+including their covariance. All extra ray and quadrature construction costs are
+included. The rule uses no measured SMC results or case-specific FOM selection.
+
+Add the variance of the independently scrambled baseline mean to the
+residual-history variance. The latter includes the inner-ray noise. In particular,
+\begin{equation}
+ \mathbb E[\widehat r^2\mid\mathbf x]
+ =r(\mathbf x)^2+\operatorname{Var}(\widehat r\mid\mathbf x).
+\end{equation}
+Increasing $K$ reduces only the second term and may worsen total FOM. Independent
+complete-run replicates check the reported uncertainty and compare empirical
+variance times total wall time. Times include source construction, linear solve,
+baseline quadrature, residual evaluation and transport, each once. JIT compilation
+is warmed consistently and its separate cold cost is recorded. FOMs use the same
+cell responses and normalization for both methods; all matrix cases, including
+losses, are retained.
+
+\section{Generalization and verification gates}
+\paragraph{Linear collision-source reconstruction.}
+The linear-source experiment retains the flat-source system for cell means,
+then reconstructs slopes from finite differences of its approximate scalar flux:
+$Q_i(\mathbf t)=Q_{i0}+\sum_a Q_{ia}t_a$, with
+$Q_{ia}=\Sigma_{s,i}(h_a/2)\partial_a\phi$ and $t_a\in[-1,1]$.
+Scale all slopes in a cell by
+$\min(1,0.95Q_{i0}/\sum_a|Q_{ia}|)$ to retain nonnegative emission.
+Reconstructing scalar flux before multiplying by each cell's cross section
+avoids differentiating an artificial collision-source material jump.
+This is a frozen heuristic reconstruction, not a higher-order Galerkin solve.
+It is nevertheless a valid trial: integrate its affine source along each ray
+segment analytically using $I_0=\int_0^d e^{-\Sigma_t s}\mathrm ds$ and
+$I_1=\int_0^d s e^{-\Sigma_t s}\mathrm ds=(I_0-de^{-\Sigma_t d})/\Sigma_t$.
+A small-optical-depth series avoids cancellation in $I_1$.
+Evaluate the same reconstructed $Q(\mathbf x)$ in the residual weight. Thus its
+source reconstruction error affects variance, not expectation. The current
+linear experiment uses only the backward baseline; other baseline combinations
+are explicitly rejected until their polynomial-source integration is implemented.
+
+The construction does not require homogeneous cells beyond the ray integrator's
+ability to integrate source and attenuation. Anisotropic scattering requires
+direction-dependent $Q$ and the corresponding incident angular integral.
+Continuous energy requires an incident-energy integral, energy-dependent ray
+attenuation, and multiplicities consistent with the production transport kernel.
+Reflective boundaries require continued reflected characteristics with controlled
+termination; multiplying media need a separate stability argument. None of these
+extensions is verified by the present one-group experiments.
+
+Component checks cover exact heterogeneous-ray attenuation, first-flight
+conservation, residual support and pure absorption. Integrated checks compare
+scattering runs with independent SMC and verify error coverage over full-run
+replicates. Mesh growth, optical thickness and source contrast are separate
+performance axes; selecting a single favorable configuration is not acceptance.
+\end{document}

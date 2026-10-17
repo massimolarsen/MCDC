@@ -2,7 +2,7 @@
 Verification of the 3D Cartesian RMC solver (mcdc.rmc.run3d, piecewise-constant trial
 space, collision-only iterations) against standard Monte Carlo (SMC) with MC/DC on the
 same model, and against analytic references. See README.md and
-mcdc/rmc/writeups/cartesian_3d.tex.
+mcdc/rmc/writeups/cartesian_3d/cartesian_3d.tex.
 
   1. infinite: A = 1 slowing down in a reflective box (an infinite medium), sigma_s =
      sigma_c = 1 b, monoenergetic isotropic source; analytic flux

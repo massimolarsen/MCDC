@@ -1,0 +1,268 @@
+\documentclass[11pt]{article}
+\input{../preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+\newcommand{\Om}{\boldsymbol\Omega}
+\newcommand{\That}{\hat T}
+\newcommand{\E}{\mathbb{E}}
+
+\title{Full-residual correction passes in 3D with a tabulated in-scatter kernel}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent This note gives the mathematics of the correction passes of the 3D
+Cartesian solver (\texttt{mcdc/rmc/correction3d.py}, \texttt{driver3d.run3d} with
+\texttt{N\_correction}). Notation and the trial space are those of
+\texttt{cartesian\_3d/cartesian\_3d.tex}: cells $V_k$, energy bins $g$, angular
+patches $A_j$ ($\mathrm d\Om = \mathrm d\mu\,\mathrm d\varphi$), and $\tpsi$ constant
+on each $(k,g,j)$.
+
+\section{Why a correction pass, and why it is unbiased}
+
+The identities in this section assume the exact kernel $T$. The implementation
+uses a tabulated interpolant $\hat T$ and retains the deterministic bias described
+under Interpolation below; matching bin averages does not remove it.
+
+The collision-only iterations sample the residual with the binned in-scatter
+$\Sbar = M\tpsi/(\Delta E_g|A_j|)$ in place of the in-scatter $T[\tpsi](E,\Om)$ of the
+trial function. Their fixed point $\tpsi^*$ therefore carries the in-bin shape bias
+of the constant trial space. A correction pass samples the full residual
+\begin{equation}
+  r = q - L\tpsi = \underbrace{Q + T[\tpsi] - \Sigt(E)\,\tpsi}_{\text{inside each cell}}
+  \; + \; r_e ,
+\end{equation}
+with $r_e$ the face term of \texttt{cartesian\_3d.tex}, transports it with MC/DC's
+unchanged operator $L$, and adds the projected response:
+\begin{equation}
+  \tpsi + \Pi L^{-1}(q - L\tpsi) = \tpsi + \Pi\psi - \Pi\tpsi = \Pi\psi
+  \label{eq:unbiased}
+\end{equation}
+for any $\tpsi$ in the trial space ($\Pi\tpsi=\tpsi$), where $\psi=L^{-1}q$. So the
+expectation of one pass, given $\tpsi$, is the exact bin average $\Pi\psi$; this is
+the RMC update of [1--3]. Here $T$ is the scattering \emph{and} prompt-fission
+emission: fission born inside the window (the fast window) is part of $T$, and its
+binned part is part of $\Sbar$ through the transfer moments. In the thermal window
+fission counts as capture.
+
+\paragraph{Error estimate.} By the law of total variance [4, Ch.~8],
+$\operatorname{Var}(\tpsi+\teps) = \E[\operatorname{Var}(\teps\mid\tpsi)] +
+\operatorname{Var}(\E[\tpsi+\teps\mid\tpsi])$, and the second term vanishes by
+\eqref{eq:unbiased}. The history standard error of the pass's tally, which estimates
+$\operatorname{Var}(\teps\mid\tpsi)$, is therefore the error of the corrected result
+(\texttt{RMC3DResult.psi\_sdev}). Several passes from the same $\tpsi^*$ are averaged,
+as in the slab solver.
+For the implemented interpolant, the conditional corrected mean includes a
+trial-dependent interpolation error. The history standard error is conditional
+sampling uncertainty, not total error or an interpolation-error estimate.
+
+\section{The in-scatter of the trial function}
+
+Inside cell $k$ of material $m$, $\tpsi$ is constant on each incident bin, so
+\begin{equation}
+  T(E,\Om) = \sum_{g',j'} \tpsi_{kg'j'}\, U^m_{g'j'}(E,\Om),\qquad
+  U^m_{g'j'}(E,\Om) = \int_{g'}\!\mathrm dE' \sum_r N_r\sigma_r(E')
+     \int_{A_{j'}}\!\mathrm d\Om'\, \frac{f_r(E'\!\to E,\Om'\cdot\Om)}{2\pi},
+  \label{eq:U}
+\end{equation}
+with $f_r$ the lab emission density of reaction $r$ per unit outgoing energy and lab
+cosine $\mu_0$ (yield included, \texttt{mcdc.rmc.reaction}). The kernel depends on
+the directions only through $\mu_0=\Om'\cdot\Om$ because the medium is isotropic
+[5, Ch.~1].
+
+\begin{proposition}[Patch integral of a rotationally symmetric kernel]
+For any integrable $h(\mu_0)$,
+\begin{equation}
+  \int_{A_{j'}} \frac{h(\Om'\cdot\Om)}{2\pi}\,\mathrm d\Om' =
+  \int_{-1}^{1} h(\mu_0)\, F_{j'}(\Om,\mu_0)\,\mathrm d\mu_0 ,
+\end{equation}
+with $F_{j'}(\Om,\mu_0)$ the fraction of the circle
+$\{\Om' : \Om'\cdot\Om = \mu_0\}$ that lies in $A_{j'}$.
+\end{proposition}
+\begin{proof}
+In polar coordinates about $\Om$,
+$\Om' = \mu_0\Om + \sqrt{1-\mu_0^2}\,(\cos\omega\,\mathbf e_1 + \sin\omega\,\mathbf e_2)$
+and $\mathrm d\Om' = \mathrm d\mu_0\,\mathrm d\omega$; at fixed $\mu_0$ the
+$\omega$-measure of $\{\Om'\in A_{j'}\}$ is $2\pi F_{j'}(\Om,\mu_0)$.
+\end{proof}
+
+\noindent $F_{j'}$ is computed exactly from the circle's crossings of the patch
+edges (\texttt{patches.arc\_fractions}, \texttt{cartesian\_3d.tex}), so no azimuthal
+quadrature appears. Three cases follow.
+\begin{itemize}
+  \item \emph{Delta laws} (elastic on a target at rest, level scattering):
+  $f = g(E\mid E')\,\delta(\mu_0-\mu_0^*(E',E))$, so the inner integral is
+  $g(E\mid E')\,F_{j'}(\Om,\mu_0^*)$, one arc-fraction evaluation.
+  \item \emph{Isotropic lab emission} (fission): $f(E'\!\to E,\mu_0)$ does not
+  depend on $\mu_0$, and setting $h=1$ in the proposition gives
+  $\int_{-1}^1F_{j'}\,\mathrm d\mu_0 = |A_{j'}|/2\pi$, so the inner integral is
+  exactly $f\,|A_{j'}|/2\pi$.
+  \item \emph{Continuous laws} (continuum inelastic, free gas): 16-point
+  Gauss--Legendre [6] over the supported $\mu_0$ range (for centre-of-mass laws, the
+  range where the centre-of-mass energy lies in the spectrum's support), with the
+  cosine map $\mu_0 = c + (d-c)(1-\cos\pi t)/2$ that absorbs square-root endpoint
+  behaviour, as in the slab kernels.
+\end{itemize}
+
+\paragraph{Consistency with the transfer moments.} Integrating \eqref{eq:U} over
+$E\in g$ and $\Om\in A_j$ and using
+$\int_{A_j}F_{j'}(\Om,\mu_0)\,\mathrm d\Om = A_{j'j}(\mu_0) = A_{jj'}(\mu_0)$
+(\texttt{cartesian\_3d.tex}) gives the transfer moments: $\int_g\!\int_{A_j} T =
+(M\tpsi)_{gj} = \Delta E_g|A_j|\,\Sbar_{gj}$. $\Sbar$ is the exact bin average of $T$.
+
+\section{Tabulation}
+
+$U^m$ depends only on the nuclear data and the grids, so it is computed once per
+material and cached on disk (\texttt{correction-table-<hash>.h5}, keyed by the data
+contents, the grids and the nodes).
+
+\paragraph{Symmetry.} Let $\sigma$ be an orthogonal map of the sphere that maps the
+patch layout onto itself: the rotation about $\hat{\mathbf z}$ by the azimuthal patch
+width (uniform $\varphi$ edges) and the reflection $\mu\to-\mu$ (symmetric $\mu$
+edges), and their products. Then $F_{\sigma j'}(\sigma\Om,\mu_0) = F_{j'}(\Om,\mu_0)$,
+so $U_{\sigma j'}(E,\sigma\Om) = U_{j'}(E,\Om)$ and
+\begin{equation}
+  T(E,\sigma\Om) = \sum_{g',j''} \tpsi_{kg'\,\sigma(j'')}\, U_{g'j''}(E,\Om).
+\end{equation}
+Every patch is the image $\sigma_j(f_j)$ of a \emph{fundamental} patch $f_j$, so $U$
+is tabulated only for directions in the fundamental patches, and $T$ on patch $j$ is
+the table applied to $\tpsi$ permuted by $\sigma_j$. For octant patches the eight
+patches are images of one, and the table is eight times smaller.
+
+\paragraph{Incident-energy integral.} For each node energy $E$, reaction and incident
+bin $g'$, the $E'$ integral uses adaptive Gauss--Kronrod (G7--K15) [7, 8] on the
+summed emission, to a relative tolerance of $10^{-6}$, from four initial pieces;
+the per-direction contributions are accumulated with the accepted Kronrod weights.
+For elastic scattering on a target at rest, outgoing energies lie in $[\alpha E',E']$
+with $\alpha = ((A-1)/(A+1))^2$ [9, Ch.~2], so the integral is clipped to
+$E'\in[E, E/\alpha]$; other reactions skip incident bins whose kinematic support
+(\texttt{reaction.lab\_energy\_support}) cannot reach $E$.
+
+\section{Interpolation}
+
+\paragraph{Nodes.} In energy, each bin has its own nodes: both edges, $n_E$ uniform
+intervals, and the points $\alpha_n E_{g''}$ for every nuclide $n$ and every bin edge
+$E_{g''}$, where an incident bin edge enters the elastic range $[E,E/\alpha]$ and $T$
+has a kink. (Nodes closer than 2\% of the bin width are merged.) In direction, each
+patch carries an $n_\mu\times n_\varphi$ grid including its edges.
+
+\paragraph{Interpolant and shift.} On the sub-cells of this node grid, $T$ is
+interpolated trilinearly in $(E,\mu,\varphi)$. Piecewise-linear interpolation of a
+smooth function has error at most $h^2\max|f''|/8$ per direction [10, Ch.~3], so the
+error is second order away from kinks. Because $\mathrm d\Om = \mathrm d\mu\,
+\mathrm d\varphi$, the bin average of the interpolant is the product of trapezoid
+rules and is exact. The interpolant $\That$ is shifted by a constant per (cell, bin,
+patch) so that its bin average equals $\Sbar$:
+\begin{equation}
+  \That = T_{\text{interp}} + \big(\Sbar_{kgj} - \langle T_{\text{interp}}\rangle_{gj}\big).
+\end{equation}
+The pass then solves for the residual with $\That$ in place of $T$. Its bias is
+$\Pi L^{-1}(\That - T)$, where $\That-T$ has zero mean on every bin and is the
+interpolation error of the in-bin shape: second order in the node spacing, and much
+smaller than the shape $T-\Sbar$ that the pass corrects (Sec.~6).
+
+\section{Sampling}
+
+The cell term $r_v = Q + \That - \Sigt(E)\tpsi$ is sampled as a single term. On a
+sub-cell $c$ (energy interval $e$ of material $m$, a $\mu$ and a $\varphi$
+interval of patch $j$),
+\begin{equation}
+  r_v = r_{\text{lin}} + \big(\Sigma_{\text{lin}}(E) - \Sigt(E)\big)\tpsi ,
+\end{equation}
+where $\Sigma_{\text{lin}}$ is linear between the interval's end nodes and
+$r_{\text{lin}}$ is the trilinear interpolant of $r_v$'s node values. A trilinear
+interpolant is a convex combination of the corner values, so
+$|r_{\text{lin}}|\le\max_{\text{corners}}|r_v|$, and the proposal mass
+\begin{equation}
+  m_c = |c|\Big(\max_{\text{corners}}|r_v| + |\tpsi|\,\overline{|\Sigt-\Sigma_{\text{lin}}|}_e\Big),
+\end{equation}
+with the overbar the mean over the interval (exact on the cross-section grid), is
+positive wherever $r_v$ can be nonzero. Within a sub-cell the point is uniform, and
+$r_v$ is evaluated there with the pointwise $\Sigt(E)$. Sampling in proportion to
+(a bound on) $|r|$ is the zero-variance choice for a single integral [11], applied
+here to the source of a transport problem with signed weights [12]. The face term
+keeps the proposal of \texttt{cartesian\_3d.tex}. The sub-cell masses and the face
+masses share one CDF, so each term receives histories in proportion to its mass,
+the Neyman allocation of \texttt{method/residual\_allocation.tex} with the volume mass
+a bound rather than exact. A particle drawn from mass $m_n$ (total $m$) carries
+$w = r\,|c|\,m/m_n$ before MC/DC's division by the number of histories.
+
+\section{Verification}
+
+On the $A=1$ infinite medium of \texttt{cartesian\_3d.tex} ($G=21$, octant patches,
+$n_E=4$, $n_\mu=n_\varphi=3$):
+\begin{itemize}
+  \item \emph{Table.} The constant $\sigma_s$ and the isotropic centre-of-mass law
+  give $\sum_{j'}U_{g'j'}(E) = N\sigma_s\ln(\min(E_{g'+1},\cdot)/\max(E_{g'},E))$
+  exactly. The tabulated values agree to $1.6\times10^{-7}$ relative, and for an
+  isotropic $\tpsi$, $T$ is the same at every direction node to $10^{-14}$.
+  \item \emph{Interpolation.} Before the shift, the interpolant's bin averages
+  differ from $\Sbar$ by about $10^{-4}$ relative ($2.5\times10^{-3}$ in the bin just
+  below the source line, where $T$ falls to zero at the top edge), against an in-bin
+  shape $T-\Sbar$ of order 10\%.
+  \item \emph{Passes} (\texttt{test\_infinite\_medium\_A1}). The fixed point's error
+  against the analytic bin averages runs from $-1.1\times10^{-3}$ to
+  $+1.3\times10^{-3}$ across the bins. After eight passes of $3.4\times10^4$
+  histories, the corrected averages agree with the analytic ones (largest $|z|=3.3$
+  from the spread of the passes), and the coefficient of the fixed point's error
+  pattern in the corrected error is $0.31\pm0.23$ (it is 1 without correction). One
+  pass has a relative standard deviation of about $1.6\times10^{-3}$ per bin, and
+  costs about one iteration; the table took 0.2\,s.
+\end{itemize}
+Fission enters $U$ through the isotropic-lab case. It is exercised by the fast
+window of the fuel-pin problems, not by this test.
+
+\section{Limitations}
+
+\begin{itemize}
+  \item The interpolation error is a deterministic bias. It is second order in the
+  node spacing, and $n_E$, $n_\mu$, $n_\varphi$ (\texttt{correction\_nodes}) control
+  it. Forward-peaked scattering (hydrogen) puts structure near the patch edges that
+  needs more direction nodes than smooth kernels do.
+  \item Memory: per material, (energy nodes) $\times$ (fundamental direction nodes)
+  $\times\,G\times J$ values; about 46\,MB for $G=100$, $J=8$ and $3\times3$
+  direction nodes. Evaluating $T$ at the nodes is one dense product per material and
+  pass.
+  \item The volume proposal uses the largest corner value, an upper bound on
+  $|r_{\text{lin}}|$. Positive and negative parts of the in-bin shape are transported
+  independently; pairing them (antithetic sampling) could reduce the variance
+  further.
+\end{itemize}
+
+\begin{thebibliography}{99}
+\bibitem{evans} T.~M.~Evans, T.~J.~Urbatsch, H.~Lichtenstein and J.~E.~Morel,
+  ``A residual Monte Carlo method for discrete thermal radiative diffusion,''
+  \emph{J.\ Comput.\ Phys.} \textbf{189}(2), 539--556 (2003).
+\bibitem{peterson} J.~R.~Peterson, J.~E.~Morel and J.~C.~Ragusa,
+  ``Exponentially-convergent Monte Carlo for the 1-D transport equation,'' M\&C 2013.
+\bibitem{larsen} M.~Larsen et al., ``A Residual Monte Carlo Algorithm for Continuous
+  Energy Neutron Transport with Elastic Scattering,'' \emph{Nucl.\ Sci.\ Eng.}
+  \textbf{200}(3), 525--538 (2026), doi:10.1080/00295639.2025.2495608.
+\bibitem{owen} A.~B.~Owen, \emph{Monte Carlo Theory, Methods and Examples} (2013).
+\bibitem{bell} G.~I.~Bell and S.~Glasstone, \emph{Nuclear Reactor Theory}, Van
+  Nostrand Reinhold (1970).
+\bibitem{golub} G.~H.~Golub and J.~H.~Welsch, ``Calculation of Gauss quadrature
+  rules,'' \emph{Math.\ Comp.} \textbf{23}(106), 221--230 (1969).
+\bibitem{kronrod} A.~S.~Kronrod, \emph{Nodes and Weights of Quadrature Formulas},
+  Consultants Bureau, New York (1965).
+\bibitem{quadpack} R.~Piessens, E.~de Doncker-Kapenga, C.~W.~\"Uberhuber and
+  D.~K.~Kahaner, \emph{QUADPACK: A Subroutine Package for Automatic Integration},
+  Springer (1983).
+\bibitem{duderstadt} J.~J.~Duderstadt and L.~J.~Hamilton, \emph{Nuclear Reactor
+  Analysis}, Wiley (1976).
+\bibitem{atkinson} K.~E.~Atkinson, \emph{An Introduction to Numerical Analysis}, 2nd
+  ed., Wiley (1989).
+\bibitem{kahn} H.~Kahn and A.~W.~Marshall, ``Methods of reducing sample size in Monte
+  Carlo computations,'' \emph{J.\ Oper.\ Res.\ Soc.\ Am.} \textbf{1}(5), 263--278
+  (1953).
+\bibitem{lux} I.~Lux and L.~Koblinger, \emph{Monte Carlo Particle Transport Methods:
+  Neutron and Photon Calculations}, CRC Press (1991).
+\end{thebibliography}
+
+\end{document}

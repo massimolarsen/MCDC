@@ -166,7 +166,7 @@ def fission_yield(E_in, nuclide, simulation, data):
 # Below E = 400 kT MC/DC samples the target velocity from a Maxwellian weighted by the
 # relative speed (constant cross section) and scatters isotropically in the COM frame
 # (`sample_elastic_scattering`, `sample_nucleus_velocity`). The induced lab kernel is
-# the free-gas law (derivation in writeups/free_gas.tex):
+# the free-gas law (derivation in writeups/kernels/free_gas.tex):
 #
 #   f(E', mu0 | E) = ((A + 1)/A)^2 / (2 kT) sqrt(E'/E) S(alpha, beta) / D(a),
 #   S = exp(-(alpha + beta)^2 / (4 alpha)) / sqrt(4 pi alpha),

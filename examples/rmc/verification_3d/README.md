@@ -6,7 +6,7 @@ problems. Each is solved three ways, and all three appear on the same plot:
 - standard Monte Carlo (SMC) with MC/DC on the same model, 10^6 histories;
 - an analytic reference, where one exists.
 
-The math is in `mcdc/rmc/writeups/cartesian_3d.tex`.
+The math is in `mcdc/rmc/writeups/cartesian_3d/cartesian_3d.tex`.
 
 ```
 python input.py --mode=numba --no-progress_bar      # or mpiexec -n 4 ...; writes output.h5
@@ -122,7 +122,7 @@ collision-only iterations, and the plateau mean is over iterations 3-10.
 - **`infinite`: ||eps~|| falls geometrically,** by about 10x per iteration, to 2e-8 of its first value.
 - **`absorber` and `slab`: the iteration sits at the noise of one iteration** after the first step, about 2e-2 of the first ||eps~||.
 - **`slab`: the far cell is noisy.** Few histories reach cell 3, so RMC's standard error there is 10-46% per energy bin.
-- **Open item:**
-  - In the absorber box, RMC is not exactly zero in 5 of the 37 unreachable bins in its last two iterates. The values are about 1e-4, against a median of 8e-2 in the reached bins, while SMC and the reference are exactly 0.
-  - No physical path reaches those bins. The suspected cause is face particles drawn at grazing directions (Omega . n ~ 0): they start 1e-9 cm from a face and can be scored in the neighboring cell.
-  - The z-scores are unaffected, but this should be investigated, for example with a larger face offset or by excluding grazing directions with zero weight.
+- **Unreachable bins (fixed 2026-10-16, not rerun):**
+  - In the runs above, RMC had values of about 1e-4 in 5 of the 37 unreachable absorber bins in its last two iterates.
+  - Cause: MC/DC's tally filter assigns a direction within 1e-5 of a polar or azimuthal bin edge to the lower bin (`COINCIDENCE_TOLERANCE_DIRECTION`). Residual particles drawn in an upward patch with 0 <= mu < 1e-5 were scored in the downward patch above the source layer.
+  - Fix: `mesh3d` now keeps sampled directions 2e-5 inside their patch edges, a distortion of about 1e-5 of the angular distribution.

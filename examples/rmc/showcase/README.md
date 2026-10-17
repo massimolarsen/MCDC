@@ -4,7 +4,7 @@ Figures that show what the port of continuous-energy Residual Monte Carlo (RMC) 
 MC/DC adds over the dissertation code, made from results that already exist.
 `make_plots.py` only reads results and runs no simulation:
 - the example outputs (`../<problem>/output*.h5`);
-- the kernel verification statistics (`mcdc/rmc/writeups/figures/*/stats.json`);
+- the kernel verification statistics (`mcdc/rmc/writeups/kernels/figures/*/stats.json`);
 - the OSU HPC timing tables copied into `hpc_timing/` from `../efficiency`.
 
 ```

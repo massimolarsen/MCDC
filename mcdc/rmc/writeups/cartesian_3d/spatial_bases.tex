@@ -1,0 +1,225 @@
+\documentclass[11pt]{article}
+\input{../preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+\newcommand{\Om}{\boldsymbol\Omega}
+\newcommand{\tb}{\mathbf t}
+\newcommand{\E}{\mathbb{E}}
+
+\title{Polynomial spatial bases for the 3D Cartesian RMC solver}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent This note gives the mathematics of the linear and quadratic spatial trial
+spaces of the 3D solver (\texttt{mcdc/rmc/space3d.py}, \texttt{polynomial3d.py},
+\texttt{driver3d.run3d} with \texttt{spatial\_basis}), and of the MC/DC tally scores
+they are projected from (\texttt{flux-xyz<a><b><c>}). Notation follows
+\texttt{cartesian\_3d/cartesian\_3d.tex} and
+\texttt{cartesian\_3d/tabulated\_correction.tex}.
+
+\section{Why}
+
+With $\tpsi$ constant on each cell, the residual of the collision-only fixed point
+does not vanish as the noise does. On the C5G7-style pin (thermal window, cells of
+0.15--1\,cm), the collision and face parts of $\|r\|_1$ stayed at 0.51 and 0.60 of
+$\|q\|_1$ when the histories per iteration grew tenfold (\texttt{NOTES.md}, section
+13). Streaming enters a constant-in-space trial function only through the jumps
+across faces, and those are of the order of the flux variation across a cell. Each
+iteration and correction pass then has about the per-history variance of a
+standard Monte Carlo solve. A spatial basis that represents the in-cell variation
+reduces this structural residual: the face jumps of a discontinuous basis of degree
+$p$ scale like $h^{p+1}$ for a smooth flux, and a continuous basis has none.
+
+\section{Trial spaces}
+
+On cell $V_k$ with local coordinates $\tb=(t_x,t_y,t_z)\in[-1,1]^3$,
+$x = x_k + (t_x+1)h_x/2$, and for each energy bin $g$ and patch $j$ (both still
+piecewise constant),
+\begin{equation}
+  \tpsi(\tb) = \sum_{m} C_m\, P_a(t_x)P_b(t_y)P_c(t_z),\qquad m=(a,b,c),
+\end{equation}
+with $P_n$ the Legendre polynomials [1, Ch.~22]. Every basis is held in this form,
+so the residual, its sampling and the correction passes are written once.
+\begin{itemize}
+  \item \texttt{dg1}, \texttt{dg2}: discontinuous, complete polynomials,
+  $a+b+c\le p$ (4 and 10 modes), the discontinuous Galerkin spaces of [2--4].
+  \item \texttt{cg1}, \texttt{cg2}: continuous tensor-product Lagrange spaces $Q_p$
+  [5]. Nodes sit at the cell vertices, and for $p=2$ also at the edge, face and
+  cell midpoints. The unknowns are nodal values. On a cell, the 1D Lagrange functions
+  in Legendre form are
+  \begin{equation}
+    p=1:\ \phi_{0,1} = \tfrac12 P_0 \mp \tfrac12 P_1;\qquad
+    p=2:\ \phi_{0,2} = \tfrac16 P_0 \mp \tfrac12 P_1 + \tfrac13 P_2,\quad
+    \phi_1 = \tfrac23 P_0 - \tfrac23 P_2,
+  \end{equation}
+  and the tensor products give the cell coefficients $C_m$ ($a,b,c\le p$) of the
+  nodal values exactly.
+\end{itemize}
+The constant basis is the case $p=0$ and keeps its own code path.
+
+\section{Projection from tally moments}
+
+\paragraph{Moments.} The update is the $L^2$ projection of $\teps$. On each cell,
+energy bin and patch it needs the moments $\int_{V_k}\teps\,P_m$. The new MC/DC
+track-length scores \texttt{flux-xyz<a><b><c>} estimate them: a track segment
+$\mathbf r_0+s\Om$, $s\in[0,d]$, inside a cell contributes $w\int_0^d
+P_aP_bP_c\,\mathrm ds$. This is the track-length estimator of a functional expansion
+tally [6]. The integrand is a polynomial of degree $a+b+c\le 6$ in $s$, so a
+4-point Gauss--Legendre rule integrates it exactly.
+
+\paragraph{Discontinuous.} By orthogonality, $\int_{[-1,1]^3}P_m^2 =
+8/\nu_m$ with $\nu_m=(2a+1)(2b+1)(2c+1)$, so the projection is local:
+\begin{equation}
+  C_m = \frac{\nu_m}{|V_k|}\int_{V_k}\teps\,P_m .
+\end{equation}
+
+\paragraph{Continuous.} The projection solves $\mathsf M\,\mathbf N = \mathbf b$, with
+$\mathbf b_I = \int\teps\,\phi_I$ assembled from the cell moments through the
+Legendre forms above. On a structured mesh the nodal functions are tensor products,
+so $\mathsf M = \mathsf M_x\otimes\mathsf M_y\otimes\mathsf M_z$ with banded 1D mass
+matrices, and the solve is three sweeps of 1D solves [7].
+
+\paragraph{Boundary conditions.} Every patch lies in one octant, so it is wholly
+incoming or outgoing on each face of the box. For a continuous basis, vacuum is
+imposed strongly: the boundary nodal values of incoming patches are zero. This
+removes the boundary node from the 1D factor of that axis and patch, and keeps the
+Kronecker structure. A reflective boundary would tie a patch to its mirror image
+and couple the patches, so it is kept weak: its face residual (below) remains. This
+follows the slab's continuous basis (\texttt{bases/continuous\_linear\_space.tex}).
+
+\section{Residual}
+
+Inside cell $k$, energy bin $g$ and patch $j$,
+\begin{equation}
+  r(\tb,E,\Om) = \sum_m P_m(\tb)\Big[Q_m + T_m(E,\Om) - \Sigt(E)\,C_m
+     - \Om\cdot\mathbf G_m\Big],
+\end{equation}
+where $\mathbf G_m$ are the Legendre coefficients of $\nabla\tpsi$. These follow from
+$P_1'=P_0$ and $P_2'=3P_1$ and the factor $2/h$ of each axis. $T_m$ is the in-scatter
+of mode $m$. Scattering is local in space, so the transfer moments act mode by mode,
+$\Sbar_m = M C_m/(\Delta E_g|A_j|)$, and the tabulated kernel of the correction passes
+gives $T_m=\sum C_m U$ with the same table.
+
+In the collision-only iterations, $T_m$ is the binned $\Sbar_m$ and the removal is
+the binned $\bar\Sigma_t C_m$. In a correction pass, $T_m$ is the shifted trilinear
+interpolant $\hat T_m$ of \texttt{tabulated\_correction.tex}, and $\Sigt(E)$ is
+pointwise.
+
+On a face normal to axis $a$, the residual is $-\Omega_a D\,\delta(x_a-x_f)$, with
+$D$ the jump of $\tpsi$, a polynomial in the two face coordinates. Its face modes
+follow from the traces $P_n(\pm1)=(\pm1)^n$. A continuous basis has no interior
+jumps, and none on vacuum faces.
+
+\section{Sampling}
+
+The volume terms (sub-cells of the node grid in $(E,\mu,\varphi)$, one per bin and
+patch in the iterations) and the face terms share one CDF over their masses. A point
+is uniform in the sub-cell or on the face, with the direction $\propto|\Omega_a|$ on
+faces. Its weight is $r/q$, with $r$ evaluated at the point, so the estimate is
+unbiased whenever every term with nonzero $r$ has a positive mass. The masses use
+\begin{equation}
+  \frac{1}{|V_k|}\int_{V_k}|r|\ \le\ \Big(\frac{1}{|V_k|}\int_{V_k}r^2\Big)^{1/2}
+  = \Big(\sum_m \frac{c_m^2}{\nu_m}\Big)^{1/2},
+\end{equation}
+(Cauchy--Schwarz and orthogonality), with $c_m$ the bracket of the residual. This is
+evaluated at the sub-cell's $(E,\Om)$ corners, and the largest value is kept, plus
+the departure of $\Sigt$ from linear as in \texttt{tabulated\_correction.tex}. The
+same root mean square over the face modes gives the face masses. It is positive
+wherever the spatial polynomial is not identically zero.
+
+\paragraph{Angular streaming departure (support fix).}
+The direction components $\Omega_x=\sqrt{1-\mu^2}\cos\varphi$ and
+$\Omega_y=\sqrt{1-\mu^2}\sin\varphi$ are not bilinear. Corner cancellation
+therefore does not imply a zero volume residual. On an octant sub-patch each
+component lies between its corner extrema, as does its bilinear interpolant.
+Add to the corner RMS bound
+\begin{equation}
+ \sum_{a=x,y}(\max_c\Omega_a-\min_c\Omega_a)
+ \left(\sum_m G_{a,m}^2/\nu_m\right)^{1/2}.
+\end{equation}
+The triangle inequality bounds the spatial RMS departure for every direction;
+$\Omega_z=\mu$ has no departure. This is conservative but preserves support,
+including in voids. The regression test uses $r=1-\Omega_x-\Omega_y-\Omega_z$
+on the positive octant: all corner values vanish while the interior does not.
+
+\section{What is reported}
+
+With an exact residual, the expected update is the projection $\Pi\psi$ of the
+true flux; collision-only iterations instead target a binned fixed point. A continuous
+projection is global and does not preserve cell averages, so comparing them with
+cell tallies of standard Monte Carlo shows a projection error, not a bias
+(\texttt{bases/continuous\_linear\_space.tex}). The corrected result therefore adds
+the \emph{tallied} cell averages of each correction pass to those of the last
+iterate $\tpsi^*$, without projecting them. With an exact residual:
+\begin{equation}
+  \frac{1}{|V_k|}\int_{V_k}\tpsi^* + \frac{1}{|V_k|}\,\widehat{\int_{V_k}\teps},\qquad
+  \E[\cdot\mid\tpsi^*] = \frac{1}{|V_k|}\int_{V_k}\psi .
+\end{equation}
+This holds because the pass's tally estimates $\int_{V_k}L^{-1}r = \int_{V_k}(\psi -
+\tpsi^*)$ without bias. So for every basis the result estimates the true cell averages
+without bias when the residual is exact, with the history standard error of the pass.
+The implemented scattering correction uses $\hat T$ and retains deterministic
+interpolation bias $A L^{-1}(\hat T-T)$ for the cell-average functional $A$.
+The history standard error does not include this bias. Node-refinement checks
+are required before interpreting it as the total error.
+
+\section{Cost}
+
+Histories per iteration are \texttt{N\_per\_bin} times the number of spatial
+unknowns (cell coefficients for DG, nodes for CG), energy bins and patches. Per
+cell, DG has 4 or 10 coefficients. CG has about 1 node per cell for $p=1$ and 8 for
+$p=2$ on large meshes, more on small ones: the pin's $3\times3\times4$ mesh has 80
+and 441 nodes against 36 cells. Higher moments are noisier, since a mode's tally
+variance carries the factor $\nu_m$ through the projection.
+
+\section{Verification}
+
+\begin{itemize}
+  \item \texttt{test\_space3d.py}:
+  \begin{itemize}
+    \item each basis reproduces a polynomial of its degree exactly from its cell
+    moments, and continuous bases have equal traces across every face;
+    \item vacuum boundary nodes of incoming patches are zero after projection;
+    \item the segment moments of the tally are exact for all 27 orders.
+  \end{itemize}
+  \item \texttt{test\_absorber\_box\_polynomial\_bases}: the pure-absorber box of
+  \texttt{cartesian\_3d.tex}, with every basis. With no scattering the residual is
+  exact, and the corrected cell averages must agree with standard Monte Carlo.
+\end{itemize}
+
+\section{Expected limitations}
+
+The residual also contains the variation of the streaming term within a patch,
+$(\Om-\bar\Om_j)\cdot\nabla\tpsi$. A higher spatial order does not remove it. In the
+slab, with two polar bins, this term was as large as the face residual it replaced
+(\texttt{NOTES.md}, section 9). Finer patches, or a basis linear in angle within a
+patch, address it.
+
+\begin{thebibliography}{99}
+\bibitem{abramowitz} M.~Abramowitz and I.~A.~Stegun, \emph{Handbook of Mathematical
+  Functions}, National Bureau of Standards (1964), Ch.~22.
+\bibitem{reed} W.~H.~Reed and T.~R.~Hill, ``Triangular mesh methods for the neutron
+  transport equation,'' LA-UR-73-479, Los Alamos (1973).
+\bibitem{lesaint} P.~Lesaint and P.~A.~Raviart, ``On a finite element method for
+  solving the neutron transport equation,'' in \emph{Mathematical Aspects of Finite
+  Elements in Partial Differential Equations}, Academic Press (1974).
+\bibitem{cockburn} B.~Cockburn, G.~E.~Karniadakis and C.-W.~Shu (eds.),
+  \emph{Discontinuous Galerkin Methods: Theory, Computation and Applications},
+  Springer (2000).
+\bibitem{ciarlet} P.~G.~Ciarlet, \emph{The Finite Element Method for Elliptic
+  Problems}, North-Holland (1978).
+\bibitem{griesheimer} D.~P.~Griesheimer, W.~R.~Martin and J.~P.~Holloway,
+  ``Convergence properties of Monte Carlo functional expansion tallies,''
+  \emph{J.\ Comput.\ Phys.} \textbf{211}(1), 129--153 (2006).
+\bibitem{vanloan} C.~F.~Van Loan, ``The ubiquitous Kronecker product,'' \emph{J.\
+  Comput.\ Appl.\ Math.} \textbf{123}, 85--100 (2000).
+\end{thebibliography}
+
+\end{document}

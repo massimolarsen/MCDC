@@ -1,7 +1,7 @@
 """
 Showcase figures for CE-RMC in MC/DC, made from results that already exist (no
 simulation is run). Reads the example outputs (../<problem>/output*.h5), the kernel
-verification statistics (mcdc/rmc/writeups/figures/*/stats.json) and the HPC timing
+verification statistics (mcdc/rmc/writeups/kernels/figures/*/stats.json) and the HPC timing
 tables copied into hpc_timing/. Writes, in this directory:
 
   architecture.png        how RMC sits on top of MC/DC
@@ -219,7 +219,7 @@ LAW_NAMES = {
 
 def kernel_verification():
     rows = []
-    for path in sorted(glob.glob(f"{REPO}/mcdc/rmc/writeups/figures/*/stats.json")):
+    for path in sorted(glob.glob(f"{REPO}/mcdc/rmc/writeups/kernels/figures/*/stats.json")):
         law = os.path.basename(os.path.dirname(path))
         with open(path) as handle:
             stats = json.load(handle)

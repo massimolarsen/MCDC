@@ -1,0 +1,50 @@
+\documentclass[11pt]{article}
+\input{../preamble}
+\title{Interpreting and verifying the three-dimensional trial-space study}
+\date{}
+\begin{document}
+\maketitle
+The projection study in \texttt{examples/rmc/basis\_study} estimates residual
+norms of ideal approximations before implementing each trial space in RMC.
+It is a screening calculation, not evidence of measured figure of merit.
+For source sampling proportional to $|r|$, the squared source weight is
+$\|r\|_1^2$. A transported response also has a conditional second moment and a
+history cost depending on the birth state. Neither cancels automatically in a
+comparison with SMC. Unknown count is a cost proxy, not elapsed time.
+
+\paragraph{Projection quadrature.}
+With spherical harmonics stored in $B$, quadrature weights $W$ must resolve
+$B^TWB=I$ before using $B^TW$ as the projection. The former four-point product
+panels had a maximum P7 Gram defect of $0.076586$. Eight-point panels reduce it
+to about $9\times10^{-11}$; the constructor now rejects underresolved harmonic
+projection. Existing saved results use the old quadrature and remain historical
+until regenerated. A Gram check verifies the trial projection, not the full
+scattering operator or transport accuracy.
+
+\paragraph{Residual norms.}
+The volume and face calculations use fine-cell averages before taking absolute
+values. Jensen's inequality gives $|\langle r\rangle|\le\langle|r|\rangle$;
+these are potentially underestimated norms, requiring independent refinement
+or integration inside the fine cells. Fine-group transport is not exact
+continuous-energy transport. In particular the fast analogue omits anisotropic
+elastic laws, inelastic emission and fission production.
+
+\paragraph{Characteristic trial verification.}
+For an exact reference $\psi$, $\widetilde\psi=T^{-1}(q+\Pi S\psi)$ has residual
+$(I-ST^{-1})(I-\Pi)S\psi$. The reference S\_N solve uses nonlinear negative-flux
+fixup, while the signed streaming inverse cannot use that fixup. The corrected
+study therefore constructs $\widetilde\psi$ explicitly and evaluates
+$S\widetilde\psi-\Pi S\psi_{\rm ref}$. It does not assume the two discrete
+operators agree. Source iteration checks all retained harmonic moments, and
+signed streaming convergence checks the full iterate rather than a scalar norm
+that may conceal an unconverged distribution. Failed convergence is reported.
+
+\paragraph{Evidence required for an algorithmic claim.}
+Verify projection reproduction, reference mesh/energy/angular convergence, direct
+residual consistency, and numerical norm convergence. Then measure independent
+transport estimates and all setup/evaluation costs on a prespecified matrix.
+The characteristic-source prototype in
+\texttt{cartesian\_3d/streaming\_source.tex} follows this second stage and includes
+its randomized baseline and inner errors. Its one-group results do not validate
+continuous-energy, reflective or multiplying extensions.
+\end{document}

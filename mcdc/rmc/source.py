@@ -1029,7 +1029,7 @@ def correction_masses_l1(
     per bin, plus 0.1 h dE dmu sum_a |S_bar_a| so every bin that receives in-scatter
     (where r can be nonzero) has positive probability; and L1, the pilot estimate of
     ||T - S_bar||_1 itself (the masses without that floor), used to allocate
-    histories between residual terms (writeups/residual_allocation.tex). Only the
+    histories between residual terms (writeups/method/residual_allocation.tex). Only the
     proposal depends on A. With linear_z, psi / S_bar are the cells' left and
     psi_right / S_right their right nodal values, and the pilot is evaluated at the
     cell midpoint.

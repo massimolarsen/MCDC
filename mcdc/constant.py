@@ -191,6 +191,17 @@ SCORE_FLUX_MU_Z_ENERGY_SLOPE = 11
 MOMENT_ENERGY = 1
 MOMENT_Z = 2
 MOMENT_MU = 4
+# Flux times P_a(x) P_b(y) P_c(z), the Legendre polynomials of the position within the
+#   structured-mesh cell (a, b, c <= 2): score = SCORE_FLUX_XYZ + a + 3 b + 9 c, named
+#   "flux-xyz<a><b><c>"
+SCORE_FLUX_XYZ = 20
+SCORE_FLUX_XYZ_LAST = SCORE_FLUX_XYZ + 26
+FLUX_XYZ_NAMES = {
+    f"flux-xyz{a}{b}{c}": SCORE_FLUX_XYZ + a + 3 * b + 9 * c
+    for a in range(3)
+    for b in range(3)
+    for c in range(3)
+}
 
 # Surface-crossing scores
 SCORE_CURRENT_NET = 100
@@ -215,7 +226,7 @@ SUPPORTED_SCORES_TRACKLENGTH = {
     "flux-mu-energy-slope",
     "flux-mu-z-slope",
     "flux-mu-z-energy-slope",
-}
+} | set(FLUX_XYZ_NAMES)
 SUPPORTED_SCORES_COLLISION = {"energy_deposition"}
 SUPPORTED_SCORES = (
     SUPPORTED_SCORES_SURFACE_CROSSING

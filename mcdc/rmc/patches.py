@@ -1,5 +1,5 @@
 """
-Angular patches of the 3D Cartesian RMC trial space (writeups/cartesian_3d.tex).
+Angular patches of the 3D Cartesian RMC trial space (writeups/cartesian_3d/cartesian_3d.tex).
 
 The unit sphere is cut into patches j = j_mu J_phi + j_phi by polar-cosine edges
 (mu = Omega . z) and azimuthal edges (phi = atan2(Omega_y, Omega_x), as MC/DC's tally

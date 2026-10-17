@@ -119,13 +119,86 @@ def test_absorber_box_against_smc(tmp_path, monkeypatch):
     assert np.all(np.abs(z) < 5.0), z
 
 
+def test_absorber_box_polynomial_bases(tmp_path, monkeypatch):
+    """
+    The absorber box of test_absorber_box_against_smc with each polynomial spatial
+    basis (mcdc.rmc.space3d). Without scattering the residual is exact, so the
+    corrected cell averages (last iterate plus the tallied, unprojected cell averages
+    of the correction passes) estimate the true cell averages without bias for every
+    basis, continuous ones included, and must agree with SMC.
+    """
+    import h5py
+
+    write_synthetic_nuclide(tmp_path, "AX", 1.0, [1e-5, 1e3], [0.0, 0.0], [1.0, 1.0])
+    monkeypatch.setenv("MCDC_LIB", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    boundary = (("reflective", "vacuum"), ("vacuum", "vacuum"), ("vacuum", "vacuum"))
+    E_edges, edges = np.array([9.9, 10.0]), np.array([0.0, 1.0, 2.0])
+    area = 2.0 * np.pi / 4.0
+
+    material = mcdc.Material(nuclide_composition={"AX": 1.0}, temperature=0.1)
+    simulation = box_model(material, boundary)
+    simulation.settings.N_particle = 200_000
+    simulation.settings.output_name = "smc"
+    simulation.settings.use_neutron_energy_window = True
+    simulation.settings.neutron_energy_min = E_edges[0]
+    simulation.settings.neutron_energy_max = E_edges[-1]
+    mesh = mcdc.MeshStructured("box", x=edges, y=edges, z=edges)
+    simulation.set_tallies(
+        [mcdc.Tally(mesh=mesh, scores=["flux"], energy=E_edges, mu=MU, azi=PHI)]
+    )
+    simulation.run()
+    with h5py.File("smc.h5", "r") as f:
+        group = f["tallies"][list(f["tallies"])[0]]
+        mean, sdev = group["flux/mean"][()], group["flux/sdev"][()]
+    to_psi = lambda a: np.transpose(a, (2, 3, 4, 0, 1)).reshape(2, 2, 2, 1, J) / (
+        0.1 * area
+    )
+    psi_smc, sd_smc = to_psi(mean), to_psi(sdev)
+    reached = psi_smc > 0.0
+
+    for basis in ("dg1", "dg2", "cg1", "cg2"):
+        material = mcdc.Material(nuclide_composition={"AX": 1.0}, temperature=0.1)
+        simulation = box_model(material, boundary)
+        Q = np.zeros((2, 2, 2, 1, J))
+        Q[0, 0, 0, 0, :] = 1.0 / (1.0 * 0.1 * 4.0 * np.pi)
+        result = run3d(
+            simulation,
+            edges,
+            edges,
+            edges,
+            E_edges,
+            MU,
+            PHI,
+            Q,
+            material,
+            N_iteration=4,
+            N_per_bin=100,
+            boundary=boundary,
+            cache_dir=str(tmp_path / "cache"),
+            N_theta=129,
+            N_correction=2,
+            spatial_basis=basis,
+        )
+        z = (result.psi - psi_smc)[reached] / np.sqrt(
+            sd_smc**2 + result.psi_sdev**2
+        )[reached]
+        print(basis, "z rms", np.sqrt(np.mean(z**2)), "max", np.max(np.abs(z)))
+        print(basis, "residual masses", result.residual_mass, result.correction_mass)
+        assert np.sqrt(np.mean(z**2)) < 2.0, (basis, z)
+        assert np.all(np.abs(z) < 5.0), (basis, z)
+
+
 def test_infinite_medium_A1(tmp_path, monkeypatch):
     """
     A = 1, sigma_s = sigma_c = 1 b, monoenergetic source in a reflective box: an
     infinite medium. psi~ is isotropic and the face residual vanishes, so the
     iteration converges exponentially to the binned fixed point, within the bin-shape
     floor of the analytic flux phi(E) = c S0 / (Sigma_t E0) (E0 / E)^c (as in the
-    slab test, test_analytic_slowing_down_A1).
+    slab test, test_analytic_slowing_down_A1). Full-residual correction passes
+    (tabulated in-scatter, mcdc.rmc.correction3d) must then remove that floor: the
+    averaged corrections agree with the analytic bin averages within their spread,
+    and the fixed point's error pattern is gone from them.
     """
     E0, delta = 101.0, 0.1
     write_synthetic_nuclide(
@@ -157,6 +230,7 @@ def test_infinite_medium_A1(tmp_path, monkeypatch):
         N_per_bin=200,
         cache_dir=str(tmp_path / "cache"),
         N_theta=513,
+        N_correction=8,
     )
     norms = np.array(result.epsilon_norm)
     # Geometric, about 10x per iteration at 200 histories per (bin, patch)
@@ -167,9 +241,22 @@ def test_infinite_medium_A1(tmp_path, monkeypatch):
     exact = (
         c / (Sigma_t * E0) * E0**c * (b ** (1 - c) - a ** (1 - c)) / (1 - c) / (b - a)
     )
-    phi = result.scalar_flux()[0, 0, 0, :-1]
-    print("infinite medium: max rel error", np.max(np.abs(phi / exact - 1)))
-    assert np.max(np.abs(phi / exact - 1.0)) < 3e-3
+    phi_fixed = result.scalar_flux(result.psi_fixed_point)[0, 0, 0, :-1]
+    bias = np.max(np.abs(phi_fixed / exact - 1))
+    print("infinite medium: fixed point max rel error", bias)
+    assert bias < 3e-3
+
+    # Corrected: z-scores from the spread of the 8 passes, and the coefficient of the
+    #   fixed point's error pattern in the corrected error (1 without correction)
+    area = result.patch_area
+    passes = phi_fixed + np.array(result.corrections)[:, 0, 0, 0, :-1] @ area
+    phi = passes.mean(axis=0)
+    z = (phi - exact) / (passes.std(axis=0, ddof=1) / np.sqrt(len(passes)))
+    pattern = phi_fixed / exact - 1.0
+    beta = np.sum((phi / exact - 1.0) * pattern) / np.sum(pattern**2)
+    print("infinite medium: corrected max |z|", np.max(np.abs(z)), "pattern", beta)
+    assert np.all(np.abs(z) < 5.0), z
+    assert abs(beta) < 0.7, beta
 
 
 def test_slab_matches_slab_solver(tmp_path, monkeypatch):

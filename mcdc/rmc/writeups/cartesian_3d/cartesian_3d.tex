@@ -1,0 +1,335 @@
+\documentclass[11pt]{article}
+\input{../preamble}
+\usepackage{amsthm}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\tpsi}{\tilde\psi}
+\newcommand{\teps}{\tilde\epsilon}
+\newcommand{\Sbar}{\bar S}
+\newcommand{\Sigt}{\Sigma_t}
+\newcommand{\Om}{\boldsymbol\Omega}
+\newcommand{\E}{\mathbb{E}}
+
+\title{Residual Monte Carlo on a 3D Cartesian, piecewise-constant trial space}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent This note gives the mathematics of the 3D solver
+(\texttt{mcdc/rmc/driver3d.py}, \texttt{mesh3d.py}, \texttt{patches.py}). RMC
+[1--4] iterates
+\begin{equation}
+  r = q - L\tpsi,\qquad L\epsilon = r\ \text{(Monte Carlo)},\qquad
+  \tpsi \leftarrow \tpsi + \Pi\epsilon ,
+\end{equation}
+with $L\psi = \Om\cdot\nabla\psi + \Sigt\psi - S\psi$ the continuous-energy
+transport operator (scattering and prompt fission in $S$), $q$ the external source
+and $\Pi$ the projection onto the trial space. MC/DC [10] solves $L\epsilon=r$ with
+its unchanged transport; the residual source, the trial space and the transfer
+moments are new. The slab version is in \texttt{method/rmc\_math.tex}; the dissertation's
+slab residual [5, Sec.~4.3.3] is the one-dimensional case of Sec.~2 below.
+
+\section{Trial space}
+
+The domain is a box cut by a structured mesh into cells $V_k$, $k=(k_x,k_y,k_z)$, of
+volume $|V_k|$. Energy is cut into bins $[E_g,E_{g+1}]$ of width $\Delta E_g$. The
+unit sphere is cut into \emph{angular patches}
+\begin{equation}
+  A_j = \{\Om : \mu\in[\mu_a,\mu_b],\ \varphi\in[\varphi_a,\varphi_b]\},\qquad
+  |A_j| = (\mu_b-\mu_a)(\varphi_b-\varphi_a),
+\end{equation}
+with $\mu=\Om\cdot\hat{\mathbf z}$ and $\varphi=\operatorname{atan2}(\Omega_y,\Omega_x)$,
+as MC/DC's tally filter measures them ($\mathrm d\Om=\mathrm d\mu\,\mathrm d\varphi$).
+The $\mu$ edges include $0$ and the $\varphi$ edges include $\pm\pi/2$ and $0$, so
+every patch lies in one octant: $\operatorname{sign}\Omega_x$,
+$\operatorname{sign}\Omega_y$ and $\operatorname{sign}\Omega_z$ are constant on it.
+Patches are numbered $j = j_\mu J_\varphi + j_\varphi$.
+
+The trial space is piecewise constant, the discontinuous Galerkin space of degree 0
+in space, energy and angle [6, 7]:
+\begin{equation}
+  \tpsi(\mathbf r,E,\Om) = \tpsi_{kgj}\quad\text{for } \mathbf r\in V_k,\
+  E\in[E_g,E_{g+1}],\ \Om\in A_j,
+\end{equation}
+per unit volume, energy and solid angle. $\Pi$ is the $L^2$ projection, the bin
+average: $(\Pi f)_{kgj} = \int_{V_k}\!\int_g\!\int_{A_j} f\,/\,(|V_k|\Delta E_g|A_j|)$.
+
+\section{Residual}
+
+\subsection{Faces}
+
+$\tpsi$ jumps across cell faces, so its streaming term is a distribution. Let a face
+$F$ lie on the plane $x_a=x_f$ (axis $a\in\{x,y,z\}$), between the cell on its low
+side ($-$) and on its high side ($+$). With the jump $D=\tpsi^+-\tpsi^-$,
+\begin{equation}
+  \Om\cdot\nabla\tpsi = \sum_F \Omega_a\, D_F\, \delta(x_a-x_f)\,\mathbf 1_F ,
+\end{equation}
+since $\tpsi$ is constant inside each cell. The face residual is therefore
+\begin{equation}
+  r_e = -\Omega_a D_F\, \delta(x_a - x_f) \qquad\text{on every face } F .
+  \label{eq:re}
+\end{equation}
+On the boundary the outer value is the boundary condition, and only incoming
+directions carry a jump [8]:
+\begin{itemize}
+  \item low boundary ($x_a$ minimal), $\Omega_a>0$: $D = \tpsi^{(\text{first cell})}
+  - \psi_{\text{bc}}$; high boundary, $\Omega_a<0$: $D = \psi_{\text{bc}} -
+  \tpsi^{(\text{last cell})}$; outgoing directions: $D=0$;
+  \item vacuum: $\psi_{\text{bc}}=0$;
+  \item reflective: $\psi_{\text{bc}}(\Om) = \tpsi(\Om')$ with $\Om'$ the mirror image
+  ($\Omega'_a=-\Omega_a$). On patches this maps $\mu\to-\mu$ ($a=z$),
+  $\varphi\to\pi-\varphi$ ($a=x$) or $\varphi\to-\varphi$ ($a=y$); the patch edges
+  must be symmetric under the reflection so that each patch maps onto a patch.
+\end{itemize}
+In a slab ($x$ and $y$ reflective, one cell across) every $x$ and $y$ jump vanishes
+and \eqref{eq:re} reduces to the slab face residual $-\mu D\,\delta(z-z_f)$ [5,
+Sec.~4.3.3].
+
+\subsection{Collisions}
+
+Inside a cell, with the binned in-scatter of the collision-only iterations,
+\begin{equation}
+  r_c(\mathbf r,E,\Om) = Q_{kgj} + \Sbar_{kgj} - \Sigt(E)\,\tpsi_{kgj} ,
+\end{equation}
+or $Q_{kgj} + \Sbar_{kgj} - \bar\Sigma_{t,kg}\tpsi_{kgj}$ with the bin-averaged total
+cross section (the default; then $r_c$ is constant in each bin). The full residual
+adds $S\tpsi - \Sbar$, the in-bin shape of the in-scatter, which the collision-only
+iteration omits; its fixed point is therefore the Galerkin solution with binned
+in-scatter, not $\Pi\psi$ (see \texttt{method/rmc\_math.tex}). With no scattering the
+residual is exact and the iteration is unbiased.
+
+\section{In-scatter: the patch transfer}
+
+For a reaction with emission density $f(E'\!\to E,\mu_0)$ in the lab cosine
+$\mu_0=\Om'\cdot\Om$ (azimuthally symmetric about $\Om'$, per unit $\mu_0$),
+\begin{equation}
+  S\psi(E,\Om) = \int\!\mathrm dE'\,\sigma(E')\int\!\mathrm d\Om'\,
+  \psi(E',\Om')\,\frac{f(E'\!\to E,\Om'\cdot\Om)}{2\pi}.
+\end{equation}
+For $\tpsi$ constant on patch $A_{j'}$ and energy bin $g'$, the bin integral of the
+in-scatter into $(g,j)$ needs only
+\begin{equation}
+  A_{jj'}(\mu_0) = \int_{A_{j'}}\!\mathrm d\Om'\,F_j(\Om',\mu_0),
+  \qquad F_j(\Om',\mu_0) = \frac{1}{2\pi}\int_0^{2\pi}
+  \mathbf 1\big[\Om(\psi)\in A_j\big]\,\mathrm d\psi ,
+  \label{eq:A}
+\end{equation}
+where $\Om(\psi)$ runs over the circle $\{\Om:\Om'\cdot\Om=\mu_0\}$ and $F_j$ is the
+fraction of that circle in patch $j$. Then
+\begin{equation}
+  M_{g'j',gj} = \int_{g'}\!\mathrm dE'\,\sigma(E')\int_g\!\mathrm dE\int_{-1}^1
+  \!\mathrm d\mu_0\, f(E'\!\to E,\mu_0)\,A_{jj'}(\mu_0),\qquad
+  \Sbar_{kgj} = \frac{1}{\Delta E_g|A_j|}\sum_{g'j'}M_{g'j',gj}\,\tpsi_{kg'j'} .
+\end{equation}
+This is the slab structure with the polar-bin table [9] replaced by \eqref{eq:A}, so
+the energy quadrature, kinematics and inverted kernels are shared
+(\texttt{kernel.py}). For isotropic emission $A_{jj'} = |A_j||A_{j'}|/4\pi$.
+
+\begin{proposition}
+For every $\mu_0$: (i) $\sum_j A_{jj'}(\mu_0) = |A_{j'}|$; (ii)
+$A_{jj'}(\mu_0)=A_{j'j}(\mu_0)$; (iii) summing over the azimuthal patches of a polar
+bin pair gives $2\pi$ times the slab table,
+$\sum_{j_\varphi,j'_\varphi} A_{jj'} = 2\pi\int_{\mu'\in j'_\mu}\Pi_{j_\mu}(\mu',\mu_0)
+\,\mathrm d\mu'$; (iv) $A(1) = \operatorname{diag}|A_j|$ and $A(-1)$ maps each patch
+onto its antipode; (v) $A$ is invariant under rotations and reflections of the sphere
+that map the patch layout onto itself.
+\end{proposition}
+\noindent (i): $\sum_j F_j=1$. (ii): $A_{jj'} = \frac{1}{2\pi}\int_{A_{j'}}\int_{A_j}
+\delta(\Om'\cdot\Om-\mu_0)\,\mathrm d\Om\,\mathrm d\Om'$, symmetric in $(j,j')$.
+(iii): the circle's $\mu$ distribution does not depend on $\varphi'$, so integrating
+over $\varphi'$ gives $2\pi$ and summing over $j_\varphi$ gives the polar-bin
+probability $\Pi$. (iv) and (v): $\Om'\cdot\Om$ is invariant under orthogonal maps.
+
+\subsection{Exact arc fractions}
+
+With $s=\sqrt{1-\mu^2}$, $\Om'=(s'\cos\varphi',s'\sin\varphi',\mu')$,
+$\mathbf e_1=(\mu'\cos\varphi',\mu'\sin\varphi',-s')$ and
+$\mathbf e_2=(-\sin\varphi',\cos\varphi',0)$, the circle is
+\begin{equation}
+  \Om(\psi) = \mu_0\Om' + s_0(\cos\psi\,\mathbf e_1 + \sin\psi\,\mathbf e_2).
+\end{equation}
+It crosses the cone $\mu=b$ where $\cos\psi = (\mu_0\mu'-b)/(s_0s')$, and the plane
+through the $z$ axis at azimuth $\varphi_e$ (normal $\mathbf n=(-\sin\varphi_e,
+\cos\varphi_e,0)$) where $\alpha+\beta\cos\psi+\gamma\sin\psi=0$, with
+$\alpha=\mu_0\,\mathbf n\cdot\Om'$, $\beta=s_0\,\mathbf n\cdot\mathbf e_1$,
+$\gamma=s_0\,\mathbf n\cdot\mathbf e_2$: $\psi=\operatorname{atan2}(\gamma,\beta)\pm
+\arccos(-\alpha/\sqrt{\beta^2+\gamma^2})$. Between consecutive crossings the circle
+stays in one patch, found from the arc midpoint; $F_j$ is the total length in patch
+$j$ over $2\pi$, exactly (\texttt{arc\_fractions}).
+
+\subsection{Quadrature over the incident patch}
+
+$F_j$ is continuous in $(\mu',\varphi')$ but has kinks, so \eqref{eq:A} is evaluated
+with Gauss--Legendre panels (12 points, with the cosine map
+$x=c+\tfrac12(d-c)(1-\cos\pi t)$ that absorbs square-root endpoint behavior, as for
+the slab table) split at every kink:
+\begin{itemize}
+  \item in $\mu'$: tangency to the cones $\mu=b$ (including the poles $b=\pm1$),
+  $\mu'=b\mu_0\pm s_bs_0$;
+  \item in $\varphi'$ at fixed $\mu'$: tangency to an azimuthal plane,
+  $s'|\sin(\varphi'-\varphi_e)|=s_0$; the circle through a patch corner
+  $(b,\varphi_e)$, $s's_b\cos(\varphi'-\varphi_e)+\mu'b=\mu_0$;
+  \item in $\mu'$ again: where one of those $\varphi'$-kinks reaches the incident
+  patch's own azimuthal edge $\varphi_\ell$, i.e.\ $s'=s_0/|\sin(\varphi_\ell-
+  \varphi_e)|$, and $b\mu'+s_b\cos(\varphi_\ell-\varphi_e)\,s'=\mu_0$ (solved with
+  $\mu'=\cos t$).
+\end{itemize}
+Measured on a $4\times8$ layout: (i) holds to $10^{-14}$, (iii) to $10^{-8}$, and the
+transpose asymmetry (ii), which bounds the error of individual entries, is below
+$5\times10^{-6}|A_j|$; without the third set of kinks it was $1.5\times10^{-4}$.
+A brute-force sample of $10^6$ circles agrees within statistics
+(\texttt{test\_patches.py}). The table is built on a uniform grid of $\theta_0=
+\arccos\mu_0$ ($N_\theta=2049$ by default) and interpolated linearly, as the slab
+table; only the columns $j'$ not fixed by (v) are computed (rotation by the
+azimuthal width for uniform $\varphi$ edges, $\mu\to-\mu$ for symmetric $\mu$
+edges), in parallel over MPI ranks, and the table is cached on disk. The kernel's
+quadrature over $\mu_0$ integrates the interpolation error, so its effect on $M$ is
+second order in the grid spacing.
+
+\section{Sampling the residual}
+
+Bins (cell $\times$ energy $\times$ patch for $r_c$; face $\times$ energy $\times$
+patch for $r_e$) are drawn in proportion to their $L^1$ masses
+\begin{equation}
+  m^c_{kgj} = |V_k||A_j|\int_g |r_c|\,\mathrm dE,\qquad
+  m^e_{Fgj} = |F|\,\Delta E_g\,|D_{Fgj}|\,I_{a,j},\qquad
+  I_{a,j}=\int_{A_j}|\Omega_a|\,\mathrm d\Om ,
+\end{equation}
+($\int_g|r_c|$ exact on the cross-section grid, as in the slab code), and a particle
+carries $w=r/q$ for the sampling density $q$ [11, 12]; MC/DC's division of the
+tallies by the number of histories $N$ then makes the tally an unbiased estimate of
+the response to $r$. Within a collision bin the position, energy and direction are
+uniform ($\mu$ and $\varphi$ uniform on the patch), so
+$w = r_c\,|V_k|\Delta E_g|A_j|\,m/m^c_{kgj}$ with $m$ the total mass. A face particle
+starts on $F$ (uniform), nudged $10^{-9}$\,cm along $\operatorname{sign}\Omega_a$,
+with energy uniform in the bin and direction density
+$|\Omega_a|/I_{a,j}$ on the patch, so $w=\operatorname{sign}(-\Omega_a)\,D\,|F|\,
+\Delta E_g I_{a,j}\,m/m^e_{Fgj}$.
+
+On an octant patch the direction densities separate in $(\mu,\varphi)$, with
+$G(\mu)=\tfrac12(\mu\sqrt{1-\mu^2}+\arcsin\mu)$ the antiderivative of
+$\sqrt{1-\mu^2}$:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+axis & density & sampling \\
+\midrule
+$z$ & $|\mu|$ & $\mu^2$ uniform, $\varphi$ uniform;
+$I_z = \Delta\varphi\,|b|b|-a|a||/2$ \\
+$x$ & $\sqrt{1-\mu^2}\,|\cos\varphi|$ & $G(\mu)$ uniform (inverted by
+Newton--bisection), $\sin\varphi$ uniform; $I_x = \Delta G\,|\Delta\sin\varphi|$ \\
+$y$ & $\sqrt{1-\mu^2}\,|\sin\varphi|$ & $G(\mu)$ uniform, $\cos\varphi$ uniform;
+$I_y = \Delta G\,|\Delta\cos\varphi|$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Each map is monotone on an octant patch, which is why the layout requires the edges
+$\mu=0$ and $\varphi=0,\pm\pi/2$. The inverse-CDF method is standard [12].
+MC/DC's tally filter assigns a direction within $10^{-5}$ of a polar or azimuthal bin
+edge to the lower bin. Sampled directions are therefore kept $2\times10^{-5}$ inside
+their patch, in $\mu$ and in $\varphi$, so every particle is scored in the patch its
+weight was computed for. That moves an angular probability of order $10^{-5}$ and is
+otherwise negligible.
+
+\section{Projection and iteration}
+
+The error is tallied by MC/DC's track-length estimator on the structured mesh with
+energy, polar and azimuthal filters; its bin average is
+$\teps_{kgj} = T_{kgj}/(|V_k|\Delta E_g|A_j|)$ with $T$ the tallied total. The
+collision-only iteration converges geometrically while the residual is resolved by
+the trial space; once only the unresolved part (in-cell shape, face jumps) remains,
+$\|\teps\|$ sits at the noise of one iteration, and the iterates scatter about the
+fixed point. Their mean over that plateau (\texttt{RMC3DResult.psi\_average})
+reduces the noise; its standard error assumes nearly independent iterates, which
+holds when each iteration resolves the residual of the previous one.
+
+\section{Verification}
+
+\texttt{examples/rmc/verification\_3d} and \texttt{test/unit/rmc/test\_driver3d.py}:
+\begin{enumerate}
+  \item \emph{Pure absorber}, $\Sigt=1$\,cm$^{-1}$, source in the corner cell of
+  $[0,2]^3$ ($2^3$ cells, octant patches), reflective on $x=0$, vacuum elsewhere. The
+  residual is exact, so RMC is unbiased. The reference is the exact ray integral
+  $\psi(\mathbf r,\Om) = q\,(e^{-\Sigt s_1}-e^{-\Sigt s_2})/\Sigt$ over the part
+  $[s_1,s_2]$ of the backward ray inside the source (the reflection unfolded),
+  averaged over each cell and patch with scrambled Sobol points [13, 14]. Bins no
+  particle can reach (e.g.\ directions toward the source from the far corner) are
+  zero in RMC, SMC and the reference.
+  \item \emph{A $=1$ infinite medium} (reflective box), $\sigma_s=\sigma_c$: the
+  analytic slowing-down flux $\phi(E)=cS_0(E_0/E)^c/(\Sigt E_0)$ [15]; the
+  binned fixed point is within its bin-shape floor ($<3\times10^{-3}$ for $G=20$).
+  \item \emph{Two-material slab} built in 3D (reflective in $x$ and $y$): the same
+  fixed point as the slab solver (same polar bins, isotropic in $\varphi$, no $x$
+  and $y$ jumps), compared through the plateau means of both.
+\end{enumerate}
+
+\section{Limitations and next steps}
+
+\begin{itemize}
+  \item With scattering, the collision-only fixed point carries the in-bin bias of
+  the constant trial space. Full-residual correction passes remove it; they use a
+  tabulated in-scatter kernel and are described in
+  \texttt{cartesian\_3d/tabulated\_correction.tex}.
+  \item The constant spatial basis leaves a structural residual on optically thick
+  cells. Linear and quadratic bases are in
+  \texttt{cartesian\_3d/spatial\_bases.tex}.
+  \item One material per trial cell; the mesh must follow the material boundaries.
+  \item Cost grows with the number of bins (cells $\times$ energy bins $\times$
+  patches) and the transfer moments with $J^2$; the in-scatter $M\tpsi$ is a dense
+  product per material.
+  \item Further analytic or reference problems: the Kobayashi 3D void benchmarks
+  [16] (pure-absorber variants with exact ray-integral references, and 50\%
+  scattering variants with published Monte Carlo references), and point- and
+  plane-source problems in infinite media [17]. Their one-group cross sections can be
+  emulated in continuous energy with a synthetic nuclide of very large mass number,
+  whose elastic scattering is nearly isotropic in the lab and loses a fraction of
+  only about $4/A$ of the energy per collision.
+\end{itemize}
+
+\begin{thebibliography}{99}
+\bibitem{halton} J.~H.~Halton, ``Sequential Monte Carlo,'' \emph{Proc.\ Cambridge
+  Philos.\ Soc.} \textbf{58}, 57 (1962).
+\bibitem{vermaak} J.~I.~C.~Vermaak and J.~E.~Morel, ``Transport Error Estimation Using
+  Residual Monte Carlo,'' \emph{J.\ Comput.\ Phys.} (2022),
+  \href{https://doi.org/10.1016/j.jcp.2022.111306}{doi:10.1016/j.jcp.2022.111306}.
+\bibitem{peterson} J.~R.~Peterson, J.~E.~Morel and J.~C.~Ragusa,
+  ``Exponentially-convergent Monte Carlo for the 1-D transport equation,'' M\&C 2013.
+\bibitem{larsen} M.~Larsen et al., ``A Residual Monte Carlo Algorithm for Continuous
+  Energy Neutron Transport with Elastic Scattering,'' \emph{Nucl.\ Sci.\ Eng.}
+  \textbf{200}(3), 525--538 (2026), doi:10.1080/00295639.2025.2495608;
+  ``A Residual Monte Carlo Algorithm for 1D Continuous-Energy Neutron Transport,''
+  \emph{Nucl.\ Sci.\ Eng.} (2026), doi:10.1080/00295639.2026.2659992.
+\bibitem{diss} M.~Larsen, Ph.D.\ dissertation, Oregon State University (2025),
+  Sec.~4.3.3 (piecewise-constant spatial bins and the jump source at bin edges).
+\bibitem{reed} W.~H.~Reed and T.~R.~Hill, ``Triangular mesh methods for the neutron
+  transport equation,'' LA-UR-73-479, Los Alamos (1973).
+\bibitem{lesaint} P.~Lesaint and P.~A.~Raviart, ``On a finite element method for
+  solving the neutron transport equation,'' in \emph{Mathematical Aspects of Finite
+  Elements in Partial Differential Equations}, Academic Press (1974).
+\bibitem{lewis} E.~E.~Lewis and W.~F.~Miller, \emph{Computational Methods of Neutron
+  Transport}, Wiley (1984).
+\bibitem{slab} \texttt{angular.py} and \texttt{method/rmc\_math.tex} (slab polar-bin
+  transfer $\Pi_j$ and its table).
+\bibitem{mcdc} MC/DC, \url{https://github.com/CEMeNT-PSAAP/MCDC}.
+\bibitem{hammersley} J.~M.~Hammersley and D.~C.~Handscomb, \emph{Monte Carlo
+  Methods}, Methuen (1964), Ch.~5.
+\bibitem{spanier} J.~Spanier and E.~M.~Gelbard, \emph{Monte Carlo Principles and
+  Neutron Transport Problems}, Addison-Wesley (1969).
+\bibitem{sobol} I.~M.~Sobol', ``On the distribution of points in a cube and the
+  approximate evaluation of integrals,'' \emph{USSR Comput.\ Math.\ Math.\ Phys.}
+  \textbf{7}(4), 86--112 (1967).
+\bibitem{owen} A.~B.~Owen, \emph{Monte Carlo Theory, Methods and Examples} (2013),
+  chapters on quasi-Monte Carlo and randomized (scrambled) nets.
+\bibitem{bell} G.~I.~Bell and S.~Glasstone, \emph{Nuclear Reactor Theory}, Van
+  Nostrand Reinhold (1970).
+\bibitem{kobayashi} K.~Kobayashi, N.~Sugimura and Y.~Nagaya, ``3D Radiation Transport
+  Benchmark Problems and Results for Simple Geometries with Void Region,''
+  \emph{Prog.\ Nucl.\ Energy} \textbf{39}(2), 119--144 (2001); OECD/NEA report
+  NEA/NSC/DOC(2000)4.
+\bibitem{ganapol} B.~D.~Ganapol, \emph{Analytical Benchmarks for Nuclear Engineering
+  Applications: Case Studies in Neutron Transport}, OECD/NEA, NEA/DB/DOC(2008)1
+  (2008).
+\end{thebibliography}
+
+\end{document}

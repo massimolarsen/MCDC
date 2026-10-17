@@ -27,7 +27,7 @@ per-law chi-squared test:
 
 The N-body density has square-root behaviour at both ends of its support. Its bin
 quadrature therefore converges more slowly than for the other laws (see
-`mcdc/rmc/writeups/n_body.tex`), which this run exercises in every bin above 3.34 MeV.
+`mcdc/rmc/writeups/kernels/n_body.tex`), which this run exercises in every bin above 3.34 MeV.
 
 ## How to read the results
 

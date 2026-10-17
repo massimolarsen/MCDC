@@ -32,6 +32,8 @@ from mcdc.constant import (
     SCORE_CURRENT_IN,
     SCORE_CURRENT_OUT,
     SCORE_ENERGY_DEPOSITION,
+    SCORE_FLUX_XYZ,
+    SCORE_FLUX_XYZ_LAST,
 )
 from mcdc.transport.geometry.interface import check_cell
 from mcdc.transport.geometry.surface import get_normal_component
@@ -425,6 +427,24 @@ def tracklength(particle_container, distance, tally, simulation, data):
                     mu_low = grid_mu[i_mu]
                     mu_high = grid_mu[i_mu + 1]
                     score *= (2.0 * uz - mu_low - mu_high) / (mu_high - mu_low)
+            elif SCORE_FLUX_XYZ <= score_type <= SCORE_FLUX_XYZ_LAST:
+                mesh = simulation["meshes"][tracklength_tally["mesh_filter_ID"]]
+                score = flux * _segment_legendre_mean(
+                    score_type - SCORE_FLUX_XYZ,
+                    x,
+                    y,
+                    z,
+                    ux,
+                    uy,
+                    uz,
+                    distance_scored,
+                    mesh_module.get_x(i_x, mesh, simulation, data),
+                    mesh_module.get_x(i_x + 1, mesh, simulation, data),
+                    mesh_module.get_y(i_y, mesh, simulation, data),
+                    mesh_module.get_y(i_y + 1, mesh, simulation, data),
+                    mesh_module.get_z(i_z, mesh, simulation, data),
+                    mesh_module.get_z(i_z + 1, mesh, simulation, data),
+                )
             util.atomic_add(data, idx_base + i_score, score)
 
         # Accumulate distance swept
@@ -483,6 +503,44 @@ def tracklength(particle_container, distance, tally, simulation, data):
 # =============================================================================
 # Eigenvalue tally
 # =============================================================================
+
+
+# 4-point Gauss-Legendre on [0, 1]: exact for the degree <= 6 products of
+#   _segment_legendre_mean
+_GL4_T = (0.06943184420297371, 0.33000947820757187, 0.6699905217924281, 0.9305681557970262)
+_GL4_W = (0.17392742256872692, 0.32607257743127307, 0.32607257743127307, 0.17392742256872692)
+
+
+@njit
+def _legendre(n, t):
+    if n == 0:
+        return 1.0
+    if n == 1:
+        return t
+    return 1.5 * t * t - 0.5
+
+
+@njit
+def _segment_legendre_mean(
+    order, x, y, z, ux, uy, uz, distance, x_low, x_high, y_low, y_high, z_low, z_high
+):
+    """
+    Mean over the straight segment (x, y, z) + s u, s in [0, distance], of
+    P_a(x~) P_b(y~) P_c(z~), with x~ = (2x - x_low - x_high) / (x_high - x_low) in the
+    cell and order = a + 3 b + 9 c. The product is a polynomial of degree a + b + c <= 6
+    in s, so the 4-point rule is exact.
+    """
+    a = order % 3
+    b = (order // 3) % 3
+    c = order // 9
+    total = 0.0
+    for q in range(4):
+        s = _GL4_T[q] * distance
+        tx = (2.0 * (x + s * ux) - x_low - x_high) / (x_high - x_low)
+        ty = (2.0 * (y + s * uy) - y_low - y_high) / (y_high - y_low)
+        tz = (2.0 * (z + s * uz) - z_low - z_high) / (z_high - z_low)
+        total += _GL4_W[q] * _legendre(a, tx) * _legendre(b, ty) * _legendre(c, tz)
+    return total
 
 
 @njit

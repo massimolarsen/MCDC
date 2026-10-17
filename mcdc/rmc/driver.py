@@ -428,7 +428,7 @@ def allocate_histories(N, masses):
     Split N histories over residual terms in proportion to their L1 masses (largest
     remainders; every term with positive mass gets at least one history while N
     allows). With unbiased samplers whose source weights have magnitude ~||r_i||_1,
-    this minimizes the variance of the summed response (writeups/residual_allocation.tex).
+    this minimizes the variance of the summed response (writeups/method/residual_allocation.tex).
     """
     masses = np.asarray(masses, dtype=float)
     out = np.zeros(len(masses), dtype=np.int64)
@@ -1111,7 +1111,7 @@ def run(
         masses, and the pilot estimates of ||T - S_bar||_1); needs the integrated
         sampler. "fixed": collision_fraction. "auto" (default): "mass" with the
         integrated sampler, "fixed" with the pointwise one. See
-        writeups/residual_allocation.tex.
+        writeups/method/residual_allocation.tex.
     proposal : {"defensive", "uniform-linear", "uniform-lethargy"}
         Proposal for the scattering/fission corrections.
     stop : {"fixed", "tol"}
@@ -1139,11 +1139,11 @@ def run(
         Trial space in z: piecewise constant on the cells, or continuous piecewise
         linear on the nodes z_edges with the boundary conditions imposed on it (no
         face residual; result.psi then holds nodal values and result.psi_cell the
-        cell averages). See writeups/continuous_linear_space.tex.
+        cell averages). See writeups/bases/continuous_linear_space.tex.
     angular_basis : {"constant", "linear"}
         Trial space in the polar cosine on each bin: constant, or linear
         discontinuous (result.psi_mu_slope holds the P_1 coefficients). See
-        writeups/linear_discontinuous_angle.tex.
+        writeups/bases/linear_discontinuous_angle.tex.
 
     Returns
     -------

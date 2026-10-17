@@ -50,6 +50,9 @@ from mcdc.constant import (
     SUPPORTED_SCORES,
     SUPPORTED_SCORES_SURFACE_CROSSING,
     SUPPORTED_SCORES_TRACKLENGTH,
+    FLUX_XYZ_NAMES,
+    SCORE_FLUX_XYZ,
+    SCORE_FLUX_XYZ_LAST,
     SUPPORTED_SCORES_COLLISION,
     TALLY_SURFACE_CROSSING,
     TALLY_COLLISION,
@@ -76,7 +79,10 @@ class Tally(MCDCPolymorphic):
         requires a structured ``mesh``), ``"flux-mu-slope"`` (of the polar cosine
         in the polar bin; requires ``mu``), and their products
         ``"flux-z-energy-slope"``, ``"flux-mu-energy-slope"``, ``"flux-mu-z-slope"``
-        and ``"flux-mu-z-energy-slope"``; surface-crossing
+        and ``"flux-mu-z-energy-slope"``; ``"flux-xyz<a><b><c>"`` (flux times
+        P_a(x) P_b(y) P_c(z), the Legendre polynomials of the position within the
+        structured mesh cell, a, b, c <= 2, integrated exactly along each track
+        segment; requires a structured ``mesh``); surface-crossing
         scores are ``"current-net"``, ``"current-in"``, and ``"current-out"``;
         the collision score is ``"energy_deposition"``, scored in eV. Scores
         from different estimator families cannot be mixed.
@@ -338,6 +344,8 @@ class Tally(MCDCPolymorphic):
                 self.scores.append(SCORE_CURRENT_OUT)
             elif score == "energy_deposition":
                 self.scores.append(SCORE_ENERGY_DEPOSITION)
+            elif score in FLUX_XYZ_NAMES:
+                self.scores.append(FLUX_XYZ_NAMES[score])
             else:
                 print_error(f"Unknown tally score: {score}")
 
@@ -532,6 +540,10 @@ def decode_score_type(type_, lower_case=False):
         return "Current out" if not lower_case else "current-out"
     elif type_ == SCORE_ENERGY_DEPOSITION:
         return "Energy deposition" if not lower_case else "energy_deposition"
+    elif SCORE_FLUX_XYZ <= type_ <= SCORE_FLUX_XYZ_LAST:
+        order = type_ - SCORE_FLUX_XYZ
+        digits = f"{order % 3}{(order // 3) % 3}{order // 9}"
+        return f"Flux xyz {digits}" if not lower_case else f"flux-xyz{digits}"
     else:
         print_error(f"Unknown tally score code: {type_}")
         return "Unknown score"
@@ -869,6 +881,11 @@ class TallyTracklength(Tally):
         ]
         if z_slope and not mesh:
             print_error("Tally z-slope scores need a mesh")
+        if (
+            any(SCORE_FLUX_XYZ <= s <= SCORE_FLUX_XYZ_LAST for s in self.scores)
+            and not mesh
+        ):
+            print_error("Tally flux-xyz scores need a mesh")
         if mesh:
             self.mesh_filtered = True
             self.mesh_filter_type = mesh.sub_type

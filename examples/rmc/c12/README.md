@@ -15,7 +15,7 @@ same MC/DC model:
 ## What it tests
 
 Each inverted scattering law was already checked on its own: MC/DC's sampler against
-the inverted kernel, with a chi-squared test per law (`mcdc/rmc/writeups/`). This run
+the inverted kernel, with a chi-squared test per law (`mcdc/rmc/writeups/kernels/`). This run
 checks the same kernels **inside a full RMC solve**:
 
 - **The transfer moments** (bin-integrated kernels) set the phase-1 fixed point.

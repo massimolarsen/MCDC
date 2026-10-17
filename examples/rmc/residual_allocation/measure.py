@@ -1,6 +1,6 @@
 """
 Correction-pass variance with a fixed history split (collision_fraction = 0.9) and with
-the split proportional to the residual terms' L1 masses (writeups/residual_allocation.tex).
+the split proportional to the residual terms' L1 masses (writeups/method/residual_allocation.tex).
 
 A = 1 slowing down with absorption (sigma_s = sigma_c = 1 b, c = 1/2), monoenergetic
 source at E0 = 101 smeared over a narrow top bin, reflective box (an infinite medium),

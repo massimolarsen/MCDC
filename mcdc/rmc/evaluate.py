@@ -14,7 +14,7 @@ Supported:
   - Tabulated energy-angle (ENDF Law 61)
   - N-body phase space (ENDF Law 6, ACE Law 66)
 Level scattering (Law 3), elastic scattering and the free-gas thermal kernel are
-handled at the reaction level. The derivations are in mcdc/rmc/writeups.
+handled at the reaction level. The derivations are in mcdc/rmc/writeups/kernels.
 """
 
 import math

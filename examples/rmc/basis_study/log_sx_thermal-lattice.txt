@@ -1,0 +1,14 @@
+== thermal-lattice, streaming-exact, trial mesh refined x1
+OMP: Info #276: omp_set_nested routine deprecated, please use omp_set_max_active_levels instead.
+  SX-P0 dg0: r/q = 0.061 (source error 0.064), unknowns/cell/bin 1, 9 s
+  SX-P0 dg1: r/q = 0.058 (source error 0.061), unknowns/cell/bin 4, 11 s
+  SX-P0 dg2: r/q = 0.052 (source error 0.054), unknowns/cell/bin 10, 8 s
+  SX-P0 cg1: r/q = 0.118 (source error 0.125), unknowns/cell/bin 2, 9 s
+  SX-P1 dg0: r/q = 0.054 (source error 0.057), unknowns/cell/bin 4, 8 s
+  SX-P1 dg1: r/q = 0.045 (source error 0.047), unknowns/cell/bin 16, 9 s
+  SX-P1 dg2: r/q = 0.038 (source error 0.039), unknowns/cell/bin 40, 10 s
+  SX-P1 cg1: r/q = 0.114 (source error 0.121), unknowns/cell/bin 9, 9 s
+  SX-P3 dg0: r/q = 0.050 (source error 0.053), unknowns/cell/bin 16, 9 s
+  SX-P3 dg1: r/q = 0.040 (source error 0.041), unknowns/cell/bin 64, 8 s
+  SX-P3 dg2: r/q = 0.032 (source error 0.032), unknowns/cell/bin 160, 11 s
+  SX-P3 cg1: r/q = 0.112 (source error 0.119), unknowns/cell/bin 36, 11 s

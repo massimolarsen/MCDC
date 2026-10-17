@@ -106,7 +106,7 @@ it locally.
   0D problems and the integrated sampler for the fuel rod (the pointwise one does not
   support linear z or angle yet). On the absorber the integrated sampler cost about
   22 ms of CPU per sample, about 2000x a transported history, and took 99% of the run
-  (`mcdc/rmc/writeups/scattering_correction_samplers.tex`).
+  (`mcdc/rmc/writeups/method/scattering_correction_samplers.tex`).
 
 ## Timings
 

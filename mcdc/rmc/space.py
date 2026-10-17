@@ -1,6 +1,6 @@
 """
 Continuous piecewise-linear spatial trial space in z (see
-writeups/continuous_linear_space.tex).
+writeups/bases/continuous_linear_space.tex).
 
 psi~(z, E, mu) = sum_i h_i(z) Phi_i(E, mu) with hat functions h_i on the nodes
 z_0..z_K; on cell k, psi~ = (1 - s) Phi_k + s Phi_{k+1}, s = (z - z_k) / h_k. The
